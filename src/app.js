@@ -54,6 +54,7 @@ let audioCtx = null;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
+let lastRelicName = "";
 
 const enemyTemplates = [
   { name: "Apprentice Croupier", title: "Floor 1 - Dealer-in-training", hp: 80, color: C.blue, icon: "C", description: "Standard rules. A gentle introduction.", hitsSoft17: false },
@@ -306,6 +307,7 @@ function dealRound() {
     broadcast();
     return;
   }
+  game.activeSeat = 0;
   game.dealer = [];
   for (const s of game.seats) {
     s.hands = s.bet > 0 ? [newHand(s.bet)] : [];
@@ -596,6 +598,8 @@ function buyRelic(index) {
   if (game.gold < cost) return flashMsg("Not enough gold");
   game.gold -= cost;
   game.relics.push(relic);
+  lastRelicName = relic.name;
+  notify(`${relic.name}: ${relic.description}`);
   log(`Gained relic: ${relic.name}.`);
   nextBattle();
 }
@@ -992,10 +996,33 @@ function drawSidePanel() {
   if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
   text(phaseTitle(), x + 135, 265, 22, C.text, "center");
   drawActionButtons(x + 22, 295);
-  text("Relics", x + 22, 530, 18, C.gold);
-  game.relics.slice(0, 6).forEach((r, i) => badge(x + 28 + (i % 3) * 74, 560 + Math.floor(i / 3) * 36, r.icon, C.gold));
-  text("Log", x + 22, 635, 18, C.gold);
-  game.log.slice(0, 4).forEach((line, i) => text(line, x + 22, 662 + i * 22, 13, C.muted));
+  drawRelicPanel(x + 22, 500, 226);
+  text("Log", x + 22, 668, 18, C.gold);
+  game.log.slice(0, 3).forEach((line, i) => text(line, x + 22, 694 + i * 22, 13, C.muted));
+}
+
+function drawRelicPanel(x, y, w) {
+  text("Relics", x, y, 18, C.gold);
+  if (!game.relics.length) {
+    text("None yet", x, y + 28, 14, C.muted);
+    return;
+  }
+  const newest = game.relics.find((r) => r.name === lastRelicName);
+  const shown = newest
+    ? [newest, ...game.relics.filter((r) => r.name !== newest.name)]
+    : game.relics;
+  shown.slice(0, 2).forEach((r, i) => drawRelicRow(r, x, y + 28 + i * 62, w, r.name === lastRelicName));
+  if (game.relics.length > 2) {
+    text(`+${game.relics.length - 2} more`, x, y + 154, 13, C.muted);
+  }
+}
+
+function drawRelicRow(relic, x, y, w, highlight = false) {
+  round(x, y - 14, w, 54, 8, highlight ? "#2f263c" : "#17121e");
+  strokeRound(x, y - 14, w, 54, 8, highlight ? C.gold : "rgba(238,231,215,.12)", 1);
+  badge(x + 22, y + 12, relic.icon, C.gold);
+  text(relic.name, x + 50, y + 4, 14, C.gold);
+  wrapTextSized(relic.description, x + 50, y + 24, w - 58, 14, 12, C.muted, 2);
 }
 
 function drawActionButtons(x, y) {
@@ -1335,6 +1362,30 @@ function wrapText(str, x, y, width, lineHeight, color) {
     }
   }
   if (line) text(line, x, cy, 16, color);
+}
+
+function wrapTextSized(str, x, y, width, lineHeight, size, color, maxLines = Infinity) {
+  const words = str.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    ctx.font = `700 ${size}px sans-serif`;
+    if (ctx.measureText(test).width > width && line) {
+      lines++;
+      if (lines >= maxLines) {
+        text(`${line.replace(/\.*$/, "")}...`, x, cy, size, color);
+        return;
+      }
+      text(line, x, cy, size, color);
+      line = word;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line && lines < maxLines) text(line, x, cy, size, color);
 }
 
 function eventPoint(ev) {
