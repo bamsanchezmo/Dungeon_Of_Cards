@@ -796,6 +796,7 @@ function draw() {
   ctx.clearRect(0, 0, W, H);
   fill(C.bg, 0, 0, W, H);
   if (!game || appScene === "menu") return drawMenu();
+  if (appScene === "multiplayerMenu") return drawMultiplayerMenu();
   drawTable();
   if (game.phase === "shop") drawShop();
   if (game.phase === "victory" || game.phase === "defeat") drawEnd();
@@ -812,14 +813,27 @@ function drawMenu() {
     "Collect relics, bend the rules, beat the final boss."
   ];
   lines.forEach((line, i) => text(line, W / 2, 380 + i * 30, 22, C.text, "center"));
-  addButton(W / 2 - 130, 510, 260, 54, "Begin Run", () => {
+  addButton(W / 2 - 130, 515, 260, 56, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
     newGame([{ id: hostId, name: "You" }]);
   }, true);
-  addButton(W / 2 - 130, 575, 260, 48, "Host Co-op", hostLobby);
-  addButton(W / 2 - 130, 632, 260, 48, "Join Co-op", joinLobby);
+  addButton(W / 2 - 130, 588, 260, 56, "Multiplayer", () => {
+    appScene = "multiplayerMenu";
+  });
   text("H/S/D/P/R actions - Enter ready/continue - M music", W / 2, H - 34, 16, C.muted, "center");
+}
+
+function drawMultiplayerMenu() {
+  text("DUNGEON", W / 2, 175, 72, C.gold, "center", "serif");
+  text("of CARDS", W / 2, 250, 72, C.parchment, "center", "serif");
+  text("Multiplayer", W / 2, 322, 34, C.text, "center");
+  text("No paid server: host shares an invite, guest returns an answer.", W / 2, 370, 20, C.muted, "center");
+  addButton(W / 2 - 130, 470, 260, 56, "Host Game", hostLobby, true);
+  addButton(W / 2 - 130, 542, 260, 56, "Join Game", joinLobby);
+  addButton(W / 2 - 130, 628, 260, 46, "Back", () => {
+    appScene = "menu";
+  });
 }
 
 function drawTable() {
