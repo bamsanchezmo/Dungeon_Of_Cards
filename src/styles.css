@@ -38,7 +38,10 @@ textarea {
   font: inherit;
 }
 
-button {
+button,
+.button-link {
+  display: grid;
+  place-items: center;
   min-height: 48px;
   border: 1px solid rgba(220, 180, 70, .35);
   border-radius: 8px;
@@ -47,6 +50,8 @@ button {
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 10px 20px var(--shadow);
+  text-align: center;
+  text-decoration: none;
 }
 
 button:disabled {
@@ -54,7 +59,8 @@ button:disabled {
   opacity: .5;
 }
 
-button.primary {
+button.primary,
+.button-link.primary {
   background: linear-gradient(180deg, #f0cb64, #b8892f);
   color: #1b1620;
   border-color: #f2d888;
