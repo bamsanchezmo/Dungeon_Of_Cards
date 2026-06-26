@@ -332,7 +332,7 @@ function peekCheck() {
   }
   for (const s of game.seats) {
     for (const h of s.hands) if (isBlackjack(h)) h.status = "stand";
-    s.finished = s.hands.length === 0 || s.hands.every((h) => h.status !== "playing");
+    s.finished = seatDone(s);
   }
   advanceSeat();
 }
@@ -414,8 +414,8 @@ function advanceHand() {
 
 function advancePastDoneHands() {
   const seat = game.seats[game.activeSeat];
-  while (seat && seat.active < seat.hands.length && seat.hands[seat.active].status !== "playing") seat.active++;
-  if (!seat || seat.active >= seat.hands.length) {
+  seekActiveHand(seat);
+  if (!seat || seatDone(seat)) {
     if (seat) seat.finished = true;
     game.activeSeat++;
     advanceSeat();
@@ -423,13 +423,28 @@ function advancePastDoneHands() {
 }
 
 function advanceSeat() {
-  while (game.activeSeat < game.seats.length && game.seats[game.activeSeat].finished) game.activeSeat++;
+  while (game.activeSeat < game.seats.length && seatDone(game.seats[game.activeSeat])) {
+    game.seats[game.activeSeat].finished = true;
+    game.activeSeat++;
+  }
   if (game.activeSeat >= game.seats.length) {
     game.phase = "dealer";
     game.dealerTimer = .45;
   } else {
+    seekActiveHand(game.seats[game.activeSeat]);
     game.phase = "player";
   }
+}
+
+function seekActiveHand(seat) {
+  if (!seat) return;
+  while (seat.active < seat.hands.length && seat.hands[seat.active].status !== "playing") {
+    seat.active++;
+  }
+}
+
+function seatDone(seat) {
+  return !seat || seat.spectating || seat.hands.length === 0 || seat.hands.every((h) => h.status !== "playing");
 }
 
 function dealerStep() {
@@ -1020,6 +1035,20 @@ function drawCardFace(card, x, y, highlight = false) {
   if (card.up === false) {
     round(x, y, CARD_W, CARD_H, 9, "#321e46");
     round(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, "#4b3269");
+    ctx.fillStyle = "#6e508c";
+    for (let col = 0; col < 4; col++) {
+      for (let row = 0; row < 6; row++) {
+        const cx = x + 18 + col * 18;
+        const cy = y + 18 + row * 18;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 6);
+        ctx.lineTo(cx + 6, cy);
+        ctx.lineTo(cx, cy + 6);
+        ctx.lineTo(cx - 6, cy);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
     strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
     return;
   }
@@ -1050,6 +1079,98 @@ function drawChips(x, y, amount) {
       n++;
     }
   }
+}
+
+drawCardFace = function drawCardFace(card, x, y, highlight = false) {
+  if (highlight) fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12);
+  if (card.up === false) {
+    round(x, y, CARD_W, CARD_H, 9, "#321e46");
+    round(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, "#4b3269");
+    ctx.fillStyle = "#6e508c";
+    for (let col = 0; col < 4; col++) {
+      for (let row = 0; row < 6; row++) {
+        const cx = x + 18 + col * 18;
+        const cy = y + 18 + row * 18;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 6);
+        ctx.lineTo(cx + 6, cy);
+        ctx.lineTo(cx, cy + 6);
+        ctx.lineTo(cx - 6, cy);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
+    return;
+  }
+  round(x, y, CARD_W, CARD_H, 9, C.parchment);
+  strokeRound(x, y, CARD_W, CARD_H, 9, "#3c3228", 2);
+  const red = card.suit === "H" || card.suit === "D";
+  const color = red ? "#aa2323" : "#191923";
+  const suit = { S: "\u2660", H: "\u2665", D: "\u2666", C: "\u2663" }[card.suit];
+  text(card.rank, x + 8, y + 28, card.rank === "10" ? 22 : 26, color, "left", "serif");
+  text(suit, x + 8 + (card.rank === "10" ? 13 : 10), y + 49, 18, color, "center", "serif");
+  text(suit, x + CARD_W / 2, y + CARD_H / 2 + 22, 54, color, "center", "serif");
+  ctx.save();
+  ctx.translate(x + CARD_W - 8, y + CARD_H - 8);
+  ctx.rotate(Math.PI);
+  text(card.rank, 0, 0, card.rank === "10" ? 20 : 24, color, "left", "serif");
+  text(suit, card.rank === "10" ? 13 : 10, 21, 16, color, "center", "serif");
+  ctx.restore();
+};
+
+drawChips = function drawChips(x, y, amount) {
+  const denoms = [[500, "#d2af3c"], [100, "#242432"], [25, "#3c8c50"], [10, "#3c64b4"], [5, "#b43c3c"], [1, "#e6e6dc"]];
+  let rest = amount;
+  let n = 0;
+  if (amount <= 0) {
+    ctx.strokeStyle = "rgba(238,231,215,.22)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x + 20, y + 6, 20, 6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
+  for (const [value, color] of denoms) {
+    while (rest >= value && n < 12) {
+      const cy = y + 6 - n * 5;
+      ctx.fillStyle = shade(color, -55);
+      ctx.fillRect(x, cy, 40, 7);
+      ctx.strokeStyle = "#0a0a0f";
+      ctx.beginPath();
+      ctx.moveTo(x, cy + 7);
+      ctx.lineTo(x + 40, cy + 7);
+      ctx.stroke();
+      drawChipTop(x + 20, cy, color, "#f0d878");
+      rest -= value;
+      n++;
+    }
+  }
+};
+
+function drawChipTop(cx, cy, face, stripe) {
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 20, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0a0a0f";
+  ctx.stroke();
+  ctx.fillStyle = stripe;
+  ctx.fillRect(cx - 19, cy - 2, 8, 4);
+  ctx.fillRect(cx + 11, cy - 2, 8, 4);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 10, 3.5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = face;
+  ctx.fill();
+  ctx.stroke();
+}
+
+function shade(hex, amount) {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const r = clamp((n >> 16) + amount, 0, 255);
+  const g = clamp(((n >> 8) & 255) + amount, 0, 255);
+  const b = clamp((n & 255) + amount, 0, 255);
+  return `rgb(${r},${g},${b})`;
 }
 
 function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) {
