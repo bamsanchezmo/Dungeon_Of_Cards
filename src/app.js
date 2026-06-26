@@ -56,6 +56,9 @@ let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
 let lastRelicName = "";
+let menuOpen = false;
+let cardAnimations = [];
+let seenCardIds = new Set();
 
 let enemyTemplates = [];
 
@@ -178,7 +181,7 @@ canvas.addEventListener("mousemove", (ev) => {
 canvas.addEventListener("pointerdown", (ev) => {
   const p = eventPoint(ev);
   startAudio();
-  const hit = buttons.find((b) => b.enabled !== false && inRect(p, b));
+  const hit = [...buttons].reverse().find((b) => b.enabled !== false && inRect(p, b));
   if (hit) hit.onClick();
 });
 window.addEventListener("keydown", (ev) => {
@@ -203,6 +206,7 @@ function tick(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   if (flashTimer > 0) flashTimer -= dt;
+  cardAnimations = cardAnimations.filter((a) => now < a.start + a.duration + 120);
   if (game?.peekTimer > 0) {
     game.peekTimer -= dt;
     if (game.peekTimer <= 0) {
@@ -221,6 +225,9 @@ function tick(now) {
 function newGame(players, code = "") {
   enemyTemplates = buildCampaign();
   lastRelicName = "";
+  menuOpen = false;
+  cardAnimations = [];
+  seenCardIds = new Set();
   const seats = players.map((p) => ({
     id: p.id,
     name: p.name,
@@ -252,6 +259,8 @@ function newGame(players, code = "") {
     log: [`${seats.length > 1 ? seats.length + " players enter" : "You enter"} the Dungeon of Cards.`],
     dealerTimer: .6,
     roundNet: 0,
+    dealSeq: 0,
+    roundDealCount: 0,
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
   appScene = "game";
@@ -300,6 +309,14 @@ function drawCard(faceUp = true, currentTotal = 0, target = "player") {
     sfx("shuffle");
   }
   const luck = target === "dealer" ? (game.enemy.luck || 0) : relicSum("luck") - (game.enemy.luck || 0);
+  const markDealt = (card) => {
+    game.dealSeq = (game.dealSeq || 0) + 1;
+    game.roundDealCount = game.roundDealCount || 0;
+    const delay = game.phase === "betting" ? Math.min(420, game.roundDealCount * 70) : 0;
+    const dealt = { ...card, up: faceUp, _dealId: `${game.session}:${game.dealSeq}`, _dealDelay: delay };
+    game.roundDealCount++;
+    return dealt;
+  };
   if (luck && Math.random() < Math.min(1, Math.abs(luck) / 100)) {
     const peek = game.deck.slice(-4);
     let chosen = peek[0];
@@ -313,13 +330,14 @@ function drawCard(faceUp = true, currentTotal = 0, target = "player") {
       }
     }
     game.deck.splice(game.deck.lastIndexOf(chosen), 1);
-    return { ...chosen, up: faceUp };
+    return markDealt(chosen);
   }
-  return { ...game.deck.pop(), up: faceUp };
+  return markDealt(game.deck.pop());
 }
 
 function action(name) {
   if (!game) return;
+  if (menuOpen) return;
   if (role === "guest") {
     peer?.send({ type: "action", playerId: localPlayerId, action: name });
     return;
@@ -403,6 +421,7 @@ function dealRound() {
   }
   game.activeSeat = 0;
   game.dealer = [];
+  game.roundDealCount = 0;
   for (const s of game.seats) {
     s.hands = s.bet > 0 ? [newHand(s.bet)] : [];
     s.active = 0;
@@ -724,6 +743,9 @@ function nextBattle() {
 function resetRound() {
   game.phase = "betting";
   game.dealer = [];
+  game.roundDealCount = 0;
+  cardAnimations = [];
+  seenCardIds = new Set();
   game.seats.forEach((s) => {
     s.ready = false;
     s.hands = [];
@@ -1079,9 +1101,14 @@ function draw() {
     drawMenu();
   } else {
     drawTable();
+    drawFlyingCards();
     if (game.phase === "shop") drawShop();
     if (game.phase === "victory" || game.phase === "defeat") drawEnd();
     if (game.peekCard) drawPeekOverlay();
+  }
+  if (menuOpen) {
+    buttons = [];
+    drawGameMenu();
   }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
@@ -1236,6 +1263,7 @@ function drawSidePanel() {
   });
   strokeRound(x, 40, 270, 720, 18, "rgba(220,180,70,.28)", 2);
   text("Dungeon of Cards", x + 135, 75, 24, C.gold, "center", "serif");
+  addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 91, 230, 1);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
   text(`Gold ${game.gold}g`, x + 22, 140, 18, C.gold);
@@ -1265,6 +1293,7 @@ function drawBottomPanel() {
   });
   strokeRound(x, y, w, h, 18, "rgba(220,180,70,.3)", 2);
   text("Dungeon of Cards", x + w / 2, y + 48, 34, C.gold, "center", "serif");
+  addButton(x + w - 140, y + 18, 112, 54, "Menu", () => menuOpen = true);
 
   const leftX = x + 24;
   const rightStatX = x + w - 250;
@@ -1455,8 +1484,104 @@ function drawFlash() {
   text(flash, cx, 52, 18, C.gold, "center");
 }
 
+function drawGameMenu() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const panelW = viewport.portrait ? 520 : 430;
+  const panelH = viewport.portrait ? 320 : 270;
+  const x = lw / 2 - panelW / 2;
+  const y = Math.max(72, lh / 2 - panelH / 2);
+  fill("rgba(0,0,0,.62)", 0, 0, lw, lh);
+  shadow(0, 24, 60, "rgba(0,0,0,.5)", () => {
+    gradientRound(x, y, panelW, panelH, 18, [[0, "#302640"], [1, "#15101c"]], true);
+  });
+  strokeRound(x, y, panelW, panelH, 18, "rgba(220,180,70,.45)", 2);
+  text("Game Menu", lw / 2, y + 62, viewport.portrait ? 34 : 28, C.gold, "center", "serif");
+  text("Return to the table or go back home.", lw / 2, y + 104, viewport.portrait ? 21 : 16, C.muted, "center");
+  addButton(x + 42, y + 138, panelW - 84, viewport.portrait ? 72 : 56, "Resume", () => menuOpen = false, true);
+  addButton(x + 42, y + (viewport.portrait ? 226 : 206), panelW - 84, viewport.portrait ? 72 : 56, "Home Screen", goHome);
+}
+
+function goHome() {
+  menuOpen = false;
+  appScene = "menu";
+  game = null;
+  role = "solo";
+  localPlayerId = hostId;
+  cardAnimations = [];
+  seenCardIds = new Set();
+  hideSignal();
+  peer?.peer?.destroy?.();
+  peer = null;
+  if (location.search) history.replaceState(null, "", location.pathname);
+}
+
 function drawHand(cards, x, y, highlight) {
-  cards.forEach((card, i) => drawCardFace(card, x + i * 62, y + Math.sin(i * .6) * 2, highlight && i === cards.length - 1));
+  cards.forEach((card, i) => {
+    const cx = x + i * 62;
+    const cy = y + Math.sin(i * .6) * 2;
+    const anim = prepareCardAnimation(card, cx, cy);
+    if (anim && animationProgress(anim) < .92) return;
+    drawCardFace(card, cx, cy, highlight && i === cards.length - 1);
+  });
+}
+
+function prepareCardAnimation(card, x, y) {
+  if (!card?._dealId || appScene !== "game") return null;
+  let anim = cardAnimations.find((a) => a.id === card._dealId);
+  if (anim) {
+    anim.toX = x;
+    anim.toY = y;
+    return anim;
+  }
+  if (seenCardIds.has(card._dealId)) return null;
+  seenCardIds.add(card._dealId);
+  const from = deckPosition();
+  anim = {
+    id: card._dealId,
+    card: { ...card },
+    fromX: from.x,
+    fromY: from.y,
+    toX: x,
+    toY: y,
+    start: performance.now() + (Number(card._dealDelay) || 0),
+    duration: 430
+  };
+  cardAnimations.push(anim);
+  return anim;
+}
+
+function drawFlyingCards() {
+  cardAnimations.forEach((anim) => {
+    const progress = animationProgress(anim);
+    if (progress <= 0 || progress >= 1) return;
+    const ease = 1 - Math.pow(1 - progress, 3);
+    const lift = Math.sin(progress * Math.PI) * 46;
+    const x = lerp(anim.fromX, anim.toX, ease);
+    const y = lerp(anim.fromY, anim.toY, ease) - lift;
+    const scale = .78 + ease * .22;
+    const rot = lerp(-.18, .03, ease);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, progress * 4);
+    ctx.translate(x + CARD_W / 2, y + CARD_H / 2);
+    ctx.rotate(rot);
+    ctx.scale(scale, scale);
+    drawCardFace(anim.card, -CARD_W / 2, -CARD_H / 2, true);
+    ctx.restore();
+  });
+}
+
+function animationProgress(anim) {
+  return clamp((performance.now() - anim.start) / anim.duration, 0, 1);
+}
+
+function deckPosition() {
+  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: 900, h: 720 };
+  return { x: felt.x + felt.w - 125, y: felt.y + 50 };
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
 
 function drawCardFace(card, x, y, highlight = false) {
