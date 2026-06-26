@@ -1136,7 +1136,7 @@ function drawMenu() {
 }
 
 function drawTable() {
-  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 790 } : { x: 40, y: 40, w: 900, h: 720 };
+  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: 900, h: 720 };
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
       [0, "#234331"],
@@ -1197,7 +1197,7 @@ function drawSeats(felt) {
     const portrait = viewport.portrait;
     const seatW = portrait ? 315 : 370;
     const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 70 + (idx % 2) * 410;
-    const y = portrait ? felt.y + 400 + Math.floor(idx / 2) * 170 : felt.y + 365 + Math.floor(idx / 2) * 170;
+    const y = portrait ? felt.y + 372 + Math.floor(idx / 2) * 156 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && active?.id === seat.id;
     if (isActive) {
       shadow(0, 0, 26, "rgba(220,180,70,.42)", () => {
@@ -1253,7 +1253,7 @@ function drawSidePanel() {
 
 function drawBottomPanel() {
   const x = 24;
-  const y = 842;
+  const y = 750;
   const w = layoutW() - 48;
   const h = Math.max(720, layoutH() - y - 28);
   shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
@@ -1274,9 +1274,9 @@ function drawBottomPanel() {
   text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
   if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
 
-  fill("rgba(220,180,70,.08)", leftX, y + 204, w - 48, 58, 12);
-  text(phaseTitle(), x + w / 2, y + 242, 29, C.text, "center");
-  drawActionButtons(leftX, y + 284);
+  fill("rgba(220,180,70,.08)", leftX, y + 192, w - 48, 58, 12);
+  text(phaseTitle(), x + w / 2, y + 230, 29, C.text, "center");
+  drawActionButtons(leftX, y + 264);
 
   fill("rgba(238,231,215,.06)", leftX, y + 620, w - 48, 1);
   drawRelicPanel(leftX, y + 660, 320);
@@ -1313,16 +1313,16 @@ function drawRelicRow(relic, x, y, w, highlight = false) {
 
 function drawActionButtons(x, y) {
   if (viewport.portrait) {
-    const gap = 16;
+    const gap = 14;
     const bw = Math.floor((layoutW() - 96 - gap) / 2);
-    const bh = 68;
+    const bh = 64;
     const full = bw * 2 + gap;
     if (game.phase === "betting") {
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
-      addButton(x, y + 82, bw, bh, "Min", () => action("minBet"));
-      addButton(x + bw + gap, y + 82, bw, bh, "Max", () => action("maxBet"));
-      addButton(x, y + 164, full, 76, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      addButton(x, y + 76, bw, bh, "Min", () => action("minBet"));
+      addButton(x + bw + gap, y + 76, bw, bh, "Max", () => action("maxBet"));
+      addButton(x, y + 152, full, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
       return;
     }
     if (game.phase === "insurance") {
@@ -1335,11 +1335,11 @@ function drawActionButtons(x, y) {
       const myTurn = game.seats[game.activeSeat]?.id === localPlayerId;
       addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
       addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
-      addButton(x, y + 82, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
-      addButton(x + bw + gap, y + 82, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
-      addButton(x, y + 164, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+      addButton(x, y + 76, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
+      addButton(x + bw + gap, y + 76, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
+      addButton(x, y + 152, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
       if (game.foresightUsesLeft > 0) {
-        addButton(x, y + 246, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
+        addButton(x, y + 228, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
       }
       return;
     }

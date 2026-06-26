@@ -46,6 +46,15 @@ canvas {
   background: #09070c;
 }
 
+@supports (height: 100svh) {
+  html,
+  body,
+  .shell,
+  canvas {
+    height: 100svh;
+  }
+}
+
 button,
 textarea,
 input {
