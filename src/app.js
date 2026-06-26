@@ -38,6 +38,7 @@ const joinFields = document.querySelector("#joinFields");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
+const viewport = { cssW: W, cssH: H, dpr: 1, scale: 1, x: 0, y: 0 };
 
 let appScene = "menu";
 let role = "solo";
@@ -86,7 +87,10 @@ document.querySelector("#copyOffer").addEventListener("click", () => copy(hostOf
 document.querySelector("#shareOffer").addEventListener("click", () => shareSignal("Join my Dungeon of Cards lobby", hostOffer.value));
 document.querySelector("#joinByCode").addEventListener("click", connectGuest);
 
-window.addEventListener("resize", draw);
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  draw();
+});
 canvas.addEventListener("mousemove", (ev) => {
   hover = eventPoint(ev);
   draw();
@@ -112,6 +116,7 @@ window.addEventListener("keydown", (ev) => {
 
 requestAnimationFrame(tick);
 joinFromSharedLink();
+resizeCanvas();
 
 function tick(now) {
   const dt = Math.min(.05, (now - last) / 1000);
@@ -293,6 +298,14 @@ function dealRound() {
   const totalBets = game.seats.reduce((sum, s) => sum + s.bet, 0);
   if (game.gold < totalBets || totalBets <= 0) return;
   game.gold -= totalBets;
+  if ((game.enemy.hitFee || 0) > game.gold) {
+    game.hp = 0;
+    game.phase = "defeat";
+    log("You cannot pay the table toll. The house wins.");
+    sfx("lose");
+    broadcast();
+    return;
+  }
   game.dealer = [];
   for (const s of game.seats) {
     s.hands = s.bet > 0 ? [newHand(s.bet)] : [];
@@ -341,7 +354,17 @@ function hit(seatIndex) {
   const seat = game.seats[seatIndex];
   const hand = activeHand(seat);
   const fee = game.enemy.hitFee || 0;
-  if (fee) game.gold = Math.max(0, game.gold - fee);
+  if (fee) {
+    if (game.gold < fee) {
+      game.hp = 0;
+      game.phase = "defeat";
+      log("You cannot pay the hit toll. The house wins.");
+      sfx("lose");
+      broadcast();
+      return;
+    }
+    game.gold -= fee;
+  }
   addToHand(hand, "player");
   sfx("deal");
   if (isBust(hand)) {
@@ -872,14 +895,24 @@ function sfx(kind) {
 }
 
 function draw() {
+  resizeCanvas();
   buttons = [];
-  ctx.clearRect(0, 0, W, H);
+  ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
+  ctx.clearRect(0, 0, viewport.cssW, viewport.cssH);
+  fill(C.bg, 0, 0, viewport.cssW, viewport.cssH);
+  ctx.save();
+  ctx.translate(viewport.x, viewport.y);
+  ctx.scale(viewport.scale, viewport.scale);
   fill(C.bg, 0, 0, W, H);
-  if (!game || appScene === "menu") return drawMenu();
-  drawTable();
-  if (game.phase === "shop") drawShop();
-  if (game.phase === "victory" || game.phase === "defeat") drawEnd();
+  if (!game || appScene === "menu") {
+    drawMenu();
+  } else {
+    drawTable();
+    if (game.phase === "shop") drawShop();
+    if (game.phase === "victory" || game.phase === "defeat") drawEnd();
+  }
   if (flashTimer > 0) drawFlash();
+  ctx.restore();
 }
 
 function drawMenu() {
@@ -1306,9 +1339,11 @@ function wrapText(str, x, y, width, lineHeight, color) {
 
 function eventPoint(ev) {
   const rect = canvas.getBoundingClientRect();
+  const cssX = ev.clientX - rect.left;
+  const cssY = ev.clientY - rect.top;
   return {
-    x: (ev.clientX - rect.left) * W / rect.width,
-    y: (ev.clientY - rect.top) * H / rect.height
+    x: (cssX - viewport.x) / viewport.scale,
+    y: (cssY - viewport.y) / viewport.scale
   };
 }
 
@@ -1318,4 +1353,23 @@ function inRect(p, r) {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const cssW = Math.max(1, Math.round(rect.width));
+  const cssH = Math.max(1, Math.round(rect.height));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const pixelW = Math.round(cssW * dpr);
+  const pixelH = Math.round(cssH * dpr);
+  if (canvas.width !== pixelW || canvas.height !== pixelH) {
+    canvas.width = pixelW;
+    canvas.height = pixelH;
+  }
+  viewport.cssW = cssW;
+  viewport.cssH = cssH;
+  viewport.dpr = dpr;
+  viewport.scale = Math.min(cssW / W, cssH / H);
+  viewport.x = Math.round((cssW - W * viewport.scale) / 2);
+  viewport.y = Math.round((cssH - H * viewport.scale) / 2);
 }
