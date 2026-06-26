@@ -24,10 +24,13 @@ body,
 
 body {
   overflow: hidden;
-  background: var(--bg);
+  background:
+    linear-gradient(135deg, #09070c 0%, #18121f 44%, #0e1715 100%);
   color: var(--text);
   touch-action: none;
   overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
 
 .shell {
@@ -40,7 +43,7 @@ canvas {
   display: block;
   width: 100vw;
   height: 100dvh;
-  background: #18121f;
+  background: #09070c;
 }
 
 button,
@@ -53,12 +56,13 @@ button {
   min-height: 52px;
   border: 1px solid rgba(220, 180, 70, .38);
   border-radius: 8px;
-  background: #342d47;
+  background: linear-gradient(180deg, #3c314e, #231b2e);
   color: var(--text);
   font-weight: 800;
   cursor: pointer;
   touch-action: manipulation;
   user-select: none;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .24);
 }
 
 button.primary {
@@ -91,10 +95,10 @@ button.primary {
   max-height: calc(100dvh - 20px);
   gap: 14px;
   overflow: auto;
-  border: 1px solid rgba(238, 231, 215, .12);
+  border: 1px solid rgba(220, 180, 70, .28);
   border-radius: 8px;
   padding: 16px;
-  background: var(--panel);
+  background: linear-gradient(180deg, #2b2238, #17121f);
   box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
 }
 
@@ -135,10 +139,10 @@ textarea,
 input {
   min-height: 104px;
   resize: vertical;
-  border: 1px solid rgba(238, 231, 215, .14);
+  border: 1px solid rgba(238, 231, 215, .18);
   border-radius: 8px;
   padding: 10px;
-  background: #16121d;
+  background: #100d16;
   color: var(--text);
 }
 
@@ -166,7 +170,7 @@ input {
   border: 1px solid rgba(240, 203, 100, .55);
   border-radius: 8px;
   padding: 12px 16px;
-  background: rgba(37, 32, 51, .96);
+  background: linear-gradient(180deg, rgba(43, 34, 56, .98), rgba(18, 14, 24, .98));
   color: var(--text);
   font-weight: 800;
   text-align: center;

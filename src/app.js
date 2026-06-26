@@ -2,6 +2,7 @@ import { GuestPeer, HostPeer, createLobbyCode, normalizeLobbyCode } from "./webr
 
 const W = 1280;
 const H = 800;
+const PORTRAIT_W = 760;
 const FPS = 60;
 const MIN_BET = 1;
 const MAX_BET = 500;
@@ -38,7 +39,7 @@ const joinFields = document.querySelector("#joinFields");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
-const viewport = { cssW: W, cssH: H, dpr: 1, scale: 1, x: 0, y: 0 };
+const viewport = { cssW: W, cssH: H, dpr: 1, scale: 1, x: 0, y: 0, logicalW: W, logicalH: H, portrait: false };
 
 let appScene = "menu";
 let role = "solo";
@@ -1038,16 +1039,42 @@ function sfx(kind) {
   osc.stop(now + .2);
 }
 
+function drawBackdrop() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const g = ctx.createLinearGradient(0, 0, lw, lh);
+  g.addColorStop(0, "#17101f");
+  g.addColorStop(.48, "#0f1718");
+  g.addColorStop(1, "#231527");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, lw, lh);
+
+  ctx.save();
+  ctx.globalAlpha = .2;
+  ctx.strokeStyle = "rgba(220,180,70,.16)";
+  ctx.lineWidth = 1;
+  for (let x = -80; x < lw + 120; x += 80) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 220, lh);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = .35;
+  ctx.fillStyle = "rgba(0,0,0,.38)";
+  ctx.fillRect(0, lh - 110, lw, 110);
+  ctx.restore();
+}
+
 function draw() {
   resizeCanvas();
   buttons = [];
   ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
   ctx.clearRect(0, 0, viewport.cssW, viewport.cssH);
-  fill(C.bg, 0, 0, viewport.cssW, viewport.cssH);
+  fill("#08070b", 0, 0, viewport.cssW, viewport.cssH);
   ctx.save();
   ctx.translate(viewport.x, viewport.y);
   ctx.scale(viewport.scale, viewport.scale);
-  fill(C.bg, 0, 0, W, H);
+  drawBackdrop();
   if (!game || appScene === "menu") {
     drawMenu();
   } else {
@@ -1061,29 +1088,75 @@ function draw() {
 }
 
 function drawMenu() {
-  text("DUNGEON", W / 2, 175, 72, C.gold, "center", "serif");
-  text("of CARDS", W / 2, 250, 72, C.parchment, "center", "serif");
-  text("A blackjack roguelike", W / 2, 312, 28, C.muted, "center");
+  const lw = layoutW();
+  const lh = layoutH();
+  const cx = lw / 2;
+  const portrait = viewport.portrait;
+  const table = portrait ? { x: 34, y: 70, w: lw - 68, h: 650 } : { x: 218, y: 92, w: 844, h: 610 };
+  shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
+    gradientRound(table.x, table.y, table.w, table.h, 24, [
+      [0, "#1d3028"],
+      [.55, "#111d19"],
+      [1, "#21182a"]
+    ], true);
+  });
+  strokeRound(table.x, table.y, table.w, table.h, 24, "rgba(220,180,70,.4)", 3);
+  strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
+
+  if (!portrait) {
+    drawCardFace({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, false);
+    drawCardFace({ rank: "K", suit: "H", up: true }, table.x + table.w - 180, table.y + 92, false);
+    drawCardFace({ up: false }, table.x + table.w - 118, table.y + 250, false);
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(220,180,70,.35)";
+  ctx.shadowBlur = 18;
+  text("DUNGEON", cx, portrait ? 176 : 188, portrait ? 58 : 76, C.gold, "center", "serif");
+  ctx.restore();
+  text("of CARDS", cx, portrait ? 236 : 264, portrait ? 56 : 72, C.parchment, "center", "serif");
+  text("A blackjack roguelike", cx, portrait ? 288 : 316, 25, C.muted, "center");
   const lines = [
     "Win chips to damage dealer-monsters.",
     "Lose chips and the dungeon takes blood.",
     "Collect relics, bend the rules, beat the final boss."
   ];
-  lines.forEach((line, i) => text(line, W / 2, 380 + i * 30, 22, C.text, "center"));
-  addButton(W / 2 - 130, 495, 260, 56, "Single Player", () => {
+  lines.forEach((line, i) => text(line, cx, (portrait ? 350 : 372) + i * 30, portrait ? 18 : 21, C.text, "center"));
+  const buttonW = portrait ? 420 : 300;
+  const buttonX = cx - buttonW / 2;
+  const buttonY = portrait ? 484 : 490;
+  addButton(buttonX, buttonY, buttonW, 60, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
     newGame([{ id: hostId, name: "You" }]);
   }, true);
-  addButton(W / 2 - 130, 568, 260, 56, "Host Game", hostLobby);
-  addButton(W / 2 - 130, 641, 260, 56, "Join Game", joinLobby);
-  text("H/S/D/P/R actions - Enter ready/continue - M music", W / 2, H - 34, 16, C.muted, "center");
+  addButton(buttonX, buttonY + 76, buttonW, 60, "Host Game", hostLobby);
+  addButton(buttonX, buttonY + 152, buttonW, 60, "Join Game", joinLobby);
+  text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 13 : 16, C.muted, "center");
 }
 
 function drawTable() {
-  const felt = { x: 40, y: 40, w: 900, h: 720 };
-  round(felt.x, felt.y, felt.w, felt.h, 18, C.felt);
-  strokeRound(felt.x, felt.y, felt.w, felt.h, 18, C.felt2, 7);
+  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 790 } : { x: 40, y: 40, w: 900, h: 720 };
+  shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
+    gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
+      [0, "#234331"],
+      [.52, "#12251c"],
+      [1, "#07120f"]
+    ], true);
+  });
+  strokeRound(felt.x, felt.y, felt.w, felt.h, 22, "#4f744f", 8);
+  strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
+  ctx.save();
+  ctx.globalAlpha = .11;
+  ctx.strokeStyle = "#eee7d7";
+  ctx.lineWidth = 1;
+  for (let y = felt.y + 82; y < felt.y + felt.h - 30; y += 62) {
+    ctx.beginPath();
+    ctx.moveTo(felt.x + 34, y);
+    ctx.lineTo(felt.x + felt.w - 34, y + 16);
+    ctx.stroke();
+  }
+  ctx.restore();
   drawDeck(felt.x + felt.w - 125, felt.y + 50);
   drawDealer(felt);
   drawSeats(felt);
@@ -1091,29 +1164,51 @@ function drawTable() {
 }
 
 function drawDealer(felt) {
-  text("Dealer", felt.x + 38, felt.y + 36, 18, C.muted);
-  drawHand(game.dealer, felt.x + 330, felt.y + 56, false);
+  const portrait = viewport.portrait;
+  const dealerX = portrait ? felt.x + felt.w / 2 - 100 : felt.x + 330;
+  const badgeX = portrait ? felt.x + felt.w / 2 : felt.x + 440;
+  const barX = felt.x + 22;
+  const barY = portrait ? felt.y + 252 : felt.y + 248;
+  const barW = felt.w - 44;
+  text("Dealer", felt.x + 38, felt.y + 38, 18, C.muted);
+  drawHand(game.dealer, dealerX, felt.y + 56, false);
   const shown = game.dealer.some((c) => !c.up) ? `${visibleTotal(game.dealer)}+?` : handTotal({ cards: game.dealer });
-  badge(felt.x + 440, felt.y + 205, game.dealer.length ? `Total ${shown}` : "Waiting", C.muted);
+  badge(badgeX, felt.y + 205, game.dealer.length ? `Total ${shown}` : "Waiting", C.muted);
   const e = game.enemy;
-  fill("#15101c", felt.x + 22, felt.y + 248, 850, 74, 12);
-  fill(e.color, felt.x + 38, felt.y + 261, 48, 48, 24);
-  text(e.icon, felt.x + 62, felt.y + 292, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
-  text(e.name, felt.x + 102, felt.y + 274, 22, C.gold);
-  text(e.description, felt.x + 102, felt.y + 300, 15, C.muted);
-  meter(felt.x + 620, felt.y + 277, 220, 13, e.hp / e.maxHp, C.red, C.gold);
-  text(`${e.hp}/${e.maxHp}`, felt.x + 730, felt.y + 309, 14, C.text, "center");
+  gradientRound(barX, barY, barW, 78, 14, [
+    [0, "#19101f"],
+    [.6, "#0e0b13"],
+    [1, "#20162a"]
+  ]);
+  strokeRound(barX, barY, barW, 78, 14, "rgba(220,180,70,.2)", 1);
+  shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
+  text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
+  text(e.name, barX + 82, barY + 27, portrait ? 19 : 22, C.gold);
+  wrapTextSized(e.description, barX + 82, barY + 53, portrait ? 300 : 460, 16, portrait ? 13 : 15, C.muted, 1);
+  const meterW = portrait ? 180 : 220;
+  const meterX = barX + barW - meterW - 30;
+  meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
+  text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 61, 14, C.text, "center");
 }
 
 function drawSeats(felt) {
   const active = game.seats[game.activeSeat];
   game.seats.forEach((seat, idx) => {
-    const x = felt.x + 70 + (idx % 2) * 410;
-    const y = felt.y + 365 + Math.floor(idx / 2) * 170;
+    const portrait = viewport.portrait;
+    const seatW = portrait ? 315 : 370;
+    const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 70 + (idx % 2) * 410;
+    const y = portrait ? felt.y + 400 + Math.floor(idx / 2) * 170 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && active?.id === seat.id;
-    strokeRound(x - 18, y - 42, 370, 150, 12, isActive ? C.gold : "rgba(255,255,255,.12)", 2);
-    text(`${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`, x, y - 18, 18, isActive ? C.gold : C.text);
-    text(seatStatus(seat), x + 330, y - 18, 15, C.muted, "right");
+    if (isActive) {
+      shadow(0, 0, 26, "rgba(220,180,70,.42)", () => {
+        gradientRound(x - 18, y - 42, seatW, 150, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
+      });
+    } else {
+      fill("rgba(5,8,7,.28)", x - 18, y - 42, seatW, 150, 14);
+    }
+    strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : "rgba(238,231,215,.11)", isActive ? 3 : 1);
+    text(`${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`, x, y - 18, portrait ? 15 : 18, isActive ? C.gold : C.text);
+    text(seatStatus(seat), x + seatW - 40, y - 18, 14, C.muted, "right");
     if (seat.hands.length) {
       seat.hands.forEach((hand, hidx) => {
         drawHand(hand.cards, x + hidx * 136, y + 10, hidx === seat.active && isActive);
@@ -1127,19 +1222,67 @@ function drawSeats(felt) {
 }
 
 function drawSidePanel() {
+  if (viewport.portrait) {
+    drawBottomPanel();
+    return;
+  }
   const x = 970;
-  round(x, 40, 270, 720, 16, C.panel);
+  shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
+    gradientRound(x, 40, 270, 720, 18, [
+      [0, "#241a30"],
+      [.44, "#14101b"],
+      [1, "#1b1423"]
+    ], true);
+  });
+  strokeRound(x, 40, 270, 720, 18, "rgba(220,180,70,.28)", 2);
   text("Dungeon of Cards", x + 135, 75, 24, C.gold, "center", "serif");
+  fill("rgba(238,231,215,.06)", x + 20, 91, 230, 1);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
   text(`Gold ${game.gold}g`, x + 22, 140, 18, C.gold);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
   if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
-  text(phaseTitle(), x + 135, 265, 22, C.text, "center");
+  fill("rgba(220,180,70,.08)", x + 22, 242, 226, 44, 10);
+  text(phaseTitle(), x + 135, 271, 22, C.text, "center");
   drawActionButtons(x + 22, 295);
   drawRelicPanel(x + 22, 500, 226);
-  text("Log", x + 22, 668, 18, C.gold);
-  game.log.slice(0, 3).forEach((line, i) => text(line, x + 22, 694 + i * 22, 13, C.muted));
+  fill("rgba(238,231,215,.06)", x + 22, 646, 226, 1);
+  text("Log", x + 22, 674, 18, C.gold);
+  game.log.slice(0, 3).forEach((line, i) => text(line, x + 22, 700 + i * 20, 13, C.muted));
+}
+
+function drawBottomPanel() {
+  const x = 24;
+  const y = 842;
+  const w = layoutW() - 48;
+  const h = Math.max(620, layoutH() - y - 28);
+  shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
+    gradientRound(x, y, w, h, 18, [
+      [0, "#241a30"],
+      [.46, "#15101c"],
+      [1, "#10151a"]
+    ], true);
+  });
+  strokeRound(x, y, w, h, 18, "rgba(220,180,70,.3)", 2);
+  text("Dungeon of Cards", x + w / 2, y + 42, 25, C.gold, "center", "serif");
+
+  const leftX = x + 24;
+  const midX = x + 260;
+  const rightX = x + 508;
+  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, leftX, y + 86, 17, C.text);
+  text(`Gold ${game.gold}g`, leftX, y + 114, 17, C.gold);
+  meter(leftX, y + 140, 196, 14, game.hp / game.maxHp, C.red, C.green);
+  text(`HP ${game.hp}/${game.maxHp}`, leftX + 98, y + 170, 14, C.text, "center");
+  if (game.code) badge(leftX + 98, y + 208, `Lobby ${game.code}`, C.gold);
+
+  fill("rgba(220,180,70,.08)", midX, y + 72, 220, 44, 10);
+  text(phaseTitle(), midX + 110, y + 101, 20, C.text, "center");
+  drawActionButtons(midX, y + 132);
+
+  drawRelicPanel(rightX, y + 86, 202);
+  fill("rgba(238,231,215,.06)", leftX, y + 360, w - 48, 1);
+  text("Log", leftX, y + 396, 18, C.gold);
+  game.log.slice(0, 5).forEach((line, i) => text(line, leftX, y + 424 + i * 23, 14, C.muted));
 }
 
 function drawRelicPanel(x, y, w) {
@@ -1159,7 +1302,7 @@ function drawRelicPanel(x, y, w) {
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
-  round(x, y - 14, w, 54, 8, highlight ? "#2f263c" : "#17121e");
+  gradientRound(x, y - 14, w, 54, 8, highlight ? [[0, "#3a2c45"], [1, "#211827"]] : [[0, "#1d1624"], [1, "#100d15"]]);
   strokeRound(x, y - 14, w, 54, 8, highlight ? C.gold : "rgba(238,231,215,.12)", 1);
   badge(x + 22, y + 12, relic.icon, C.gold);
   text(relic.name, x + 50, y + 4, 14, C.gold);
@@ -1200,24 +1343,39 @@ function drawActionButtons(x, y) {
 
 function drawShop() {
   ensureShopRelics();
-  fill("rgba(0,0,0,.72)", 0, 0, W, H);
-  text("THE WANDERING MERCHANT", W / 2, 95, 42, C.gold, "center", "serif");
-  text("Choose a relic, or descend with what you have.", W / 2, 145, 20, C.muted, "center");
-  game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 175 + i * 315, 205));
-  addButton(W / 2 - 105, 590, 210, 50, "Skip Shop", () => action("skipShop"));
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
+  gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
+  strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
+  text("THE WANDERING MERCHANT", lw / 2, 98, portrait ? 28 : 42, C.gold, "center", "serif");
+  text("Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 15 : 20, C.muted, "center");
+  if (portrait) {
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 240, 205 + i * 340));
+    addButton(lw / 2 - 112, 1225, 224, 54, "Skip Shop", () => action("skipShop"));
+  } else {
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 175 + i * 315, 205));
+    addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
+  }
 }
 
 function drawShopRelicCard(relic, index, x, y) {
   const cost = 45 + game.floor * 15;
   const canBuy = game.gold >= cost;
-  round(x, y, 280, 320, 12, "#211a2c");
-  strokeRound(x, y, 280, 320, 12, canBuy ? C.gold : C.goldDim, 3);
+  shadow(0, 18, 38, "rgba(0,0,0,.42)", () => {
+    gradientRound(x, y, 280, 320, 14, canBuy
+      ? [[0, "#2c2438"], [.62, "#17111e"], [1, "#22152b"]]
+      : [[0, "#211b27"], [1, "#111017"]], true);
+  });
+  strokeRound(x, y, 280, 320, 14, canBuy ? C.gold : C.goldDim, canBuy ? 3 : 2);
+  fill("rgba(220,180,70,.08)", x + 14, y + 14, 252, 76, 12);
   fill("#120e16", x + 20, y + 20, 64, 64, 14);
   strokeRound(x + 20, y + 20, 64, 64, 14, C.goldDim, 2);
   text(relic.icon, x + 52, y + 62, relic.icon.length > 1 ? 19 : 28, C.gold, "center", "serif");
   text(relic.name, x + 100, y + 45, 20, C.gold);
   wrapTextSized(relic.description, x + 100, y + 72, 150, 17, 14, C.text, 3);
-  fill("#17121e", x + 24, y + 112, 232, 116, 10);
+  fill("rgba(7,5,10,.46)", x + 24, y + 112, 232, 116, 10);
   strokeRound(x + 24, y + 112, 232, 116, 10, "rgba(238,231,215,.12)", 1);
   wrapTextSized(relic.description, x + 42, y + 144, 196, 20, 16, C.text, 4);
   addButton(x + 40, y + 250, 200, 50, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
@@ -1225,31 +1383,35 @@ function drawShopRelicCard(relic, index, x, y) {
 
 function drawPeekOverlay() {
   const alpha = Math.min(1, game.peekTimer / .6, (4 - game.peekTimer) / .35);
+  const lw = layoutW();
   ctx.save();
   ctx.globalAlpha = Math.max(.2, alpha);
-  fill("rgba(0,0,0,.58)", 0, 0, W, H);
-  text("NEXT CARD", W / 2, 215, 34, "#9ee8ff", "center", "serif");
-  drawCardFace(game.peekCard, W / 2 - CARD_W / 2, 250, true);
+  fill("rgba(0,0,0,.58)", 0, 0, lw, layoutH());
+  text("NEXT CARD", lw / 2, 215, 34, "#9ee8ff", "center", "serif");
+  drawCardFace(game.peekCard, lw / 2 - CARD_W / 2, 250, true);
   ctx.restore();
 }
 
 function drawEnd() {
-  fill("rgba(0,0,0,.76)", 0, 0, W, H);
+  const lw = layoutW();
+  fill("rgba(0,0,0,.76)", 0, 0, lw, layoutH());
   const victory = game.phase === "victory";
-  text(victory ? "VICTORY" : "DEFEAT", W / 2, 235, 68, victory ? C.gold : C.red, "center", "serif");
-  text(victory ? "The dungeon folds its hand." : "The house collects.", W / 2, 305, 26, C.text, "center");
-  text(`Final gold: ${game.gold}g`, W / 2, 365, 22, C.gold, "center");
+  text(victory ? "VICTORY" : "DEFEAT", lw / 2, 235, viewport.portrait ? 54 : 68, victory ? C.gold : C.red, "center", "serif");
+  text(victory ? "The dungeon folds its hand." : "The house collects.", lw / 2, 305, viewport.portrait ? 21 : 26, C.text, "center");
+  text(`Final gold: ${game.gold}g`, lw / 2, 365, 22, C.gold, "center");
   const relicText = game.relics.length ? game.relics.map((r) => r.name).join(", ") : "None";
-  text("Relics:", W / 2, 420, 20, C.gold, "center");
-  const lines = wrapLines(relicText, 820, 16);
-  lines.forEach((line, i) => text(line, W / 2, 448 + i * 22, 16, C.text, "center"));
-  addButton(W / 2 - 115, Math.min(700, 490 + lines.length * 22), 230, 54, "Return to Menu", () => action("continue"), true);
+  text("Relics:", lw / 2, 420, 20, C.gold, "center");
+  const lines = wrapLines(relicText, Math.min(820, lw - 80), 16);
+  lines.forEach((line, i) => text(line, lw / 2, 448 + i * 22, 16, C.text, "center"));
+  addButton(lw / 2 - 115, Math.min(layoutH() - 90, 490 + lines.length * 22), 230, 54, "Return to Menu", () => action("continue"), true);
 }
 
 function drawFlash() {
   const w = Math.min(520, ctx.measureText(flash).width + 50);
-  fill("rgba(0,0,0,.72)", W / 2 - w / 2, 24, w, 42, 10);
-  text(flash, W / 2, 52, 18, C.gold, "center");
+  const cx = layoutW() / 2;
+  shadow(0, 12, 28, "rgba(0,0,0,.45)", () => fill("rgba(18,14,22,.92)", cx - w / 2, 24, w, 42, 10));
+  strokeRound(cx - w / 2, 24, w, 42, 10, "rgba(220,180,70,.45)", 1);
+  text(flash, cx, 52, 18, C.gold, "center");
 }
 
 function drawHand(cards, x, y, highlight) {
@@ -1308,10 +1470,12 @@ function drawChips(x, y, amount) {
 }
 
 drawCardFace = function drawCardFace(card, x, y, highlight = false) {
-  if (highlight) fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12);
+  if (highlight) {
+    shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
+  }
   if (card.up === false) {
-    round(x, y, CARD_W, CARD_H, 9, "#321e46");
-    round(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, "#4b3269");
+    shadow(0, 7, 13, "rgba(0,0,0,.36)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#4a2f66"], [1, "#23133a"]], true));
+    gradientRound(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, [[0, "#654482"], [1, "#38244e"]], true);
     ctx.fillStyle = "#6e508c";
     for (let col = 0; col < 4; col++) {
       for (let row = 0; row < 6; row++) {
@@ -1329,8 +1493,9 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
     strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
     return;
   }
-  round(x, y, CARD_W, CARD_H, 9, C.parchment);
+  shadow(0, 7, 12, "rgba(0,0,0,.28)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#fff2cb"], [.55, C.parchment], [1, "#cdbb8f"]], true));
   strokeRound(x, y, CARD_W, CARD_H, 9, "#3c3228", 2);
+  strokeRound(x + 4, y + 4, CARD_W - 8, CARD_H - 8, 6, "rgba(255,255,255,.22)", 1);
   const red = card.suit === "H" || card.suit === "D";
   const color = red ? "#aa2323" : "#191923";
   const suit = { S: "\u2660", H: "\u2665", D: "\u2666", C: "\u2663" }[card.suit];
@@ -1403,24 +1568,35 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   const b = { x, y, w, h, label, onClick, enabled };
   buttons.push(b);
   const hot = inRect(hover, b) && enabled;
-  round(x, y, w, h, 8, enabled ? (primary ? "#dcb446" : hot ? "#342a45" : "#211a2c") : "#25232b");
-  strokeRound(x, y, w, h, 8, enabled ? (primary ? "#f0d878" : C.goldDim) : "#47414f", 2);
+  const stops = !enabled
+    ? [[0, "#282631"], [1, "#1a1820"]]
+    : primary
+      ? [[0, hot ? "#ffe081" : "#f0cb64"], [1, "#b8892f"]]
+      : [[0, hot ? "#433650" : "#2d2439"], [1, hot ? "#271f33" : "#19131f"]];
+  shadow(0, hot ? 8 : 4, hot ? 18 : 10, "rgba(0,0,0,.28)", () => gradientRound(x, y, w, h, 9, stops, true));
+  strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
+  fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   text(label, x + w / 2, y + h / 2 + 7, 17, primary ? C.black : enabled ? C.text : C.muted, "center");
 }
 
 function badge(x, y, label, color) {
   const width = Math.max(42, ctx.measureText(label).width + 24);
-  fill("#100d14", x - width / 2, y - 16, width, 32, 14);
-  strokeRound(x - width / 2, y - 16, width, 32, 14, color, 2);
+  gradientRound(x - width / 2, y - 16, width, 32, 14, [[0, "#1b1621"], [1, "#08070b"]], true);
+  strokeRound(x - width / 2, y - 16, width, 32, 14, color, 1.5);
   text(label, x, y + 6, 15, color, "center");
 }
 
 function meter(x, y, w, h, value, c1, c2) {
-  fill("#0d0a10", x, y, w, h, h / 2);
+  fill("#08070b", x, y, w, h, h / 2);
+  strokeRound(x, y, w, h, h / 2, "rgba(238,231,215,.08)", 1);
+  const filled = Math.max(0, Math.min(1, value)) * w;
+  if (filled <= 0) return;
   const g = ctx.createLinearGradient(x, y, x + w, y);
   g.addColorStop(0, c1);
+  g.addColorStop(.58, "#dcb446");
   g.addColorStop(1, c2);
-  fill(g, x, y, Math.max(0, Math.min(1, value)) * w, h, h / 2);
+  fill(g, x, y, filled, h, h / 2);
+  if (filled > 6) fill("rgba(255,255,255,.16)", x + 2, y + 2, filled - 4, Math.max(1, h * .28), h / 3);
 }
 
 function phaseTitle() {
@@ -1473,6 +1649,22 @@ function fill(color, x, y, w, h, r = 0) {
   ctx.fillStyle = color;
   pathRound(x, y, w, h, r);
   ctx.fill();
+}
+
+function gradientRound(x, y, w, h, r, stops, vertical = false) {
+  const g = vertical ? ctx.createLinearGradient(x, y, x, y + h) : ctx.createLinearGradient(x, y, x + w, y + h);
+  stops.forEach(([pos, color]) => g.addColorStop(pos, color));
+  fill(g, x, y, w, h, r);
+}
+
+function shadow(offsetX, offsetY, blur, color, drawFn) {
+  ctx.save();
+  ctx.shadowOffsetX = offsetX;
+  ctx.shadowOffsetY = offsetY;
+  ctx.shadowBlur = blur;
+  ctx.shadowColor = color;
+  drawFn();
+  ctx.restore();
 }
 
 function round(x, y, w, h, r, color) {
@@ -1586,6 +1778,14 @@ function inRect(p, r) {
   return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
 
+function layoutW() {
+  return viewport.logicalW || W;
+}
+
+function layoutH() {
+  return viewport.logicalH || H;
+}
+
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
@@ -1604,7 +1804,17 @@ function resizeCanvas() {
   viewport.cssW = cssW;
   viewport.cssH = cssH;
   viewport.dpr = dpr;
-  viewport.scale = Math.min(cssW / W, cssH / H);
-  viewport.x = Math.round((cssW - W * viewport.scale) / 2);
-  viewport.y = Math.round((cssH - H * viewport.scale) / 2);
+  viewport.portrait = cssH > cssW * 1.12;
+  viewport.logicalW = viewport.portrait ? PORTRAIT_W : W;
+  if (viewport.portrait) {
+    viewport.scale = cssW / viewport.logicalW;
+    viewport.logicalH = Math.max(1320, cssH / viewport.scale);
+    viewport.x = 0;
+    viewport.y = 0;
+  } else {
+    viewport.logicalH = H;
+    viewport.scale = Math.min(cssW / W, cssH / H);
+    viewport.x = Math.round((cssW - W * viewport.scale) / 2);
+    viewport.y = Math.round((cssH - H * viewport.scale) / 2);
+  }
 }
