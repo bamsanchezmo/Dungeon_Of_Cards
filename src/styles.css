@@ -76,6 +76,11 @@ button.primary {
   background: rgba(0, 0, 0, .62);
 }
 
+.signal-panel[hidden],
+.signal-fields[hidden] {
+  display: none !important;
+}
+
 .signal-card {
   display: grid;
   width: min(720px, 100%);
