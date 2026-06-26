@@ -834,7 +834,7 @@ async function hostLobby() {
     signalText.textContent = "Share this link. Up to 3 guests can join from it.";
     notify("Lobby link ready.");
   } catch (err) {
-    notify(err.message);
+    notify(formatPeerError(err));
   }
   broadcast();
 }
@@ -863,7 +863,7 @@ async function connectGuest() {
     peer.send({ type: "hello", playerId: localPlayerId, name: "Guest" });
     notify("Connected. Waiting for host state...");
   } catch (err) {
-    notify(err.message);
+    notify(formatPeerError(err));
   }
 }
 
@@ -875,7 +875,7 @@ function handlePeerStatus(status, details = {}) {
     notify("Guest connected.");
   }
   if (status === "error") {
-    notify(details?.message || "Lobby connection failed.");
+    notify(formatPeerError(details));
   }
 }
 
@@ -982,6 +982,25 @@ function notify(message) {
     toast.hidden = true;
   }, 3200);
   flashMsg(message);
+}
+
+function formatPeerError(err) {
+  if (!err) return "Lobby connection failed.";
+  const type = err.type ? `${err.type}: ` : "";
+  const message = err.message || String(err);
+  if (/Negotiation of connection/i.test(message)) {
+    return `${type}Negotiation failed. Keep the host tab open and try again; if it still fails, switch one device off VPN/Private Relay.`;
+  }
+  if (err.type === "peer-unavailable") {
+    return "Lobby not found. The host needs to keep the lobby open and share a fresh link.";
+  }
+  if (err.type === "network" || err.type === "server-error" || err.type === "socket-error") {
+    return `${type}${message}. Check that this browser can reach PeerJS and try again.`;
+  }
+  if (err.type === "webrtc") {
+    return `${type}${message}. WebRTC was blocked or relay negotiation failed.`;
+  }
+  return `${type}${message}`;
 }
 
 function startAudio() {

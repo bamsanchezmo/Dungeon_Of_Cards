@@ -1,5 +1,6 @@
 const lobbyPrefix = "dungeon-of-cards";
 const lobbyCodeLength = 8;
+const turnSecret = "openrelayprojectsecret";
 
 export function createLobbyCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -33,10 +34,11 @@ function peerIdFor(code) {
   return `${lobbyPrefix}-${code.toLowerCase()}`;
 }
 
-function makePeer(id) {
+async function makePeer(id) {
   if (!globalThis.Peer) {
     throw new Error("Peer lobby script did not load. Check your connection and refresh.");
   }
+  const iceServers = await createIceServers();
   return new globalThis.Peer(id, {
     debug: 1,
     host: "0.peerjs.com",
@@ -44,49 +46,76 @@ function makePeer(id) {
     path: "/",
     secure: true,
     config: {
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" },
-        { urls: "stun:stun.relay.metered.ca:80" },
-        {
-          urls: "turn:global.relay.metered.ca:80",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:global.relay.metered.ca:80?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:global.relay.metered.ca:443",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turns:global.relay.metered.ca:443?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        }
-      ],
+      iceServers,
       iceCandidatePoolSize: 8
     }
   });
 }
 
+async function createIceServers() {
+  const servers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:stun.relay.metered.ca:80" }
+  ];
+  try {
+    const credentials = await createTurnCredentials();
+    servers.push(
+      { urls: "turn:staticauth.openrelay.metered.ca:80", ...credentials },
+      { urls: "turn:staticauth.openrelay.metered.ca:80?transport=tcp", ...credentials },
+      { urls: "turn:staticauth.openrelay.metered.ca:443", ...credentials },
+      { urls: "turns:staticauth.openrelay.metered.ca:443?transport=tcp", ...credentials }
+    );
+  } catch {
+    servers.push(
+      { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+      { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
+    );
+  }
+  return servers;
+}
+
+async function createTurnCredentials() {
+  const username = String(Math.floor(Date.now() / 1000) + 24 * 60 * 60);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(turnSecret),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"]
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(username));
+  const credential = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  return { username, credential };
+}
+
 function waitForPeerOpen(peer) {
   if (peer.open) return Promise.resolve(peer.id);
   return new Promise((resolve, reject) => {
-    peer.once("open", resolve);
-    peer.once("error", reject);
+    const timer = setTimeout(() => reject(new Error("Lobby server timed out. Try refreshing the host tab and sharing a new link.")), 12000);
+    peer.once("open", (id) => {
+      clearTimeout(timer);
+      resolve(id);
+    });
+    peer.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 
 function waitForConnectionOpen(connection) {
   if (connection.open) return Promise.resolve(connection);
   return new Promise((resolve, reject) => {
-    connection.once("open", () => resolve(connection));
-    connection.once("error", reject);
+    const timer = setTimeout(() => reject(new Error("Connection timed out. Keep the host tab open and try the link again.")), 20000);
+    connection.once("open", () => {
+      clearTimeout(timer);
+      resolve(connection);
+    });
+    connection.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 
@@ -97,13 +126,15 @@ export class HostPeer {
     this.onStatus = onStatus;
     this.onConnection = onConnection;
     this.connections = new Map();
-    this.peer = makePeer(peerIdFor(code));
-    this.ready = waitForPeerOpen(this.peer);
-
-    this.peer.on("connection", (connection) => this.#wireConnection(connection));
-    this.peer.on("disconnected", () => this.onStatus?.("disconnected"));
-    this.peer.on("close", () => this.onStatus?.("closed"));
-    this.peer.on("error", (err) => this.onStatus?.("error", err));
+    this.peer = null;
+    this.ready = makePeer(peerIdFor(code)).then((peer) => {
+      this.peer = peer;
+      peer.on("connection", (connection) => this.#wireConnection(connection));
+      peer.on("disconnected", () => this.onStatus?.("disconnected"));
+      peer.on("close", () => this.onStatus?.("closed"));
+      peer.on("error", (err) => this.onStatus?.("error", err));
+      return waitForPeerOpen(peer);
+    });
   }
 
   async createInvite() {
@@ -151,17 +182,19 @@ export class GuestPeer {
     this.code = code;
     this.onMessage = onMessage;
     this.onStatus = onStatus;
-    this.peer = makePeer();
+    this.peer = null;
     this.connection = null;
     this.id = "";
-    this.ready = waitForPeerOpen(this.peer).then((id) => {
-      this.id = id;
-      return id;
+    this.ready = makePeer().then((peer) => {
+      this.peer = peer;
+      peer.on("disconnected", () => this.onStatus?.("disconnected"));
+      peer.on("close", () => this.onStatus?.("closed"));
+      peer.on("error", (err) => this.onStatus?.("error", err));
+      return waitForPeerOpen(peer).then((id) => {
+        this.id = id;
+        return id;
+      });
     });
-
-    this.peer.on("disconnected", () => this.onStatus?.("disconnected"));
-    this.peer.on("close", () => this.onStatus?.("closed"));
-    this.peer.on("error", (err) => this.onStatus?.("error", err));
   }
 
   async connect() {
