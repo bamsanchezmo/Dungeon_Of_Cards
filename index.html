@@ -3,115 +3,52 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#17131d">
+    <meta name="theme-color" content="#18121f">
     <title>Dungeon of Cards</title>
     <link rel="stylesheet" href="./src/styles.css">
   </head>
   <body>
-    <div id="app" class="app">
-      <header class="topbar">
-        <div>
-          <h1>Dungeon of Cards</h1>
-          <p id="connectionStatus">Original web build + free lobby prototype</p>
-        </div>
-        <div id="lobbyBadge" class="lobby-badge" hidden></div>
-      </header>
+    <main id="app" class="shell">
+      <canvas id="game" width="1280" height="800" aria-label="Dungeon of Cards game table"></canvas>
 
-      <main class="layout">
-        <section id="menuView" class="panel menu-view">
-          <div class="menu-grid">
-            <a class="button-link primary" href="./original-web/">Play Original</a>
-            <button id="soloBtn">Prototype Solo Run</button>
-            <button id="hostBtn">Host Free Lobby</button>
-            <button id="joinBtn">Join Invite</button>
+      <section id="signalPanel" class="signal-panel" hidden>
+        <div class="signal-card">
+          <div class="signal-head">
+            <div>
+              <h1 id="signalTitle">Lobby</h1>
+              <p id="signalText">Copy and paste the connection text.</p>
+            </div>
+            <button id="closeSignal" class="icon-btn" aria-label="Close">x</button>
           </div>
-          <p class="smallprint">
-            Play Original runs the Pygame version in the browser. The lobby buttons below are
-            the no-paid-backend WebRTC prototype for multiplayer.
-          </p>
-        </section>
 
-        <section id="lobbyView" class="panel lobby-view" hidden>
-          <div id="hostLobby" hidden>
-            <h2>Host Lobby</h2>
-            <p class="smallprint">Share the host invite with a friend. When they send an answer back, paste it here.</p>
+          <div id="hostFields" class="signal-fields" hidden>
             <label>
               Host invite
               <textarea id="hostOffer" readonly spellcheck="false"></textarea>
             </label>
-            <button id="copyOfferBtn">Copy Invite</button>
+            <button id="copyOffer">Copy Invite</button>
             <label>
               Guest answer
               <textarea id="guestAnswer" spellcheck="false" placeholder="Paste guest answer here"></textarea>
             </label>
-            <button id="acceptAnswerBtn" class="primary">Accept Answer</button>
+            <button id="acceptAnswer" class="primary">Accept Answer</button>
           </div>
 
-          <div id="joinLobby" hidden>
-            <h2>Join Lobby</h2>
-            <p class="smallprint">Paste the host invite. Then copy your answer back to the host.</p>
+          <div id="joinFields" class="signal-fields" hidden>
             <label>
               Host invite
               <textarea id="joinOffer" spellcheck="false" placeholder="Paste host invite here"></textarea>
             </label>
-            <button id="createAnswerBtn" class="primary">Create Answer</button>
+            <button id="createAnswer" class="primary">Create Answer</button>
             <label>
               Your answer
               <textarea id="joinAnswer" readonly spellcheck="false"></textarea>
             </label>
-            <button id="copyAnswerBtn">Copy Answer</button>
+            <button id="copyAnswer">Copy Answer</button>
           </div>
-
-          <button id="backToMenuBtn" class="ghost">Back</button>
-        </section>
-
-        <section id="gameView" class="game-view" hidden>
-          <section class="table-surface">
-            <div class="enemy-row">
-              <div class="enemy-token" id="enemyToken">DE</div>
-              <div>
-                <h2 id="enemyName">The Dealer Eternal</h2>
-                <div class="meter"><span id="enemyHpBar"></span></div>
-                <p id="enemyHpText"></p>
-              </div>
-            </div>
-
-            <div class="dealer-zone">
-              <h3>Dealer</h3>
-              <div id="dealerCards" class="cards"></div>
-              <div id="dealerTotal" class="total-pill"></div>
-            </div>
-
-            <div id="players" class="players"></div>
-          </section>
-
-          <aside class="side-panel">
-            <div>
-              <h2 id="phaseTitle">Betting</h2>
-              <p id="phaseText"></p>
-            </div>
-            <div class="stat-grid">
-              <div><span>Gold</span><strong id="goldText">200</strong></div>
-              <div><span>Floor</span><strong id="floorText">1</strong></div>
-            </div>
-            <div id="betControls" class="controls">
-              <button data-action="betDown">-5</button>
-              <button data-action="betUp">+5</button>
-              <button data-action="ready" class="primary">Ready</button>
-            </div>
-            <div id="playControls" class="controls" hidden>
-              <button data-action="hit" class="primary">Hit</button>
-              <button data-action="stand">Stand</button>
-            </div>
-            <div class="log-wrap">
-              <h3>Run Log</h3>
-              <ol id="log"></ol>
-            </div>
-          </aside>
-        </section>
-      </main>
-    </div>
-
+        </div>
+      </section>
+    </main>
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>
