@@ -1115,24 +1115,24 @@ function drawMenu() {
   text("DUNGEON", cx, portrait ? 176 : 188, portrait ? 58 : 76, C.gold, "center", "serif");
   ctx.restore();
   text("of CARDS", cx, portrait ? 236 : 264, portrait ? 56 : 72, C.parchment, "center", "serif");
-  text("A blackjack roguelike", cx, portrait ? 288 : 316, 25, C.muted, "center");
+  text("A blackjack roguelike", cx, portrait ? 288 : 316, portrait ? 29 : 25, C.muted, "center");
   const lines = [
     "Win chips to damage dealer-monsters.",
     "Lose chips and the dungeon takes blood.",
     "Collect relics, bend the rules, beat the final boss."
   ];
-  lines.forEach((line, i) => text(line, cx, (portrait ? 350 : 372) + i * 30, portrait ? 18 : 21, C.text, "center"));
-  const buttonW = portrait ? 420 : 300;
+  lines.forEach((line, i) => text(line, cx, (portrait ? 350 : 372) + i * 34, portrait ? 22 : 21, C.text, "center"));
+  const buttonW = portrait ? 480 : 300;
   const buttonX = cx - buttonW / 2;
-  const buttonY = portrait ? 484 : 490;
-  addButton(buttonX, buttonY, buttonW, 60, "Single Player", () => {
+  const buttonY = portrait ? 500 : 490;
+  addButton(buttonX, buttonY, buttonW, portrait ? 74 : 60, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
     newGame([{ id: hostId, name: "You" }]);
   }, true);
-  addButton(buttonX, buttonY + 76, buttonW, 60, "Host Game", hostLobby);
-  addButton(buttonX, buttonY + 152, buttonW, 60, "Join Game", joinLobby);
-  text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 13 : 16, C.muted, "center");
+  addButton(buttonX, buttonY + (portrait ? 92 : 76), buttonW, portrait ? 74 : 60, "Host Game", hostLobby);
+  addButton(buttonX, buttonY + (portrait ? 184 : 152), buttonW, portrait ? 74 : 60, "Join Game", joinLobby);
+  text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
 }
 
 function drawTable() {
@@ -1170,7 +1170,7 @@ function drawDealer(felt) {
   const barX = felt.x + 22;
   const barY = portrait ? felt.y + 252 : felt.y + 248;
   const barW = felt.w - 44;
-  text("Dealer", felt.x + 38, felt.y + 38, 18, C.muted);
+  text("Dealer", felt.x + 38, felt.y + 38, portrait ? 23 : 18, C.muted);
   drawHand(game.dealer, dealerX, felt.y + 56, false);
   const shown = game.dealer.some((c) => !c.up) ? `${visibleTotal(game.dealer)}+?` : handTotal({ cards: game.dealer });
   badge(badgeX, felt.y + 205, game.dealer.length ? `Total ${shown}` : "Waiting", C.muted);
@@ -1183,12 +1183,12 @@ function drawDealer(felt) {
   strokeRound(barX, barY, barW, 78, 14, "rgba(220,180,70,.2)", 1);
   shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
   text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
-  text(e.name, barX + 82, barY + 27, portrait ? 19 : 22, C.gold);
-  wrapTextSized(e.description, barX + 82, barY + 53, portrait ? 300 : 460, 16, portrait ? 13 : 15, C.muted, 1);
+  text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, C.gold);
+  wrapTextSized(e.description, barX + 82, barY + 56, portrait ? 300 : 460, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
   const meterW = portrait ? 180 : 220;
   const meterX = barX + barW - meterW - 30;
   meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
-  text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 61, 14, C.text, "center");
+  text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
 }
 
 function drawSeats(felt) {
@@ -1207,8 +1207,8 @@ function drawSeats(felt) {
       fill("rgba(5,8,7,.28)", x - 18, y - 42, seatW, 150, 14);
     }
     strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : "rgba(238,231,215,.11)", isActive ? 3 : 1);
-    text(`${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`, x, y - 18, portrait ? 15 : 18, isActive ? C.gold : C.text);
-    text(seatStatus(seat), x + seatW - 40, y - 18, 14, C.muted, "right");
+    text(`${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`, x, y - 18, portrait ? 20 : 18, isActive ? C.gold : C.text);
+    text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
     if (seat.hands.length) {
       seat.hands.forEach((hand, hidx) => {
         drawHand(hand.cards, x + hidx * 136, y + 10, hidx === seat.active && isActive);
@@ -1255,7 +1255,7 @@ function drawBottomPanel() {
   const x = 24;
   const y = 842;
   const w = layoutW() - 48;
-  const h = Math.max(620, layoutH() - y - 28);
+  const h = Math.max(720, layoutH() - y - 28);
   shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
     gradientRound(x, y, w, h, 18, [
       [0, "#241a30"],
@@ -1264,52 +1264,90 @@ function drawBottomPanel() {
     ], true);
   });
   strokeRound(x, y, w, h, 18, "rgba(220,180,70,.3)", 2);
-  text("Dungeon of Cards", x + w / 2, y + 42, 25, C.gold, "center", "serif");
+  text("Dungeon of Cards", x + w / 2, y + 48, 34, C.gold, "center", "serif");
 
   const leftX = x + 24;
-  const midX = x + 260;
-  const rightX = x + 508;
-  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, leftX, y + 86, 17, C.text);
-  text(`Gold ${game.gold}g`, leftX, y + 114, 17, C.gold);
-  meter(leftX, y + 140, 196, 14, game.hp / game.maxHp, C.red, C.green);
-  text(`HP ${game.hp}/${game.maxHp}`, leftX + 98, y + 170, 14, C.text, "center");
-  if (game.code) badge(leftX + 98, y + 208, `Lobby ${game.code}`, C.gold);
+  const rightStatX = x + w - 250;
+  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, leftX, y + 98, 24, C.text);
+  text(`Gold ${game.gold}g`, leftX, y + 134, 24, C.gold);
+  meter(rightStatX, y + 96, 220, 18, game.hp / game.maxHp, C.red, C.green);
+  text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
+  if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
 
-  fill("rgba(220,180,70,.08)", midX, y + 72, 220, 44, 10);
-  text(phaseTitle(), midX + 110, y + 101, 20, C.text, "center");
-  drawActionButtons(midX, y + 132);
+  fill("rgba(220,180,70,.08)", leftX, y + 204, w - 48, 58, 12);
+  text(phaseTitle(), x + w / 2, y + 242, 29, C.text, "center");
+  drawActionButtons(leftX, y + 284);
 
-  drawRelicPanel(rightX, y + 86, 202);
-  fill("rgba(238,231,215,.06)", leftX, y + 360, w - 48, 1);
-  text("Log", leftX, y + 396, 18, C.gold);
-  game.log.slice(0, 5).forEach((line, i) => text(line, leftX, y + 424 + i * 23, 14, C.muted));
+  fill("rgba(238,231,215,.06)", leftX, y + 620, w - 48, 1);
+  drawRelicPanel(leftX, y + 660, 320);
+  text("Log", x + 392, y + 660, 24, C.gold);
+  game.log.slice(0, 5).forEach((line, i) => text(line, x + 392, y + 698 + i * 29, 19, C.muted));
 }
 
 function drawRelicPanel(x, y, w) {
-  text("Relics", x, y, 18, C.gold);
+  const portrait = viewport.portrait;
+  text("Relics", x, y, portrait ? 24 : 18, C.gold);
   if (!game.relics.length) {
-    text("None yet", x, y + 28, 14, C.muted);
+    text("None yet", x, y + (portrait ? 38 : 28), portrait ? 19 : 14, C.muted);
     return;
   }
   const newest = game.relics.find((r) => r.name === lastRelicName);
   const shown = newest
     ? [newest, ...game.relics.filter((r) => r.name !== newest.name)]
     : game.relics;
-  shown.slice(0, 2).forEach((r, i) => drawRelicRow(r, x, y + 28 + i * 62, w, r.name === lastRelicName));
+  shown.slice(0, 2).forEach((r, i) => drawRelicRow(r, x, y + (portrait ? 40 : 28) + i * (portrait ? 84 : 62), w, r.name === lastRelicName));
   if (game.relics.length > 2) {
-    text(`+${game.relics.length - 2} more`, x, y + 154, 13, C.muted);
+    text(`+${game.relics.length - 2} more`, x, y + (portrait ? 220 : 154), portrait ? 17 : 13, C.muted);
   }
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
-  gradientRound(x, y - 14, w, 54, 8, highlight ? [[0, "#3a2c45"], [1, "#211827"]] : [[0, "#1d1624"], [1, "#100d15"]]);
-  strokeRound(x, y - 14, w, 54, 8, highlight ? C.gold : "rgba(238,231,215,.12)", 1);
-  badge(x + 22, y + 12, relic.icon, C.gold);
-  text(relic.name, x + 50, y + 4, 14, C.gold);
-  wrapTextSized(relic.description, x + 50, y + 24, w - 58, 14, 12, C.muted, 2);
+  const portrait = viewport.portrait;
+  const rowH = portrait ? 74 : 54;
+  gradientRound(x, y - 14, w, rowH, 8, highlight ? [[0, "#3a2c45"], [1, "#211827"]] : [[0, "#1d1624"], [1, "#100d15"]]);
+  strokeRound(x, y - 14, w, rowH, 8, highlight ? C.gold : "rgba(238,231,215,.12)", 1);
+  badge(x + (portrait ? 28 : 22), y + (portrait ? 20 : 12), relic.icon, C.gold);
+  text(relic.name, x + (portrait ? 62 : 50), y + (portrait ? 8 : 4), portrait ? 18 : 14, C.gold);
+  wrapTextSized(relic.description, x + (portrait ? 62 : 50), y + (portrait ? 34 : 24), w - (portrait ? 74 : 58), portrait ? 18 : 14, portrait ? 15 : 12, C.muted, 2);
 }
 
 function drawActionButtons(x, y) {
+  if (viewport.portrait) {
+    const gap = 16;
+    const bw = Math.floor((layoutW() - 96 - gap) / 2);
+    const bh = 68;
+    const full = bw * 2 + gap;
+    if (game.phase === "betting") {
+      addButton(x, y, bw, bh, "-5", () => action("betDown"));
+      addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
+      addButton(x, y + 82, bw, bh, "Min", () => action("minBet"));
+      addButton(x + bw + gap, y + 82, bw, bh, "Max", () => action("maxBet"));
+      addButton(x, y + 164, full, 76, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      return;
+    }
+    if (game.phase === "insurance") {
+      addButton(x, y, bw, bh, "Insure", () => action("insuranceYes"), true);
+      addButton(x + bw + gap, y, bw, bh, "No", () => action("insuranceNo"));
+      return;
+    }
+    if (game.phase === "player") {
+      const mine = activeHand(mySeat());
+      const myTurn = game.seats[game.activeSeat]?.id === localPlayerId;
+      addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
+      addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
+      addButton(x, y + 82, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
+      addButton(x + bw + gap, y + 82, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
+      addButton(x, y + 164, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+      if (game.foresightUsesLeft > 0) {
+        addButton(x, y + 246, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
+      }
+      return;
+    }
+    if (["roundOver", "victory", "defeat"].includes(game.phase)) {
+      addButton(x, y, full, 76, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
+    }
+    return;
+  }
   if (game.phase === "betting") {
     addButton(x, y, 110, 42, "-5", () => action("betDown"));
     addButton(x + 118, y, 110, 42, "+5", () => action("betUp"));
@@ -1349,11 +1387,11 @@ function drawShop() {
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
   strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
-  text("THE WANDERING MERCHANT", lw / 2, 98, portrait ? 28 : 42, C.gold, "center", "serif");
-  text("Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 15 : 20, C.muted, "center");
+  text("THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
+  text("Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
   if (portrait) {
-    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 240, 205 + i * 340));
-    addButton(lw / 2 - 112, 1225, 224, 54, "Skip Shop", () => action("skipShop"));
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, 205 + i * 340));
+    addButton(lw / 2 - 170, 1225, 340, 72, "Skip Shop", () => action("skipShop"));
   } else {
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 175 + i * 315, 205));
     addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
@@ -1363,22 +1401,25 @@ function drawShop() {
 function drawShopRelicCard(relic, index, x, y) {
   const cost = 45 + game.floor * 15;
   const canBuy = game.gold >= cost;
+  const portrait = viewport.portrait;
+  const cardW = portrait ? layoutW() - 160 : 280;
+  const cardH = portrait ? 318 : 320;
   shadow(0, 18, 38, "rgba(0,0,0,.42)", () => {
-    gradientRound(x, y, 280, 320, 14, canBuy
+    gradientRound(x, y, cardW, cardH, 14, canBuy
       ? [[0, "#2c2438"], [.62, "#17111e"], [1, "#22152b"]]
       : [[0, "#211b27"], [1, "#111017"]], true);
   });
-  strokeRound(x, y, 280, 320, 14, canBuy ? C.gold : C.goldDim, canBuy ? 3 : 2);
-  fill("rgba(220,180,70,.08)", x + 14, y + 14, 252, 76, 12);
-  fill("#120e16", x + 20, y + 20, 64, 64, 14);
-  strokeRound(x + 20, y + 20, 64, 64, 14, C.goldDim, 2);
-  text(relic.icon, x + 52, y + 62, relic.icon.length > 1 ? 19 : 28, C.gold, "center", "serif");
-  text(relic.name, x + 100, y + 45, 20, C.gold);
-  wrapTextSized(relic.description, x + 100, y + 72, 150, 17, 14, C.text, 3);
-  fill("rgba(7,5,10,.46)", x + 24, y + 112, 232, 116, 10);
-  strokeRound(x + 24, y + 112, 232, 116, 10, "rgba(238,231,215,.12)", 1);
-  wrapTextSized(relic.description, x + 42, y + 144, 196, 20, 16, C.text, 4);
-  addButton(x + 40, y + 250, 200, 50, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
+  strokeRound(x, y, cardW, cardH, 14, canBuy ? C.gold : C.goldDim, canBuy ? 3 : 2);
+  fill("rgba(220,180,70,.08)", x + 14, y + 14, cardW - 28, portrait ? 88 : 76, 12);
+  fill("#120e16", x + 20, y + 20, portrait ? 78 : 64, portrait ? 78 : 64, 14);
+  strokeRound(x + 20, y + 20, portrait ? 78 : 64, portrait ? 78 : 64, 14, C.goldDim, 2);
+  text(relic.icon, x + (portrait ? 59 : 52), y + (portrait ? 70 : 62), relic.icon.length > 1 ? (portrait ? 24 : 19) : (portrait ? 34 : 28), C.gold, "center", "serif");
+  text(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), portrait ? 27 : 20, C.gold);
+  wrapTextSized(relic.description, x + (portrait ? 116 : 100), y + (portrait ? 82 : 72), cardW - (portrait ? 150 : 130), portrait ? 22 : 17, portrait ? 18 : 14, C.text, 2);
+  fill("rgba(7,5,10,.46)", x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10);
+  strokeRound(x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10, "rgba(238,231,215,.12)", 1);
+  wrapTextSized(relic.description, x + 42, y + (portrait ? 154 : 144), cardW - 84, portrait ? 24 : 20, portrait ? 19 : 16, C.text, 3);
+  addButton(x + 40, y + (portrait ? 244 : 250), cardW - 80, portrait ? 62 : 50, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
 }
 
 function drawPeekOverlay() {
@@ -1568,6 +1609,7 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   const b = { x, y, w, h, label, onClick, enabled };
   buttons.push(b);
   const hot = inRect(hover, b) && enabled;
+  const portrait = viewport.portrait;
   const stops = !enabled
     ? [[0, "#282631"], [1, "#1a1820"]]
     : primary
@@ -1576,14 +1618,18 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   shadow(0, hot ? 8 : 4, hot ? 18 : 10, "rgba(0,0,0,.28)", () => gradientRound(x, y, w, h, 9, stops, true));
   strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
-  text(label, x + w / 2, y + h / 2 + 7, 17, primary ? C.black : enabled ? C.text : C.muted, "center");
+  text(label, x + w / 2, y + h / 2 + (portrait ? 9 : 7), portrait ? Math.min(28, Math.max(23, h * .36)) : 17, primary ? C.black : enabled ? C.text : C.muted, "center");
 }
 
 function badge(x, y, label, color) {
-  const width = Math.max(42, ctx.measureText(label).width + 24);
-  gradientRound(x - width / 2, y - 16, width, 32, 14, [[0, "#1b1621"], [1, "#08070b"]], true);
-  strokeRound(x - width / 2, y - 16, width, 32, 14, color, 1.5);
-  text(label, x, y + 6, 15, color, "center");
+  const portrait = viewport.portrait;
+  const size = portrait ? 19 : 15;
+  ctx.font = `700 ${size}px sans-serif`;
+  const width = Math.max(portrait ? 58 : 42, ctx.measureText(label).width + (portrait ? 32 : 24));
+  const height = portrait ? 40 : 32;
+  gradientRound(x - width / 2, y - height / 2, width, height, height / 2, [[0, "#1b1621"], [1, "#08070b"]], true);
+  strokeRound(x - width / 2, y - height / 2, width, height, height / 2, color, 1.5);
+  text(label, x, y + (portrait ? 7 : 6), size, color, "center");
 }
 
 function meter(x, y, w, h, value, c1, c2) {
