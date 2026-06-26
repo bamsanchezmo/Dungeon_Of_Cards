@@ -56,15 +56,7 @@ let flashTimer = 0;
 let toastTimer = 0;
 let lastRelicName = "";
 
-const enemyTemplates = [
-  { name: "Apprentice Croupier", title: "Floor 1 - Dealer-in-training", hp: 80, color: C.blue, icon: "C", description: "Standard rules. A gentle introduction.", hitsSoft17: false },
-  { name: "Toll Collector", title: "Every card has a price", hp: 130, color: "#bea05a", icon: "$", description: "Each hit costs 5 gold.", hitFee: 5 },
-  { name: "Vampire Dealer", title: "Ties belong to the night", hp: 174, color: C.red, icon: "V", description: "Pushes count as dealer wins.", tiesLose: true },
-  { name: "Tin Pit Boss", title: "Cheap chips, cheaper payouts", hp: 218, color: "#a0aab4", icon: "T", description: "Blackjack pays only 6:5.", bjPays65: true },
-  { name: "Veiled Magician", title: "The trick is on you", hp: 262, color: C.purple, icon: "M", description: "No peek. Doubling forbidden. Sleight of hand.", dealerPeek: false, noDouble: true, luck: 15 },
-  { name: "Warden of Spades", title: "Forged in iron", hp: 350, color: "#7882a0", icon: "S", description: "No surrender, no insurance, no peek. Pushes lose.", noSurrender: true, noInsurance: true, dealerPeek: false, tiesLose: true },
-  { name: "The Dealer Eternal", title: "FINAL - Architect of the dungeon", hp: 500, color: C.gold, icon: "BOSS", description: "Every house rule against you. The deck itself answers to them.", tiesLose: true, bjPays65: true, noSurrender: true, noInsurance: true, luck: 35 }
-];
+let enemyTemplates = [];
 
 const relicPool = [
   { name: "Lucky Coin", icon: "$", description: "Pushes count as wins.", pushWins: true },
@@ -75,13 +67,99 @@ const relicPool = [
   { name: "Split Mastery", icon: "><", description: "Aces may be re-split freely.", extraSplit: true },
   { name: "Vampire's Bargain", icon: "V", description: "Heal 15 HP on every winning hand.", heal: 15 },
   { name: "Pawnbroker's Note", icon: "%", description: "Refund 25% of losing bets.", refund: .25 },
+  { name: "Phoenix Feather", icon: "^", description: "Heal 30 HP on every winning hand.", heal: 30 },
+  { name: "Merchant's Ledger", icon: "L", description: "Refund an additional 40% of losing bets.", refund: .4 },
   { name: "Executioner's Mark", icon: "X", description: "Deal +20 bonus damage on winning rounds.", damageBonus: 20 },
+  { name: "Dragon's Tooth", icon: "T", description: "Deal +40 bonus damage on winning rounds.", damageBonus: 40 },
   { name: "Gambler's Tip", icon: "G", description: "Each winning hand pays +10 gold.", chipBonus: 10 },
+  { name: "Golden Tongue", icon: "$$", description: "Each winning hand pays +25 gold.", chipBonus: 25 },
   { name: "Featherfall Charm", icon: "~", description: "When you bust, refund 50% of that bet.", bustRefund: .5 },
+  { name: "Quicksilver Glove", icon: "Q", description: "5-card Charlie wins, and pushes count as wins.", fiveCard: true, pushWins: true },
+  { name: "Heart of the Deck", icon: "H", description: "Heal 10 HP on win and deal +10 bonus damage.", heal: 10, damageBonus: 10 },
+  { name: "Usurer's Seal", icon: "U", description: "Each winning hand pays +15g; refund 15% of losses.", chipBonus: 15, refund: .15 },
+  { name: "Tinker's Thimble", icon: "o", description: "Each winning hand pays +5 gold.", chipBonus: 5 },
+  { name: "Bone Talisman", icon: "b", description: "Heal 8 HP on every winning hand.", heal: 8 },
+  { name: "Apprentice's Coin", icon: "a", description: "Refund 15% of losing bets.", refund: .15 },
+  { name: "Iron Filing", icon: "i", description: "Deal +10 bonus damage on winning rounds.", damageBonus: 10 },
+  { name: "Magistrate's Writ", icon: "W", description: "Surrender refunds your full bet, and insurance pays 3:1.", freeSurrender: true, insurance3: true },
+  { name: "Duelist's Sigil", icon: "D", description: "Each winning hand pays +10g and deals +15 bonus damage.", chipBonus: 10, damageBonus: 15 },
+  { name: "Auditor's Quill", icon: "q", description: "Heal 12 HP on win; refund 20% of losing bets.", heal: 12, refund: .2 },
+  { name: "Bone-Hand Charm", icon: "h", description: "When you bust, refund 75% of that bet.", bustRefund: .75 },
+  { name: "Notary's Crown", icon: "N", description: "Blackjack pays 2:1, and pushes count as wins.", bjPays2: true, pushWins: true },
+  { name: "Croesus' Purse", icon: "C", description: "Each winning hand pays +40 gold.", chipBonus: 40 },
+  { name: "Crown of Ten Kings", icon: "K", description: "Surrender refunds full bet, insurance pays 3:1, and pushes count as wins.", freeSurrender: true, insurance3: true, pushWins: true },
+  { name: "Soulforged Fang", icon: "S", description: "Heal 20 HP on win and deal +25 bonus damage.", heal: 20, damageBonus: 25 },
+  { name: "Sovereign's Chalice", icon: "Y", description: "Blackjack pays 2:1, and 5-card Charlie wins.", bjPays2: true, fiveCard: true },
   { name: "Rabbit's Foot", icon: "*", description: "+15 Luck. Cards more often land near 21.", luck: 15 },
   { name: "Four-Leaf Clover", icon: "%c", description: "+25 Luck. The shoe favors you.", luck: 25 },
-  { name: "Dealer's Bane", icon: "Z", description: "+50 damage on wins and +20 gold per winning hand.", damageBonus: 50, chipBonus: 20 }
+  { name: "Dice of the Damned", icon: "d", description: "+40 Luck. The bold roll twice.", luck: 40 },
+  { name: "Coin of the Fates", icon: "F", description: "+10 Luck and pushes count as wins.", luck: 10, pushWins: true },
+  { name: "Dealer's Bane", icon: "Z", description: "+50 damage on wins and +20 gold per winning hand.", damageBonus: 50, chipBonus: 20 },
+  { name: "Sepulcher Key", icon: "E", description: "Refund 30% of losses; refund 50% when you bust.", refund: .3, bustRefund: .5 },
+  { name: "Cracked Scrying Lens", icon: "?", description: "Once per run: peek the next card pulled.", foresightUses: 1 }
 ];
+
+function buildCampaign() {
+  const campaign = [enemy("Apprentice Croupier", "Floor 1 - Dealer-in-training", 80, C.blue, "C", "Standard rules. A gentle introduction.", { hitsSoft17: false })];
+  const tiers = [
+    [
+      enemy("Tavern Cardsharp", "Sticky fingers", 0, C.green, "S", "Hits soft 17. Otherwise plays it straight."),
+      enemy("Hooded Stranger", "Plays them close to the chest", 0, "#9682b4", "?", "No hole-card peek. Doubles and splits risk the full bet vs. dealer BJ.", { dealerPeek: false }),
+      enemy("Vampire Dealer", "Ties belong to the night", 0, C.red, "V", "Pushes count as dealer wins. Watch your throat.", { tiesLose: true }),
+      enemy("Toll Collector", "Every card has a price", 0, "#bea05a", "$", "Each hit costs 5 gold. Stand often or bleed dry.", { hitFee: 5 }),
+      enemy("Court Jester", "Foolish play, foolish loss", 0, "#dc82c8", "J", "Hits soft 17. Insurance forbidden.", { noInsurance: true }),
+      enemy("Coin-Eater", "Eats every coin you toss", 0, "#aa8c3c", "c", "Surrender forbidden. Each hit costs 3 gold.", { noSurrender: true, hitFee: 3 }),
+      enemy("Tin Pit Boss", "Cheap chips, cheaper payouts", 0, "#a0aab4", "t", "Blackjack pays only 6:5. Otherwise standard.", { bjPays65: true }),
+      enemy("Graveyard Shift Dealer", "Dawn never comes", 0, "#828caa", "z", "Pushes count as dealer wins. No peek.", { tiesLose: true, dealerPeek: false }),
+      enemy("Wandering Tinker", "Pay the tinker, take the card", 0, "#b4b482", "w", "Each hit costs 4 gold. Hits soft 17.", { hitFee: 4 })
+    ],
+    [
+      enemy("Iron Bookkeeper", "No mercy, no surrender", 0, "#b4b4c8", "D", "Surrender forbidden. Insurance forbidden.", { noSurrender: true, noInsurance: true }),
+      enemy("Crooked Sheriff", "No deals, no doubles", 0, "#c86450", "*", "Doubling down is forbidden at this table.", { noDouble: true }),
+      enemy("Cursed Magistrate", "Justice pays poorly", 0, C.purple, "LAW", "Blackjack pays only 6:5.", { bjPays65: true }),
+      enemy("Plague Doctor", "No cure for a hard 16", 0, "#6ea082", "+", "No peek. No surrender. Dealer hits soft 17.", { dealerPeek: false, noSurrender: true }),
+      enemy("Whispering Auditor", "The ledger always balances", 0, "#aaaadc", "%", "Hits soft 17. Each hit costs 10 gold. Pushes lose.", { tiesLose: true, hitFee: 10 }),
+      enemy("Greedy Notary", "Every signature costs you", 0, "#b4965a", "&", "6:5 blackjack. Pushes lose. Hits soft 17.", { bjPays65: true, tiesLose: true }),
+      enemy("Veiled Magician", "The trick is on you", 0, C.purple, "~", "No peek. Doubling forbidden. Sleight of hand.", { dealerPeek: false, noDouble: true, luck: 15 }),
+      enemy("Silent Executor", "The verdict is already written", 0, "#5a646e", "X", "Hits soft 17. Surrender forbidden. Insurance forbidden.", { noSurrender: true, noInsurance: true }),
+      enemy("Pawnshop Tyrant", "Every chip changes hands twice", 0, "#a08246", "p", "Each hit costs 8 gold. Blackjack pays 6:5.", { bjPays65: true, hitFee: 8 }),
+      enemy("Mirror Twin", "Two hands, never yours", 0, "#bec8dc", "m", "Doubling forbidden. Pushes count as dealer wins.", { tiesLose: true, noDouble: true })
+    ],
+    [
+      enemy("Warden of Spades", "Forged in iron, dealt in spades", 0, "#7882a0", "S", "No surrender, no insurance, no peek. Pushes lose.", { noSurrender: true, noInsurance: true, dealerPeek: false, tiesLose: true }),
+      enemy("Lich Banker", "The house always wins", 0, "#78c8dc", "LICH", "Hits soft 17. Pushes lose. 6:5 blackjack.", { tiesLose: true, bjPays65: true }),
+      enemy("Gilded Inquisitor", "Confess your winnings", 0, "#dcaa5a", "!", "6:5 blackjack. Doubling forbidden. Insurance forbidden.", { bjPays65: true, noInsurance: true, noDouble: true }),
+      enemy("Twin Croupiers", "Two hands, one verdict", 0, "#c85ac8", "2x", "Each hit costs 15 gold. No surrender. Pushes lose.", { tiesLose: true, noSurrender: true, hitFee: 15 }),
+      enemy("Obsidian Marquis", "Carved from cold ambition", 0, "#464664", "M", "6:5 blackjack. Doubling forbidden. Pushes lose.", { bjPays65: true, tiesLose: true, noDouble: true }),
+      enemy("Hollow Sovereign", "Crowned in chips, hollow within", 0, "#b4c8c8", "K", "Each hit costs 20 gold. Hits soft 17. No insurance.", { noInsurance: true, hitFee: 20 }),
+      enemy("Black Deck Marshal", "No appeal, no escape", 0, "#50505a", "B", "Hits soft 17. No surrender. No insurance. No peek.", { noSurrender: true, noInsurance: true, dealerPeek: false }),
+      enemy("Carrion Auctioneer", "Selling your remains by the gram", 0, "#8c646e", "A", "6:5 blackjack. Each hit costs 12 gold. Doubling forbidden.", { bjPays65: true, hitFee: 12, noDouble: true }),
+      enemy("Last Light Oracle", "Reads your hand before you do", 0, "#c8b4e6", "O", "Hits soft 17. No peek. Pushes lose. Reads the deck.", { dealerPeek: false, tiesLose: true, luck: 25 })
+    ]
+  ];
+  let floor = 2;
+  for (const [index, pool] of tiers.entries()) {
+    const slots = index === 2 ? 2 : 3;
+    for (const pick of shuffle(pool.map((e) => ({ ...e }))).slice(0, slots)) {
+      pick.hp = calibratedHp(floor);
+      pick.title = `Floor ${floor} - ${pick.title}`;
+      campaign.push(pick);
+      floor++;
+    }
+  }
+  campaign.push(enemy("The Dealer Eternal", "FINAL - Architect of the dungeon", 500, C.gold, "BOSS", "Every house rule against you. The deck itself answers to them.", { tiesLose: true, bjPays65: true, noSurrender: true, noInsurance: true, luck: 35 }));
+  return campaign;
+}
+
+function enemy(name, title, hp, color, icon, description, rules = {}) {
+  return { name, title, hp, color, icon, description, dealerPeek: true, hitsSoft17: true, ...rules };
+}
+
+function calibratedHp(floor) {
+  if (floor === 1) return 80;
+  if (floor === 10) return 500;
+  return 130 + (floor - 2) * 44;
+}
 
 document.querySelector("#closeSignal").addEventListener("click", () => hideSignal());
 document.querySelector("#copyOffer").addEventListener("click", () => copy(hostOffer.value));
@@ -111,6 +189,7 @@ window.addEventListener("keydown", (ev) => {
   if (key === "d") action("double");
   if (key === "p") action("split");
   if (key === "r") action("surrender");
+  if (key === "f") action("peek");
   if (key === "enter") action(game?.phase === "betting" ? "ready" : "continue");
   if (key === "m") toggleMusic();
 });
@@ -123,6 +202,13 @@ function tick(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   if (flashTimer > 0) flashTimer -= dt;
+  if (game?.peekTimer > 0) {
+    game.peekTimer -= dt;
+    if (game.peekTimer <= 0) {
+      game.peekTimer = 0;
+      game.peekCard = null;
+    }
+  }
   if (game?.phase === "dealer" && role !== "guest") {
     game.dealerTimer -= dt;
     if (game.dealerTimer <= 0) dealerStep();
@@ -132,6 +218,8 @@ function tick(now) {
 }
 
 function newGame(players, code = "") {
+  enemyTemplates = buildCampaign();
+  lastRelicName = "";
   const seats = players.map((p) => ({
     id: p.id,
     name: p.name,
@@ -156,6 +244,10 @@ function newGame(players, code = "") {
     activeSeat: 0,
     relics: [],
     shop: [],
+    offeredRelicNames: [],
+    foresightUsesLeft: 0,
+    peekCard: null,
+    peekTimer: 0,
     log: [`${seats.length > 1 ? seats.length + " players enter" : "You enter"} the Dungeon of Cards.`],
     dealerTimer: .6,
     roundNet: 0,
@@ -293,6 +385,7 @@ function applyAction(playerId, name) {
   if (name === "double") doubleDown(seatIndex);
   if (name === "split") split(seatIndex);
   if (name === "surrender") surrender(seatIndex);
+  if (name === "peek") peekNextCard(seatIndex);
 }
 
 function dealRound() {
@@ -431,6 +524,18 @@ function surrender() {
   advanceHand();
 }
 
+function peekNextCard(seatIndex) {
+  if (seatIndex !== game.activeSeat || game.foresightUsesLeft <= 0) return;
+  const next = game.deck[game.deck.length - 1];
+  if (!next) return;
+  game.foresightUsesLeft--;
+  game.peekCard = { ...next, up: true };
+  game.peekTimer = 4;
+  log(`Peek: next card is ${next.rank}${next.suit}.`);
+  sfx("flip");
+  broadcast();
+}
+
 function advanceHand() {
   const seat = game.seats[game.activeSeat];
   seat.active++;
@@ -500,11 +605,13 @@ function settleRound() {
   const dealerBj = isBlackjackCards(game.dealer);
   let net = 0;
   let winHands = 0;
+  let grossLoss = 0;
   const results = [];
   for (const seat of game.seats) {
     for (const h of seat.hands) {
       const result = settleHand(h, dealerTotal, dealerBj);
       net += result.net;
+      grossLoss += result.grossLoss || 0;
       if (result.net > 0) winHands++;
       results.push(`${seat.name}: ${result.msg}`);
     }
@@ -515,8 +622,8 @@ function settleRound() {
     const heal = relicSum("heal") * Math.max(1, winHands);
     if (heal) game.hp = Math.min(game.maxHp, game.hp + heal);
     sfx("win");
-  } else if (net < 0) {
-    const dmg = Math.min(game.hp, Math.max(1, Math.floor(Math.abs(net) / 4)));
+  } else if (grossLoss > 0) {
+    const dmg = Math.min(game.hp, Math.max(1, Math.floor(grossLoss / 4)));
     game.hp -= dmg;
     sfx("lose");
   } else {
@@ -532,25 +639,26 @@ function settleHand(h, dealerTotal, dealerBj) {
   const bjMult = has("bjPays2") ? 2 : (game.enemy.bjPays65 ? 1.2 : 1.5);
   const chipBonus = relicSum("chipBonus");
   const pushWins = has("pushWins");
+  const cappedRefund = (amount) => Math.max(0, Math.min(amount, h.bet - 1));
   if (h.insurance) {
     if (dealerBj) game.gold += h.insurance * (has("insurance3") ? 4 : 3);
   }
   if (h.status === "surrender") {
     const refund = has("freeSurrender") ? h.bet : Math.floor(h.bet / 2);
     game.gold += refund;
-    return { net: -(h.bet - refund), msg: has("freeSurrender") ? "Surrender refunded" : `Surrender -${h.bet - refund}g` };
+    return { net: -(h.bet - refund), grossLoss: has("freeSurrender") ? 0 : Math.floor(h.bet / 2), msg: has("freeSurrender") ? "Surrender refunded" : `Surrender -${h.bet - refund}g` };
   }
   if (isBust(h)) {
-    const refund = Math.floor(h.bet * (relicSum("refund") + relicSum("bustRefund")));
+    const refund = cappedRefund(Math.floor(h.bet * (relicSum("refund") + relicSum("bustRefund"))));
     game.gold += refund;
-    return { net: -(h.bet - refund), msg: `Bust -${h.bet - refund}g` };
+    return { net: -(h.bet - refund), grossLoss: h.bet, msg: `Bust -${h.bet - refund}g` };
   }
   if (isBlackjack(h)) {
     if (dealerBj) {
       if (pushWins) return winResult(h, Math.floor(h.bet * bjMult) + chipBonus, "BJ push wins");
-      if (game.enemy.tiesLose) return { net: -h.bet, msg: "BJ tie loses" };
+      if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "BJ tie loses" };
       game.gold += h.bet;
-      return { net: 0, msg: "BJ push" };
+      return { net: 0, grossLoss: 0, msg: "BJ push" };
     }
     return winResult(h, Math.floor(h.bet * bjMult) + chipBonus, "BLACKJACK");
   }
@@ -561,20 +669,20 @@ function settleHand(h, dealerTotal, dealerBj) {
   if (total > dealerTotal) return winResult(h, h.bet + chipBonus, `${total} beats ${dealerTotal}`);
   if (total < dealerTotal) return loseResult(h, `${total} loses to ${dealerTotal}`);
   if (pushWins) return winResult(h, h.bet + chipBonus, "Push wins");
-  if (game.enemy.tiesLose) return { net: -h.bet, msg: "Tie loses" };
+  if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "Tie loses" };
   game.gold += h.bet;
-  return { net: 0, msg: `Push ${total}` };
+  return { net: 0, grossLoss: 0, msg: `Push ${total}` };
 }
 
 function winResult(h, amount, msg) {
   game.gold += h.bet + amount;
-  return { net: amount, msg: `${msg} +${amount}g` };
+  return { net: amount, grossLoss: 0, msg: `${msg} +${amount}g` };
 }
 
 function loseResult(h, msg) {
-  const refund = Math.floor(h.bet * relicSum("refund"));
+  const refund = Math.max(0, Math.min(Math.floor(h.bet * relicSum("refund")), h.bet - 1));
   game.gold += refund;
-  return { net: -(h.bet - refund), msg: `${msg} -${h.bet - refund}g` };
+  return { net: -(h.bet - refund), grossLoss: h.bet, msg: `${msg} -${h.bet - refund}g` };
 }
 
 function continueAfterRound() {
@@ -599,6 +707,7 @@ function buyRelic(index) {
   if (game.gold < cost) return flashMsg("Not enough gold");
   game.gold -= cost;
   game.relics.push(relic);
+  game.foresightUsesLeft += relic.foresightUses || 0;
   lastRelicName = relic.name;
   notify(`${relic.name}: ${relic.description}`);
   log(`Gained relic: ${relic.name}.`);
@@ -625,9 +734,12 @@ function resetRound() {
 
 function chooseRelics() {
   const owned = new Set(game.relics.map((r) => r.name));
-  const available = relicPool.filter((r) => !owned);
-  const pool = available.length ? available : relicPool;
-  return shuffle(pool.map((r) => ({ ...r }))).slice(0, 3);
+  const offered = new Set(game.offeredRelicNames || []);
+  let pool = relicPool.filter((r) => !owned.has(r.name) && !offered.has(r.name));
+  if (!pool.length) pool = relicPool.filter((r) => !owned.has(r.name));
+  const picks = shuffle(pool.map((r) => ({ ...r }))).slice(0, 3);
+  game.offeredRelicNames = [...new Set([...(game.offeredRelicNames || []), ...picks.map((r) => r.name)])];
+  return picks;
 }
 
 function ensureShopRelics() {
@@ -923,6 +1035,7 @@ function draw() {
     drawTable();
     if (game.phase === "shop") drawShop();
     if (game.phase === "victory" || game.phase === "defeat") drawEnd();
+    if (game.peekCard) drawPeekOverlay();
   }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
@@ -1056,6 +1169,9 @@ function drawActionButtons(x, y) {
     addButton(x, y + 52, 110, 44, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
     addButton(x + 118, y + 52, 110, 44, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
     addButton(x, y + 104, 228, 44, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+    if (game.foresightUsesLeft > 0) {
+      addButton(x, y + 156, 228, 44, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
+    }
     return;
   }
   if (["roundOver", "victory", "defeat"].includes(game.phase)) {
@@ -1088,13 +1204,27 @@ function drawShopRelicCard(relic, index, x, y) {
   addButton(x + 40, y + 250, 200, 50, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
 }
 
+function drawPeekOverlay() {
+  const alpha = Math.min(1, game.peekTimer / .6, (4 - game.peekTimer) / .35);
+  ctx.save();
+  ctx.globalAlpha = Math.max(.2, alpha);
+  fill("rgba(0,0,0,.58)", 0, 0, W, H);
+  text("NEXT CARD", W / 2, 215, 34, "#9ee8ff", "center", "serif");
+  drawCardFace(game.peekCard, W / 2 - CARD_W / 2, 250, true);
+  ctx.restore();
+}
+
 function drawEnd() {
   fill("rgba(0,0,0,.76)", 0, 0, W, H);
   const victory = game.phase === "victory";
   text(victory ? "VICTORY" : "DEFEAT", W / 2, 235, 68, victory ? C.gold : C.red, "center", "serif");
   text(victory ? "The dungeon folds its hand." : "The house collects.", W / 2, 305, 26, C.text, "center");
   text(`Final gold: ${game.gold}g`, W / 2, 365, 22, C.gold, "center");
-  addButton(W / 2 - 115, 460, 230, 54, "Return to Menu", () => action("continue"), true);
+  const relicText = game.relics.length ? game.relics.map((r) => r.name).join(", ") : "None";
+  text("Relics:", W / 2, 420, 20, C.gold, "center");
+  const lines = wrapLines(relicText, 820, 16);
+  lines.forEach((line, i) => text(line, W / 2, 448 + i * 22, 16, C.text, "center"));
+  addButton(W / 2 - 115, Math.min(700, 490 + lines.length * 22), 230, 54, "Return to Menu", () => action("continue"), true);
 }
 
 function drawFlash() {
@@ -1403,6 +1533,24 @@ function wrapTextSized(str, x, y, width, lineHeight, size, color, maxLines = Inf
     }
   }
   if (line && lines < maxLines) text(line, x, cy, size, color);
+}
+
+function wrapLines(str, width, size) {
+  const words = str.split(" ");
+  const lines = [];
+  let line = "";
+  ctx.font = `700 ${size}px sans-serif`;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > width && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 function eventPoint(ev) {
