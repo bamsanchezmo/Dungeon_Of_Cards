@@ -584,6 +584,7 @@ function continueAfterRound() {
   }
   if (game.enemy.hp <= 0) {
     game.shop = chooseRelics();
+    ensureShopRelics();
     game.phase = "shop";
     log("The wandering merchant appears.");
   } else {
@@ -624,7 +625,15 @@ function resetRound() {
 
 function chooseRelics() {
   const owned = new Set(game.relics.map((r) => r.name));
-  return shuffle(relicPool.filter((r) => !owned).map((r) => ({ ...r }))).slice(0, 3);
+  const available = relicPool.filter((r) => !owned);
+  const pool = available.length ? available : relicPool;
+  return shuffle(pool.map((r) => ({ ...r }))).slice(0, 3);
+}
+
+function ensureShopRelics() {
+  if (game.phase === "shop" && (!Array.isArray(game.shop) || game.shop.length === 0)) {
+    game.shop = chooseRelics();
+  }
 }
 
 function handTotal(hand) {
@@ -1055,20 +1064,28 @@ function drawActionButtons(x, y) {
 }
 
 function drawShop() {
+  ensureShopRelics();
   fill("rgba(0,0,0,.72)", 0, 0, W, H);
   text("THE WANDERING MERCHANT", W / 2, 95, 42, C.gold, "center", "serif");
   text("Choose a relic, or descend with what you have.", W / 2, 145, 20, C.muted, "center");
-  game.shop.forEach((r, i) => {
-    const x = 190 + i * 305;
-    const y = 230;
-    round(x, y, 260, 300, 12, C.panel);
-    strokeRound(x, y, 260, 300, 12, C.goldDim, 2);
-    badge(x + 130, y + 60, r.icon, C.gold);
-    text(r.name, x + 130, y + 115, 22, C.gold, "center");
-    wrapText(r.description, x + 28, y + 150, 204, 18, C.text);
-    addButton(x + 40, y + 230, 180, 46, `Buy ${45 + game.floor * 15}g`, () => action(`buy:${i}`), true, game.gold >= 45 + game.floor * 15);
-  });
+  game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 175 + i * 315, 205));
   addButton(W / 2 - 105, 590, 210, 50, "Skip Shop", () => action("skipShop"));
+}
+
+function drawShopRelicCard(relic, index, x, y) {
+  const cost = 45 + game.floor * 15;
+  const canBuy = game.gold >= cost;
+  round(x, y, 280, 320, 12, "#211a2c");
+  strokeRound(x, y, 280, 320, 12, canBuy ? C.gold : C.goldDim, 3);
+  fill("#120e16", x + 20, y + 20, 64, 64, 14);
+  strokeRound(x + 20, y + 20, 64, 64, 14, C.goldDim, 2);
+  text(relic.icon, x + 52, y + 62, relic.icon.length > 1 ? 19 : 28, C.gold, "center", "serif");
+  text(relic.name, x + 100, y + 45, 20, C.gold);
+  wrapTextSized(relic.description, x + 100, y + 72, 150, 17, 14, C.text, 3);
+  fill("#17121e", x + 24, y + 112, 232, 116, 10);
+  strokeRound(x + 24, y + 112, 232, 116, 10, "rgba(238,231,215,.12)", 1);
+  wrapTextSized(relic.description, x + 42, y + 144, 196, 20, 16, C.text, 4);
+  addButton(x + 40, y + 250, 200, 50, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
 }
 
 function drawEnd() {
