@@ -681,7 +681,7 @@ function joinLobby(code = "") {
   localPlayerId = "";
   appScene = "lobby";
   lobbyCodeInput.value = code;
-  showSignal("join", "Join Lobby", "Paste a lobby link or enter the 4-character code.");
+  showSignal("join", "Join Lobby", "Paste a lobby link or enter the 8-character code.");
   if (code) connectGuest();
 }
 

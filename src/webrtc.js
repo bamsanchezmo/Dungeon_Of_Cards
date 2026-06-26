@@ -1,9 +1,10 @@
 const lobbyPrefix = "dungeon-of-cards";
+const lobbyCodeLength = 8;
 
 export function createLobbyCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  crypto.getRandomValues(new Uint8Array(4)).forEach((n) => {
+  crypto.getRandomValues(new Uint8Array(lobbyCodeLength)).forEach((n) => {
     code += alphabet[n % alphabet.length];
   });
   return code;
@@ -16,7 +17,7 @@ export function normalizeLobbyCode(value) {
     const url = new URL(text);
     return normalizeLobbyCode(url.searchParams.get("lobby") || url.hash.replace(/^#lobby=/, ""));
   } catch {
-    return text.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase();
+    return text.replace(/[^a-z0-9]/gi, "").slice(0, lobbyCodeLength).toUpperCase();
   }
 }
 
@@ -38,11 +39,37 @@ function makePeer(id) {
   }
   return new globalThis.Peer(id, {
     debug: 1,
+    host: "0.peerjs.com",
+    port: 443,
+    path: "/",
+    secure: true,
     config: {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" }
-      ]
+        { urls: "stun:stun.cloudflare.com:3478" },
+        { urls: "stun:stun.relay.metered.ca:80" },
+        {
+          urls: "turn:global.relay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:global.relay.metered.ca:80?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:global.relay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turns:global.relay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ],
+      iceCandidatePoolSize: 8
     }
   });
 }
@@ -139,7 +166,7 @@ export class GuestPeer {
 
   async connect() {
     await this.ready;
-    this.connection = this.peer.connect(peerIdFor(this.code), { reliable: true });
+    this.connection = this.peer.connect(peerIdFor(this.code), { serialization: "json" });
     this.#wireConnection(this.connection);
     await waitForConnectionOpen(this.connection);
     this.onStatus?.("connected", { playerId: this.id });
