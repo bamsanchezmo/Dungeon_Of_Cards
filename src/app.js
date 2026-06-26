@@ -1,4 +1,4 @@
-import { GuestPeer, HostPeer, createLobbyCode } from "./webrtc.js";
+import { GuestPeer, HostPeer, createLobbyCode, normalizeLobbyCode } from "./webrtc.js";
 
 const W = 1280;
 const H = 800;
@@ -7,8 +7,8 @@ const MIN_BET = 1;
 const MAX_BET = 500;
 const CARD_W = 90;
 const CARD_H = 130;
+const MAX_PLAYERS = 4;
 const hostId = "host";
-const guestId = "guest";
 
 const C = {
   bg: "#120e16",
@@ -36,9 +36,8 @@ const signalText = document.querySelector("#signalText");
 const hostFields = document.querySelector("#hostFields");
 const joinFields = document.querySelector("#joinFields");
 const hostOffer = document.querySelector("#hostOffer");
-const guestAnswer = document.querySelector("#guestAnswer");
-const joinOffer = document.querySelector("#joinOffer");
-const joinAnswer = document.querySelector("#joinAnswer");
+const lobbyCodeInput = document.querySelector("#lobbyCode");
+const toast = document.querySelector("#toast");
 
 let appScene = "menu";
 let role = "solo";
@@ -51,10 +50,9 @@ let last = performance.now();
 let musicStarted = false;
 let audio = null;
 let audioCtx = null;
-let guestHelloSent = false;
-let hostWelcomeSent = false;
 let flash = "";
 let flashTimer = 0;
+let toastTimer = 0;
 
 const enemyTemplates = [
   { name: "Apprentice Croupier", title: "Floor 1 - Dealer-in-training", hp: 80, color: C.blue, icon: "C", description: "Standard rules. A gentle introduction.", hitsSoft17: false },
@@ -85,9 +83,8 @@ const relicPool = [
 
 document.querySelector("#closeSignal").addEventListener("click", () => hideSignal());
 document.querySelector("#copyOffer").addEventListener("click", () => copy(hostOffer.value));
-document.querySelector("#copyAnswer").addEventListener("click", () => copy(joinAnswer.value));
-document.querySelector("#acceptAnswer").addEventListener("click", acceptAnswer);
-document.querySelector("#createAnswer").addEventListener("click", createAnswer);
+document.querySelector("#shareOffer").addEventListener("click", () => shareSignal("Join my Dungeon of Cards lobby", hostOffer.value));
+document.querySelector("#joinByCode").addEventListener("click", connectGuest);
 
 window.addEventListener("resize", draw);
 canvas.addEventListener("mousemove", (ev) => {
@@ -114,6 +111,7 @@ window.addEventListener("keydown", (ev) => {
 });
 
 requestAnimationFrame(tick);
+joinFromSharedLink();
 
 function tick(now) {
   const dt = Math.min(.05, (now - last) / 1000);
@@ -165,13 +163,17 @@ function cloneEnemy(index) {
   return { ...e, maxHp: e.hp, hp: e.hp, dealerPeek: e.dealerPeek !== false };
 }
 
-function addGuestSeat() {
-  if (!game || game.seats.some((s) => s.id === guestId)) return;
-  game.seats.push({ id: guestId, name: "Guest", bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false });
+function addPlayerSeat(id, name = "") {
+  if (!game) return false;
+  if (game.seats.some((s) => s.id === id)) return true;
+  if (game.seats.length >= MAX_PLAYERS) return false;
+  const playerName = name || `Guest ${game.seats.length}`;
+  game.seats.push({ id, name: playerName, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false });
   game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
-  log("A guest joined the table.");
+  log(`${playerName} joined the table.`);
+  return true;
 }
 
 function makeDeck() {
@@ -654,67 +656,82 @@ function log(text) {
 async function hostLobby() {
   role = "host";
   localPlayerId = hostId;
-  guestHelloSent = false;
-  hostWelcomeSent = false;
   const code = createLobbyCode();
   newGame([{ id: hostId, name: "Host" }], code);
+  hostOffer.value = "Creating lobby link...";
+  showSignal("host", `Lobby ${code}`, "Share this link. Up to 3 guests can join from it.");
   peer = new HostPeer({
     code,
     onMessage: handleHostMessage,
-    onStatus: handlePeerStatus
+    onStatus: handlePeerStatus,
+    onConnection: handleHostConnection
   });
-  hostOffer.value = await peer.createInvite();
-  showSignal("host", `Lobby ${code}`, "Send the invite to your friend, then paste their answer.");
+  try {
+    hostOffer.value = await peer.createInvite();
+    signalText.textContent = "Share this link. Up to 3 guests can join from it.";
+    notify("Lobby link ready.");
+  } catch (err) {
+    notify(err.message);
+  }
   broadcast();
 }
 
-function joinLobby() {
+function joinLobby(code = "") {
   role = "guest";
-  localPlayerId = guestId;
-  guestHelloSent = false;
+  localPlayerId = "";
   appScene = "lobby";
-  showSignal("join", "Join Lobby", "Paste a host invite. Send your generated answer back to the host.");
+  lobbyCodeInput.value = code;
+  showSignal("join", "Join Lobby", "Paste a lobby link or enter the 4-character code.");
+  if (code) connectGuest();
 }
 
-async function createAnswer() {
+async function connectGuest() {
   try {
+    const code = normalizeLobbyCode(lobbyCodeInput.value);
+    if (!code) throw new Error("Enter a lobby code or shared link.");
+    lobbyCodeInput.value = code;
+    signalText.textContent = `Connecting to lobby ${code}...`;
     peer = new GuestPeer({
+      code,
       onMessage: handleGuestMessage,
       onStatus: handlePeerStatus
     });
-    joinAnswer.value = await peer.createAnswer(joinOffer.value);
-    flashMsg(`Answer created for lobby ${peer.code}`);
+    localPlayerId = await peer.connect();
+    peer.send({ type: "hello", playerId: localPlayerId, name: "Guest" });
+    notify("Connected. Waiting for host state...");
   } catch (err) {
-    flashMsg(err.message);
+    notify(err.message);
   }
 }
 
-async function acceptAnswer() {
-  try {
-    await peer.acceptAnswer(guestAnswer.value);
-    addGuestSeat();
-    hideSignal();
-    broadcast();
-  } catch (err) {
-    flashMsg(err.message);
+function handlePeerStatus(status, details = {}) {
+  if (status === "connected" && role === "guest") {
+    signalText.textContent = "Connected. Waiting for the host to seat you...";
+  }
+  if (status === "connected" && role === "host" && details.playerId) {
+    notify("Guest connected.");
+  }
+  if (status === "error") {
+    notify(details?.message || "Lobby connection failed.");
   }
 }
 
-function handlePeerStatus(status) {
-  if ((status === "connected" || status === "completed") && role === "guest" && !guestHelloSent) {
-    guestHelloSent = true;
-    peer?.send({ type: "hello", playerId: guestId });
-  }
-  if ((status === "connected" || status === "completed") && role === "host" && !hostWelcomeSent) {
-    hostWelcomeSent = true;
-    addGuestSeat();
-    broadcast();
+function handleHostConnection(playerId) {
+  if (!game || game.seats.length >= MAX_PLAYERS) {
+    peer?.send({ type: "lobbyFull" }, playerId);
+    peer?.disconnect(playerId);
   }
 }
 
-function handleHostMessage(msg) {
+function handleHostMessage(msg, fromId = "") {
   if (msg.type === "hello") {
-    addGuestSeat();
+    const id = msg.playerId || fromId;
+    if (!addPlayerSeat(id, guestNameFor(id))) {
+      peer?.send({ type: "lobbyFull" }, id);
+      peer?.disconnect(id);
+      return;
+    }
+    peer?.send({ type: "welcome", playerId: id }, id);
     broadcast();
   }
   if (msg.type === "action") {
@@ -724,15 +741,34 @@ function handleHostMessage(msg) {
 }
 
 function handleGuestMessage(msg) {
+  if (msg.type === "welcome" && msg.playerId) {
+    localPlayerId = msg.playerId;
+  }
+  if (msg.type === "lobbyFull") {
+    notify("That lobby is full.");
+  }
   if (msg.type === "state") {
     game = msg.state;
     appScene = "game";
     hideSignal();
+    notify("Joined the table.");
   }
 }
 
 function broadcast() {
   if (role === "host") peer?.send({ type: "state", state: game });
+}
+
+function guestNameFor(id) {
+  const guestNumber = Math.min(MAX_PLAYERS - 1, game.seats.filter((s) => s.id !== hostId).length + 1);
+  return `Guest ${guestNumber}`;
+}
+
+function joinFromSharedLink() {
+  const code = normalizeLobbyCode(new URLSearchParams(location.search).get("lobby") || "");
+  if (code) {
+    setTimeout(() => joinLobby(code), 100);
+  }
 }
 
 function showSignal(kind, title, text) {
@@ -750,10 +786,39 @@ function hideSignal() {
 async function copy(text) {
   try {
     await navigator.clipboard.writeText(text);
-    flashMsg("Copied");
+    notify("Copied");
   } catch {
-    flashMsg("Select and copy manually");
+    notify("Select and copy manually");
   }
+}
+
+async function shareSignal(title, text) {
+  if (!text.trim()) {
+    notify("Nothing to share yet.");
+    return;
+  }
+  const payload = /^https?:\/\//i.test(text) ? { title, text, url: text } : { title, text };
+  try {
+    if (navigator.share && (!navigator.canShare || navigator.canShare(payload))) {
+      await navigator.share(payload);
+      notify("Share sheet opened.");
+      return;
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+  }
+  await copy(text);
+  notify("Sharing is not available here, so the text was copied.");
+}
+
+function notify(message) {
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.hidden = true;
+  }, 3200);
+  flashMsg(message);
 }
 
 function startAudio() {

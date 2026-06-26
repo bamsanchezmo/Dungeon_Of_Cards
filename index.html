@@ -10,6 +10,7 @@
   <body>
     <main id="app" class="shell">
       <canvas id="game" width="1280" height="800" aria-label="Dungeon of Cards game table"></canvas>
+      <div id="toast" class="toast" hidden></div>
 
       <section id="signalPanel" class="signal-panel" hidden>
         <div class="signal-card">
@@ -23,32 +24,26 @@
 
           <div id="hostFields" class="signal-fields" hidden>
             <label>
-              Host invite
+              Lobby link
               <textarea id="hostOffer" readonly spellcheck="false"></textarea>
             </label>
-            <button id="copyOffer">Copy Invite</button>
-            <label>
-              Guest answer
-              <textarea id="guestAnswer" spellcheck="false" placeholder="Paste guest answer here"></textarea>
-            </label>
-            <button id="acceptAnswer" class="primary">Accept Answer</button>
+            <div class="action-row">
+              <button id="copyOffer">Copy Link</button>
+              <button id="shareOffer" class="primary">Share Link</button>
+            </div>
           </div>
 
           <div id="joinFields" class="signal-fields" hidden>
             <label>
-              Host invite
-              <textarea id="joinOffer" spellcheck="false" placeholder="Paste host invite here"></textarea>
+              Lobby code or link
+              <input id="lobbyCode" maxlength="120" autocomplete="off" spellcheck="false" placeholder="ABCD or pasted link">
             </label>
-            <button id="createAnswer" class="primary">Create Answer</button>
-            <label>
-              Your answer
-              <textarea id="joinAnswer" readonly spellcheck="false"></textarea>
-            </label>
-            <button id="copyAnswer">Copy Answer</button>
+            <button id="joinByCode" class="primary">Join Lobby</button>
           </div>
         </div>
       </section>
     </main>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>
