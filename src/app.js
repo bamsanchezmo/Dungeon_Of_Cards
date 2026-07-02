@@ -3,7 +3,6 @@ import { GuestPeer, HostPeer, createLobbyCode, normalizeLobbyCode } from "./webr
 const W = 1280;
 const H = 800;
 const PORTRAIT_W = 760;
-const PORTRAIT_H = 1500;
 const FPS = 60;
 const MIN_BET = 1;
 const MAX_BET = 500;
@@ -40,7 +39,7 @@ const joinFields = document.querySelector("#joinFields");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
-const viewport = { cssW: W, cssH: H, dpr: 1, scaleX: 1, scaleY: 1, logicalW: W, logicalH: H, portrait: false };
+const viewport = { cssW: W, cssH: H, dpr: 1, scale: 1, logicalW: W, logicalH: H, portrait: false };
 
 let appScene = "menu";
 let role = "solo";
@@ -1085,7 +1084,7 @@ function draw() {
   ctx.clearRect(0, 0, viewport.cssW, viewport.cssH);
   fill("#08070b", 0, 0, viewport.cssW, viewport.cssH);
   ctx.save();
-  ctx.scale(viewport.scaleX, viewport.scaleY);
+  ctx.scale(viewport.scale, viewport.scale);
   drawBackdrop();
   if (!game || appScene === "menu") {
     drawMenu();
@@ -1109,7 +1108,7 @@ function drawMenu() {
   const lh = layoutH();
   const cx = lw / 2;
   const portrait = viewport.portrait;
-  const table = portrait ? { x: 34, y: 70, w: lw - 68, h: 650 } : { x: 218, y: 92, w: 844, h: 610 };
+  const table = portrait ? { x: 34, y: 70, w: lw - 68, h: 650 } : { x: cx - 422, y: 92, w: 844, h: 610 };
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
       [0, "#1d3028"],
@@ -1153,7 +1152,7 @@ function drawMenu() {
 }
 
 function drawTable() {
-  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: 900, h: 720 };
+  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: layoutW() - 380, h: 720 };
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
       [0, "#234331"],
@@ -1182,8 +1181,8 @@ function drawTable() {
 
 function drawDealer(felt) {
   const portrait = viewport.portrait;
-  const dealerX = portrait ? felt.x + felt.w / 2 - 100 : felt.x + 330;
-  const badgeX = portrait ? felt.x + felt.w / 2 : felt.x + 440;
+  const dealerX = felt.x + felt.w / 2 - (portrait ? 100 : 120);
+  const badgeX = felt.x + felt.w / 2;
   const barX = felt.x + 22;
   const barY = portrait ? felt.y + 252 : felt.y + 248;
   const barW = felt.w - 44;
@@ -1213,7 +1212,7 @@ function drawSeats(felt) {
   game.seats.forEach((seat, idx) => {
     const portrait = viewport.portrait;
     const seatW = portrait ? 315 : 370;
-    const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 70 + (idx % 2) * 410;
+    const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 70 + (idx % 2) * (felt.w - 490);
     const y = portrait ? felt.y + 372 + Math.floor(idx / 2) * 156 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && active?.id === seat.id;
     if (isActive) {
@@ -1243,7 +1242,7 @@ function drawSidePanel() {
     drawBottomPanel();
     return;
   }
-  const x = 970;
+  const x = layoutW() - 310;
   shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
     gradientRound(x, 40, 270, 720, 18, [
       [0, "#241a30"],
@@ -1412,7 +1411,8 @@ function drawShop() {
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, 205 + i * 340));
     addButton(lw / 2 - 170, 1225, 340, 72, "Skip Shop", () => action("skipShop"));
   } else {
-    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 175 + i * 315, 205));
+    const cardsX = lw / 2 - 455;
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, cardsX + i * 315, 205));
     addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
   }
 }
@@ -1566,7 +1566,7 @@ function animationProgress(anim) {
 }
 
 function deckPosition() {
-  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: 900, h: 720 };
+  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: layoutW() - 380, h: 720 };
   return { x: felt.x + felt.w - 125, y: felt.y + 50 };
 }
 
@@ -1926,8 +1926,8 @@ function eventPoint(ev) {
   const cssX = ev.clientX - rect.left;
   const cssY = ev.clientY - rect.top;
   return {
-    x: cssX / viewport.scaleX,
-    y: cssY / viewport.scaleY
+    x: cssX / viewport.scale,
+    y: cssY / viewport.scale
   };
 }
 
@@ -1964,11 +1964,11 @@ function resizeCanvas() {
   viewport.portrait = cssH > cssW * 1.12;
   if (viewport.portrait) {
     viewport.logicalW = PORTRAIT_W;
-    viewport.logicalH = PORTRAIT_H;
+    viewport.scale = cssW / viewport.logicalW;
+    viewport.logicalH = cssH / viewport.scale;
   } else {
-    viewport.logicalW = W;
     viewport.logicalH = H;
+    viewport.scale = cssH / viewport.logicalH;
+    viewport.logicalW = cssW / viewport.scale;
   }
-  viewport.scaleX = cssW / viewport.logicalW;
-  viewport.scaleY = cssH / viewport.logicalH;
 }
