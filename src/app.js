@@ -1200,9 +1200,10 @@ function drawDealer(felt) {
   shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
   text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
   text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, C.gold);
-  wrapTextSized(e.description, barX + 82, barY + 56, portrait ? 300 : 460, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
   const meterW = portrait ? 180 : 220;
   const meterX = barX + barW - meterW - 30;
+  const descriptionW = portrait ? 300 : Math.max(160, Math.min(460, barW - meterW - 150));
+  wrapTextSized(e.description, barX + 82, barY + 56, descriptionW, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
   meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
 }
@@ -1211,8 +1212,9 @@ function drawSeats(felt) {
   const active = game.seats[game.activeSeat];
   game.seats.forEach((seat, idx) => {
     const portrait = viewport.portrait;
-    const seatW = portrait ? 315 : 370;
-    const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 70 + (idx % 2) * (felt.w - 490);
+    const columnW = felt.w / 2;
+    const seatW = portrait ? 315 : Math.min(370, columnW - 50);
+    const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 50 + (idx % 2) * columnW;
     const y = portrait ? felt.y + 372 + Math.floor(idx / 2) * 156 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && active?.id === seat.id;
     if (isActive) {
@@ -1251,7 +1253,7 @@ function drawSidePanel() {
     ], true);
   });
   strokeRound(x, 40, 270, 720, 18, "rgba(220,180,70,.28)", 2);
-  text("Dungeon of Cards", x + 135, 75, 24, C.gold, "center", "serif");
+  text("Dungeon of Cards", x + 102, 75, 20, C.gold, "center", "serif");
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 91, 230, 1);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
