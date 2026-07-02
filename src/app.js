@@ -38,6 +38,8 @@ const signalTitle = document.querySelector("#signalTitle");
 const signalText = document.querySelector("#signalText");
 const hostFields = document.querySelector("#hostFields");
 const joinFields = document.querySelector("#joinFields");
+const nameFields = document.querySelector("#nameFields");
+const playerNameInput = document.querySelector("#playerName");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
@@ -73,6 +75,11 @@ let lastRelicName = "";
 let menuOpen = false;
 let cardAnimations = [];
 let seenCardIds = new Set();
+let statsPlayerId = "";
+let rulesOpen = false;
+let relicsOpen = false;
+let relicPage = 0;
+let freePlayPreference = localStorage.getItem("dungeon-free-play") === "true";
 
 let enemyTemplates = [];
 
@@ -183,6 +190,7 @@ document.querySelector("#closeSignal").addEventListener("click", () => hideSigna
 document.querySelector("#copyOffer").addEventListener("click", () => copy(hostOffer.value));
 document.querySelector("#shareOffer").addEventListener("click", () => shareSignal("Join my Dungeon of Cards lobby", hostOffer.value));
 document.querySelector("#joinByCode").addEventListener("click", connectGuest);
+document.querySelector("#saveName").addEventListener("click", savePlayerName);
 
 window.addEventListener("resize", () => {
   resizeCanvas();
@@ -250,7 +258,9 @@ function newGame(players, code = "") {
     hands: [],
     active: 0,
     finished: false,
-    spectating: false
+    spectating: false,
+    profit: Number(p.profit) || 0,
+    profitHistory: Array.isArray(p.profitHistory) ? p.profitHistory : [0]
   }));
   game = {
     code,
@@ -275,6 +285,8 @@ function newGame(players, code = "") {
     roundNet: 0,
     dealSeq: 0,
     roundDealCount: 0,
+    freePlay: freePlayPreference,
+    relicVotes: {},
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
   appScene = "game";
@@ -290,7 +302,7 @@ function addPlayerSeat(id, name = "") {
   if (game.seats.some((s) => s.id === id)) return true;
   if (game.seats.length >= MAX_PLAYERS) return false;
   const playerName = name || `Guest ${game.seats.length}`;
-  game.seats.push({ id, name: playerName, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false });
+  game.seats.push({ id, name: playerName, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
   game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
@@ -375,10 +387,11 @@ function applyAction(playerId, name) {
   if (!seat) return;
 
   if (game.phase === "betting") {
-    if (name === "betDown") seat.bet = clamp(seat.bet - 5, MIN_BET, Math.min(MAX_BET, game.gold));
-    if (name === "betUp") seat.bet = clamp(seat.bet + 5, MIN_BET, Math.min(MAX_BET, game.gold));
+    const max = maxBetForSeat(seat);
+    if (name === "betDown") seat.bet = clamp(seat.bet - 5, MIN_BET, max);
+    if (name === "betUp") seat.bet = clamp(seat.bet + 5, MIN_BET, max);
     if (name === "minBet") seat.bet = MIN_BET;
-    if (name === "maxBet") seat.bet = Math.min(MAX_BET, game.gold);
+    if (name === "maxBet") seat.bet = max;
     if (name === "ready") {
       seat.ready = !seat.ready;
       log(`${seat.name} ${seat.ready ? "is ready" : "is adjusting their bet"}.`);
@@ -404,12 +417,12 @@ function applyAction(playerId, name) {
 
   if (game.phase === "roundOver" || game.phase === "shop" || game.phase === "victory" || game.phase === "defeat") {
     if (name === "continue") continueAfterRound();
-    if (name.startsWith("buy:")) buyRelic(Number(name.slice(4)));
-    if (name === "skipShop") nextBattle();
+    if (name.startsWith("buy:")) game.code ? voteRelic(playerId, Number(name.slice(4))) : buyRelic(Number(name.slice(4)));
+    if (name === "skipShop") game.code ? voteRelic(playerId, -1) : nextBattle();
     return;
   }
 
-  if (game.phase !== "player" || seatIndex !== game.activeSeat) return;
+  if (game.phase !== "player" || (!game.freePlay && seatIndex !== game.activeSeat) || seat.finished) return;
   const hand = activeHand(seat);
   if (!hand || hand.status !== "playing") return;
 
@@ -499,21 +512,21 @@ function hit(seatIndex) {
   if (isBust(hand)) {
     hand.status = "bust";
     sfx("bust");
-    advanceHand();
+    advanceHand(seatIndex);
   } else if (handTotal(hand) === 21 || (has("fiveCard") && hand.cards.length >= 5)) {
     hand.status = "stand";
-    advanceHand();
+    advanceHand(seatIndex);
   }
 }
 
-function stand() {
-  const h = activeHand(game.seats[game.activeSeat]);
+function stand(seatIndex) {
+  const h = activeHand(game.seats[seatIndex]);
   if (h) h.status = "stand";
-  advanceHand();
+  advanceHand(seatIndex);
 }
 
-function doubleDown() {
-  const seat = game.seats[game.activeSeat];
+function doubleDown(seatIndex) {
+  const seat = game.seats[seatIndex];
   const h = activeHand(seat);
   if (!h || h.cards.length !== 2 || game.enemy.noDouble || game.gold < h.bet) return flashMsg("Double unavailable");
   game.gold -= h.bet;
@@ -522,11 +535,11 @@ function doubleDown() {
   addToHand(h, "player");
   h.status = isBust(h) ? "bust" : "stand";
   sfx(isBust(h) ? "bust" : "deal");
-  advanceHand();
+  advanceHand(seatIndex);
 }
 
-function split() {
-  const seat = game.seats[game.activeSeat];
+function split(seatIndex) {
+  const seat = game.seats[seatIndex];
   const h = activeHand(seat);
   if (!h || h.cards.length !== 2 || cardValue(h.cards[0]) !== cardValue(h.cards[1]) || game.gold < h.bet || seat.hands.length >= 4) {
     return flashMsg("Split unavailable");
@@ -548,18 +561,18 @@ function split() {
     h2.status = "stand";
   }
   sfx("deal");
-  advancePastDoneHands();
+  advancePastDoneHands(seatIndex);
 }
 
-function surrender() {
-  const h = activeHand(game.seats[game.activeSeat]);
+function surrender(seatIndex) {
+  const h = activeHand(game.seats[seatIndex]);
   if (!h || h.cards.length !== 2 || game.enemy.noSurrender) return flashMsg("Surrender unavailable");
   h.status = "surrender";
-  advanceHand();
+  advanceHand(seatIndex);
 }
 
 function peekNextCard(seatIndex) {
-  if (seatIndex !== game.activeSeat || game.foresightUsesLeft <= 0) return;
+  if ((!game.freePlay && seatIndex !== game.activeSeat) || game.foresightUsesLeft <= 0) return;
   const next = game.deck[game.deck.length - 1];
   if (!next) return;
   game.foresightUsesLeft--;
@@ -570,23 +583,40 @@ function peekNextCard(seatIndex) {
   broadcast();
 }
 
-function advanceHand() {
-  const seat = game.seats[game.activeSeat];
+function advanceHand(seatIndex = game.activeSeat) {
+  const seat = game.seats[seatIndex];
   seat.active++;
-  advancePastDoneHands();
+  advancePastDoneHands(seatIndex);
 }
 
-function advancePastDoneHands() {
-  const seat = game.seats[game.activeSeat];
+function advancePastDoneHands(seatIndex = game.activeSeat) {
+  const seat = game.seats[seatIndex];
   seekActiveHand(seat);
   if (!seat || seatDone(seat)) {
     if (seat) seat.finished = true;
-    game.activeSeat++;
-    advanceSeat();
+    if (game.freePlay) {
+      if (game.seats.every(seatDone)) {
+        game.phase = "dealer";
+        game.dealerTimer = .45;
+      }
+    } else {
+      game.activeSeat++;
+      advanceSeat();
+    }
   }
 }
 
 function advanceSeat() {
+  if (game.freePlay) {
+    game.seats.forEach((s) => { s.finished = seatDone(s); seekActiveHand(s); });
+    if (game.seats.every(seatDone)) {
+      game.phase = "dealer";
+      game.dealerTimer = .45;
+    } else {
+      game.phase = "player";
+    }
+    return;
+  }
   while (game.activeSeat < game.seats.length && seatDone(game.seats[game.activeSeat])) {
     game.seats[game.activeSeat].finished = true;
     game.activeSeat++;
@@ -642,13 +672,17 @@ function settleRound() {
   let grossLoss = 0;
   const results = [];
   for (const seat of game.seats) {
+    let seatNet = 0;
     for (const h of seat.hands) {
       const result = settleHand(h, dealerTotal, dealerBj);
       net += result.net;
+      seatNet += result.net;
       grossLoss += result.grossLoss || 0;
       if (result.net > 0) winHands++;
       results.push(`${seat.name}: ${result.msg}`);
     }
+    seat.profit = (Number(seat.profit) || 0) + seatNet;
+    seat.profitHistory = [...(seat.profitHistory || [0]), seat.profit].slice(-40);
   }
   if (net > 0) {
     const bonus = relicSum("damageBonus");
@@ -721,11 +755,13 @@ function loseResult(h, msg) {
 
 function continueAfterRound() {
   if (game.phase === "victory" || game.phase === "defeat") {
-    appScene = "menu";
+    if (game.code) restartLobbyRun();
+    else appScene = "menu";
     return;
   }
   if (game.enemy.hp <= 0) {
     game.shop = chooseRelics();
+    game.relicVotes = {};
     ensureShopRelics();
     game.phase = "shop";
     log("The wandering merchant appears.");
@@ -857,7 +893,7 @@ async function hostLobby() {
   role = "host";
   localPlayerId = hostId;
   const code = createLobbyCode();
-  newGame([{ id: hostId, name: "Host" }], code);
+  newGame([{ id: hostId, name: savedPlayerName("Host") }], code);
   hostOffer.value = "Creating lobby link...";
   showSignal("host", `Lobby ${code}`, "Share this link. Up to 3 guests can join from it.");
   peer = new HostPeer({
@@ -897,7 +933,7 @@ async function connectGuest() {
       onStatus: handlePeerStatus
     });
     localPlayerId = await peer.connect();
-    peer.send({ type: "hello", playerId: localPlayerId, name: "Guest" });
+    peer.send({ type: "hello", playerId: localPlayerId, name: savedPlayerName("Guest") });
     notify("Connected. Waiting for host state...");
   } catch (err) {
     notify(formatPeerError(err));
@@ -926,7 +962,7 @@ function handleHostConnection(playerId) {
 function handleHostMessage(msg, fromId = "") {
   if (msg.type === "hello") {
     const id = msg.playerId || fromId;
-    if (!addPlayerSeat(id, guestNameFor(id))) {
+    if (!addPlayerSeat(id, cleanPlayerName(msg.name) || guestNameFor(id))) {
       peer?.send({ type: "lobbyFull" }, id);
       peer?.disconnect(id);
       return;
@@ -936,6 +972,12 @@ function handleHostMessage(msg, fromId = "") {
   }
   if (msg.type === "action") {
     applyAction(msg.playerId, msg.action);
+    broadcast();
+  }
+  if (msg.type === "rename") {
+    const seat = game?.seats.find((s) => s.id === (msg.playerId || fromId));
+    const name = cleanPlayerName(msg.name);
+    if (seat && name) seat.name = name;
     broadcast();
   }
 }
@@ -975,8 +1017,35 @@ function showSignal(kind, title, text) {
   signalPanel.hidden = false;
   hostFields.hidden = kind !== "host";
   joinFields.hidden = kind !== "join";
+  nameFields.hidden = kind !== "name";
   signalTitle.textContent = title;
   signalText.textContent = text;
+}
+
+function savedPlayerName(fallback = "Player") {
+  return cleanPlayerName(localStorage.getItem("dungeon-player-name")) || fallback;
+}
+
+function cleanPlayerName(value) {
+  return String(value || "").replace(/[<>\n\r]/g, "").trim().slice(0, 20);
+}
+
+function openNameEditor() {
+  playerNameInput.value = savedPlayerName(role === "solo" ? "You" : "Player");
+  showSignal("name", "Your Name", "This name is remembered on this device.");
+  setTimeout(() => playerNameInput.focus(), 0);
+}
+
+function savePlayerName() {
+  const name = cleanPlayerName(playerNameInput.value);
+  if (!name) return notify("Enter a display name.");
+  localStorage.setItem("dungeon-player-name", name);
+  const seat = game?.seats.find((s) => s.id === localPlayerId);
+  if (seat) seat.name = name;
+  if (role === "guest") peer?.send({ type: "rename", playerId: localPlayerId, name });
+  if (role === "host") broadcast();
+  hideSignal();
+  notify(`Playing as ${name}`);
 }
 
 function hideSignal() {
@@ -1028,6 +1097,35 @@ function formatPeerError(err) {
   if (/timed out/i.test(message)) return `${type}${message} Make sure both devices are online and try again.`;
   if (/service did not load/i.test(message)) return `${type}${message} A browser extension or network filter may be blocking Supabase.`;
   return `${type}${message}`;
+}
+
+function restartLobbyRun() {
+  const players = game.seats.map((s) => ({ id: s.id, name: s.name, profit: s.profit, profitHistory: s.profitHistory }));
+  const code = game.code;
+  const mode = game.freePlay;
+  newGame(players, code);
+  game.freePlay = mode;
+  log("The lobby deals a fresh dungeon run.");
+}
+
+function maxBetForSeat(seat) {
+  const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
+  return Math.max(MIN_BET, Math.min(MAX_BET, game.gold - committedByOthers));
+}
+
+function voteRelic(playerId, index) {
+  if (game.phase !== "shop") return;
+  game.relicVotes ||= {};
+  game.relicVotes[playerId] = index;
+  const voters = game.seats.filter((s) => !s.spectating);
+  if (!voters.every((s) => Object.hasOwn(game.relicVotes, s.id))) return;
+  const counts = new Map();
+  voters.forEach((s) => {
+    const vote = game.relicVotes[s.id];
+    counts.set(vote, (counts.get(vote) || 0) + 1);
+  });
+  const winner = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] === -1 ? 1 : b[0] === -1 ? -1 : a[0] - b[0]))[0][0];
+  if (winner === -1) nextBattle(); else buyRelic(winner);
 }
 
 function startAudio() {
@@ -1116,6 +1214,9 @@ function draw() {
     if (game.phase === "victory" || game.phase === "defeat") drawEnd();
     if (game.peekCard) drawPeekOverlay();
   }
+  if (statsPlayerId) drawStatsOverlay();
+  if (rulesOpen) drawRulesOverlay();
+  if (relicsOpen) drawRelicsOverlay();
   if (menuOpen) {
     buttons = [];
     drawGameMenu();
@@ -1129,7 +1230,7 @@ function drawMenu() {
   const lh = layoutH();
   const cx = lw / 2;
   const portrait = viewport.portrait;
-  const table = portrait ? { x: 34, y: 70, w: lw - 68, h: 650 } : { x: cx - 422, y: 92, w: 844, h: 610 };
+  const table = portrait ? { x: 34, y: 70, w: lw - 68, h: 880 } : { x: cx - 422, y: 70, w: 844, h: 660 };
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
       [0, "#1d3028"],
@@ -1161,27 +1262,31 @@ function drawMenu() {
   lines.forEach((line, i) => text(line, cx, (portrait ? 350 : 372) + i * 34, portrait ? 22 : 21, C.text, "center"));
   const buttonW = portrait ? 480 : 300;
   const buttonX = cx - buttonW / 2;
-  const buttonY = portrait ? 500 : 490;
-  addButton(buttonX, buttonY, buttonW, portrait ? 74 : 60, "Single Player", () => {
+  const buttonY = portrait ? 500 : 475;
+  addButton(buttonX, portrait ? 420 : 414, buttonW, portrait ? 62 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
+  addButton(buttonX, buttonY, buttonW, portrait ? 68 : 52, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
-    newGame([{ id: hostId, name: "You" }]);
+    newGame([{ id: hostId, name: savedPlayerName("You") }]);
   }, true);
-  addButton(buttonX, buttonY + (portrait ? 92 : 76), buttonW, portrait ? 74 : 60, "Host Game", hostLobby);
-  addButton(buttonX, buttonY + (portrait ? 184 : 152), buttonW, portrait ? 74 : 60, "Join Game", joinLobby);
+  addButton(buttonX, buttonY + (portrait ? 82 : 60), buttonW, portrait ? 68 : 52, "Host Game", hostLobby);
+  addButton(buttonX, buttonY + (portrait ? 164 : 120), buttonW, portrait ? 68 : 52, "Join Game", joinLobby);
+  addButton(buttonX, buttonY + (portrait ? 246 : 180), buttonW, portrait ? 62 : 44, `Mode: ${freePlayPreference ? "Free Play" : "Classic Turns"}`, () => {
+    freePlayPreference = !freePlayPreference;
+    localStorage.setItem("dungeon-free-play", String(freePlayPreference));
+  });
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
 }
 
 function drawTable() {
   const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: layoutW() - 380, h: 720 };
+  const theme = feltTheme();
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
-      [0, "#234331"],
-      [.52, "#12251c"],
-      [1, "#07120f"]
+      [0, theme[0]], [.52, theme[1]], [1, theme[2]]
     ], true);
   });
-  strokeRound(felt.x, felt.y, felt.w, felt.h, 22, "#4f744f", 8);
+  strokeRound(felt.x, felt.y, felt.w, felt.h, 22, game.enemy.color || "#4f744f", 8);
   strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
   strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, "rgba(220,180,70,.08)", 1);
   ctx.save();
@@ -1237,6 +1342,7 @@ function drawDealer(felt) {
   wrapTextSized(e.description, barX + 82, barY + 56, descriptionW, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
   meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
+  buttons.push({ x: barX, y: barY, w: barW, h: 78, onClick: () => rulesOpen = true });
 }
 
 function drawSeats(felt) {
@@ -1247,7 +1353,7 @@ function drawSeats(felt) {
     const seatW = portrait ? 315 : Math.min(370, columnW - 50);
     const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 50 + (idx % 2) * columnW;
     const y = portrait ? felt.y + 372 + Math.floor(idx / 2) * 156 : felt.y + 365 + Math.floor(idx / 2) * 170;
-    const isActive = game.phase === "player" && active?.id === seat.id;
+    const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
     if (isActive) {
       shadow(0, 0, 26, "rgba(220,180,70,.42)", () => {
         gradientRound(x - 18, y - 42, seatW, 150, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
@@ -1256,17 +1362,22 @@ function drawSeats(felt) {
       fill("rgba(5,8,7,.28)", x - 18, y - 42, seatW, 150, 14);
     }
     strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : "rgba(238,231,215,.11)", isActive ? 3 : 1);
-    text(`${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`, x, y - 18, portrait ? 20 : 18, isActive ? C.gold : C.text);
+    const rank = playerRankIcon(seat);
+    const displayName = `${rank}${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`;
+    text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, isActive ? C.gold : C.text);
     text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
     if (seat.hands.length) {
+      const slotW = Math.max(24, (seatW - CARD_W - 22) / seat.hands.length);
       seat.hands.forEach((hand, hidx) => {
-        drawHand(hand.cards, x + hidx * 136, y + 10, hidx === seat.active && isActive);
-        badge(x + hidx * 136 + 45, y + 148, handLabel(hand), handColor(hand));
+        const hx = x + hidx * slotW;
+        drawHand(hand.cards, hx, y + 10, hidx === seat.active && isActive, CARD_W + slotW);
+        badge(hx + 45, y + 148, handLabel(hand), handColor(hand));
       });
     } else {
       drawChips(x + 38, y + 50, seat.bet);
       badge(x + 110, y + 70, `Bet ${seat.bet}g`, C.gold);
     }
+    buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 150, onClick: () => statsPlayerId = seat.id });
   });
 }
 
@@ -1355,6 +1466,7 @@ function drawRelicPanel(x, y, w) {
   if (game.relics.length > 2) {
     text(`+${game.relics.length - 2} more`, x, y + (portrait ? 220 : 154), portrait ? 17 : 13, C.muted);
   }
+  buttons.push({ x, y: y - 20, w, h: portrait ? 250 : 180, onClick: () => { relicsOpen = true; relicPage = 0; } });
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
@@ -1388,7 +1500,7 @@ function drawActionButtons(x, y) {
     }
     if (game.phase === "player") {
       const mine = activeHand(mySeat());
-      const myTurn = game.seats[game.activeSeat]?.id === localPlayerId;
+      const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
       addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
       addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
       addButton(x, y + 76, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
@@ -1419,7 +1531,7 @@ function drawActionButtons(x, y) {
   }
   if (game.phase === "player") {
     const mine = activeHand(mySeat());
-    const myTurn = game.seats[game.activeSeat]?.id === localPlayerId;
+    const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
     addButton(x, y, 110, 44, "Hit", () => action("hit"), true, myTurn);
     addButton(x + 118, y, 110, 44, "Stand", () => action("stand"), false, myTurn);
     addButton(x, y + 52, 110, 44, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
@@ -1476,7 +1588,10 @@ function drawShopRelicCard(relic, index, x, y) {
   fill("rgba(7,5,10,.46)", x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10);
   strokeRound(x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10, "rgba(238,231,215,.12)", 1);
   wrapTextSized(relic.description, x + 42, y + (portrait ? 154 : 144), cardW - 84, portrait ? 24 : 20, portrait ? 19 : 16, C.text, 3);
-  addButton(x + 40, y + (portrait ? 244 : 250), cardW - 80, portrait ? 62 : 50, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
+  const votes = Object.values(game.relicVotes || {}).filter((v) => v === index).length;
+  const voted = game.relicVotes?.[localPlayerId] === index;
+  const label = game.code ? `${voted ? "Voted" : "Vote"}${votes ? ` (${votes})` : ""}` : `Buy ${cost}g`;
+  addButton(x + 40, y + (portrait ? 244 : 250), cardW - 80, portrait ? 62 : 50, label, () => action(`buy:${index}`), true, canBuy);
 }
 
 function drawPeekOverlay() {
@@ -1501,7 +1616,7 @@ function drawEnd() {
   text("Relics:", lw / 2, 420, 20, C.gold, "center");
   const lines = wrapLines(relicText, Math.min(820, lw - 80), 16);
   lines.forEach((line, i) => text(line, lw / 2, 448 + i * 22, 16, C.text, "center"));
-  addButton(lw / 2 - 115, Math.min(layoutH() - 90, 490 + lines.length * 22), 230, 54, "Return to Menu", () => action("continue"), true);
+  addButton(lw / 2 - 140, Math.min(layoutH() - 90, 490 + lines.length * 22), 280, 54, game.code ? "Play Again — Same Lobby" : "Return to Menu", () => action("continue"), true);
 }
 
 function drawFlash() {
@@ -1516,7 +1631,7 @@ function drawGameMenu() {
   const lw = layoutW();
   const lh = layoutH();
   const panelW = viewport.portrait ? 520 : 430;
-  const panelH = viewport.portrait ? 320 : 270;
+  const panelH = viewport.portrait ? 410 : 340;
   const x = lw / 2 - panelW / 2;
   const y = Math.max(72, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.62)", 0, 0, lw, lh);
@@ -1527,7 +1642,8 @@ function drawGameMenu() {
   text("Game Menu", lw / 2, y + 62, viewport.portrait ? 34 : 28, C.gold, "center", "serif");
   text("Return to the table or go back home.", lw / 2, y + 104, viewport.portrait ? 21 : 16, C.muted, "center");
   addButton(x + 42, y + 138, panelW - 84, viewport.portrait ? 72 : 56, "Resume", () => menuOpen = false, true);
-  addButton(x + 42, y + (viewport.portrait ? 226 : 206), panelW - 84, viewport.portrait ? 72 : 56, "Home Screen", goHome);
+  addButton(x + 42, y + (viewport.portrait ? 226 : 204), panelW - 84, viewport.portrait ? 72 : 56, "Change Name", openNameEditor);
+  addButton(x + 42, y + (viewport.portrait ? 314 : 270), panelW - 84, viewport.portrait ? 72 : 56, "Home Screen", goHome);
 }
 
 function goHome() {
@@ -1544,9 +1660,10 @@ function goHome() {
   if (location.search) history.replaceState(null, "", location.pathname);
 }
 
-function drawHand(cards, x, y, highlight) {
+function drawHand(cards, x, y, highlight, maxWidth = Infinity) {
+  const step = cards.length < 2 ? 0 : Math.max(14, Math.min(62, (maxWidth - CARD_W) / (cards.length - 1)));
   cards.forEach((card, i) => {
-    const cx = x + i * 62;
+    const cx = x + i * step;
     const cy = y + Math.sin(i * .6) * 2;
     const anim = prepareCardAnimation(card, cx, cy);
     if (anim && animationProgress(anim) < .92) return;
@@ -1799,7 +1916,7 @@ function phaseTitle() {
   return {
     betting: "Betting",
     insurance: "Insurance",
-    player: game.seats[game.activeSeat]?.id === localPlayerId ? "Your Turn" : `${game.seats[game.activeSeat]?.name}'s Turn`,
+    player: game.freePlay ? "Free Play — Everyone Acts" : game.seats[game.activeSeat]?.id === localPlayerId ? "Your Turn" : `${game.seats[game.activeSeat]?.name}'s Turn`,
     dealer: "Dealer Turn",
     roundOver: game.roundNet > 0 ? "Round Won" : game.roundNet < 0 ? "Round Lost" : "Push",
     shop: "Shop",
@@ -1830,6 +1947,46 @@ function handColor(hand) {
 
 function mySeat() {
   return game?.seats.find((s) => s.id === localPlayerId);
+}
+
+function feltTheme() {
+  const e = game.enemy;
+  if (e.tiesLose) return ["#4a252d", "#2b141b", "#12090d"];
+  if (e.luck) return ["#382956", "#201735", "#0e0a18"];
+  if (e.hitFee) return ["#554322", "#2f2513", "#151007"];
+  if (e.noDouble || e.noSurrender) return ["#243d50", "#142633", "#081118"];
+  return ["#234331", "#12251c", "#07120f"];
+}
+
+function houseRules() {
+  const e = game.enemy;
+  const rules = [];
+  if (e.tiesLose) rules.push("Ties count as dealer wins");
+  if (e.bjPays65) rules.push("Blackjack pays only 6:5");
+  if (e.noSurrender) rules.push("Surrender is forbidden");
+  if (e.noInsurance) rules.push("Insurance is forbidden");
+  if (e.noDouble) rules.push("Doubling down is forbidden");
+  if (e.dealerPeek === false) rules.push("Dealer does not peek for blackjack");
+  if (e.hitFee) rules.push(`Each hit costs ${e.hitFee} gold`);
+  if (e.hitsSoft17 !== false) rules.push("Dealer hits soft 17");
+  if (!rules.length) rules.push("Standard dungeon blackjack rules");
+  return rules.slice(0, 7);
+}
+
+function playerRankIcon(seat) {
+  if ((game?.seats?.length || 0) < 2) return "";
+  const values = game.seats.map((s) => Number(s.profit) || 0);
+  const value = Number(seat.profit) || 0;
+  if (value === Math.max(...values) && values.some((v) => v < value)) return "♛ ";
+  if (value === Math.min(...values) && values.some((v) => v > value)) return "△ ";
+  return "";
+}
+
+function fitLabel(value, maxWidth, size) {
+  let result = String(value);
+  ctx.font = `700 ${size}px sans-serif`;
+  while (result.length > 3 && ctx.measureText(result).width > maxWidth) result = `${result.slice(0, -2)}…`;
+  return result;
 }
 
 function canSplitLocal(hand) {
@@ -2018,4 +2175,74 @@ function resizeCanvas() {
     viewport.contentX = 0;
     viewport.contentY = (viewport.surfaceH - viewport.logicalH) / 2;
   }
+}
+
+function drawStatsOverlay() {
+  const seat = game?.seats.find((s) => s.id === statsPlayerId);
+  if (!seat) { statsPlayerId = ""; return; }
+  buttons = [];
+  const lw = layoutW(), lh = layoutH();
+  const w = Math.min(viewport.portrait ? 650 : 620, lw - 60);
+  const h = viewport.portrait ? 620 : 470;
+  const x = (lw - w) / 2, y = Math.max(45, (lh - h) / 2);
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true);
+  strokeRound(x, y, w, h, 18, C.goldDim, 2);
+  text(`${playerRankIcon(seat)}${seat.name}`, x + 34, y + 58, viewport.portrait ? 34 : 28, C.gold, "left", "serif");
+  const profit = Number(seat.profit) || 0;
+  text(`Total ${profit >= 0 ? "+" : ""}${profit}g`, x + w - 34, y + 58, 23, profit >= 0 ? C.green : C.red, "right");
+  const gx = x + 40, gy = y + 115, gw = w - 80, gh = h - 205;
+  fill("rgba(0,0,0,.28)", gx, gy, gw, gh, 12);
+  strokeRound(gx, gy, gw, gh, 12, "rgba(238,231,215,.14)", 1);
+  const history = seat.profitHistory?.length ? seat.profitHistory : [0];
+  const lo = Math.min(0, ...history), hi = Math.max(0, ...history), range = Math.max(1, hi - lo);
+  const zeroY = gy + gh - ((0 - lo) / range) * gh;
+  ctx.strokeStyle = "rgba(238,231,215,.18)"; ctx.beginPath(); ctx.moveTo(gx, zeroY); ctx.lineTo(gx + gw, zeroY); ctx.stroke();
+  ctx.strokeStyle = profit >= 0 ? C.green : C.red; ctx.lineWidth = 4; ctx.beginPath();
+  history.forEach((v, i) => {
+    const px = gx + (history.length === 1 ? gw / 2 : i * gw / (history.length - 1));
+    const py = gy + gh - ((v - lo) / range) * gh;
+    if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+  });
+  ctx.stroke();
+  text(`${history.length - 1} completed round${history.length === 2 ? "" : "s"}`, x + 40, y + h - 112, 17, C.muted);
+  addButton(x + w / 2 - 100, y + h - 75, 200, 48, "Close", () => statsPlayerId = "");
+}
+
+function drawRulesOverlay() {
+  buttons = [];
+  const lw = layoutW(), lh = layoutH(), w = Math.min(650, lw - 60), h = viewport.portrait ? 660 : 510;
+  const x = (lw - w) / 2, y = Math.max(40, (lh - h) / 2);
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true);
+  strokeRound(x, y, w, h, 18, game.enemy.color, 3);
+  text("HOUSE RULES", lw / 2, y + 60, 31, C.gold, "center", "serif");
+  text(game.enemy.name, lw / 2, y + 101, 22, C.text, "center");
+  const rules = houseRules();
+  rules.forEach((rule, i) => {
+    fill("rgba(238,231,215,.055)", x + 36, y + 132 + i * 54, w - 72, 42, 8);
+    text(`• ${rule}`, x + 54, y + 160 + i * 54, viewport.portrait ? 19 : 17, C.text);
+  });
+  addButton(x + w / 2 - 100, y + h - 72, 200, 48, "Close", () => rulesOpen = false);
+}
+
+function drawRelicsOverlay() {
+  buttons = [];
+  const lw = layoutW(), lh = layoutH(), portrait = viewport.portrait;
+  const x = 30, y = 40, w = lw - 60, h = lh - 80;
+  fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
+  gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#111018"]], true);
+  strokeRound(x, y, w, h, 18, C.goldDim, 2);
+  text("RELIC COLLECTION", lw / 2, y + 58, portrait ? 34 : 31, C.gold, "center", "serif");
+  const perPage = portrait ? 6 : 8;
+  const pages = Math.max(1, Math.ceil(game.relics.length / perPage));
+  relicPage = clamp(relicPage, 0, pages - 1);
+  const shown = game.relics.slice(relicPage * perPage, relicPage * perPage + perPage);
+  const cols = portrait ? 1 : 2;
+  const colW = (w - 80 - (cols - 1) * 22) / cols;
+  shown.forEach((r, i) => drawRelicRow(r, x + 40 + (i % cols) * (colW + 22), y + 112 + Math.floor(i / cols) * (portrait ? 110 : 105), colW));
+  if (!shown.length) text("No relics yet.", lw / 2, y + 180, 22, C.muted, "center");
+  addButton(x + 40, y + h - 68, 120, 44, "Previous", () => relicPage--, false, relicPage > 0);
+  text(`${relicPage + 1}/${pages}`, lw / 2, y + h - 40, 17, C.muted, "center");
+  addButton(x + w - 160, y + h - 68, 120, 44, relicPage + 1 < pages ? "Next" : "Close", () => relicPage + 1 < pages ? relicPage++ : relicsOpen = false);
 }
