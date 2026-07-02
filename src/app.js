@@ -1088,6 +1088,12 @@ function drawBackdrop() {
   ctx.globalAlpha = .35;
   ctx.fillStyle = "rgba(0,0,0,.38)";
   ctx.fillRect(0, lh - 110, lw, 110);
+  const vignette = ctx.createRadialGradient(lw / 2, lh * .42, Math.min(lw, lh) * .18, lw / 2, lh * .42, Math.max(lw, lh) * .68);
+  vignette.addColorStop(0, "rgba(0,0,0,0)");
+  vignette.addColorStop(1, "rgba(0,0,0,.48)");
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, lw, lh);
   ctx.restore();
 }
 
@@ -1177,6 +1183,7 @@ function drawTable() {
   });
   strokeRound(felt.x, felt.y, felt.w, felt.h, 22, "#4f744f", 8);
   strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
+  strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, "rgba(220,180,70,.08)", 1);
   ctx.save();
   ctx.globalAlpha = .11;
   ctx.strokeStyle = "#eee7d7";
@@ -1187,6 +1194,15 @@ function drawTable() {
     ctx.lineTo(felt.x + felt.w - 34, y + 16);
     ctx.stroke();
   }
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = "rgba(220,180,70,.10)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(felt.x + felt.w / 2, felt.y + 190, Math.min(310, felt.w * .34), 125, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = .07;
+  text("DUNGEON OF CARDS", felt.x + felt.w / 2, felt.y + felt.h - 34, viewport.portrait ? 22 : 25, C.gold, "center", "serif");
   ctx.restore();
   drawDeck(felt.x + felt.w - 125, felt.y + 50);
   drawDealer(felt);
@@ -1268,15 +1284,19 @@ function drawSidePanel() {
     ], true);
   });
   strokeRound(x, 40, 270, 720, 18, "rgba(220,180,70,.28)", 2);
-  text("Dungeon of Cards", x + 102, 75, 20, C.gold, "center", "serif");
+  gradientRound(x + 14, 52, 176, 42, 10, [[0, "rgba(220,180,70,.13)"], [1, "rgba(220,180,70,.02)"]], true);
+  strokeRound(x + 14, 52, 176, 42, 10, "rgba(220,180,70,.20)", 1);
+  text("DUNGEON", x + 102, 70, 17, C.gold, "center", "serif");
+  text("OF CARDS", x + 102, 86, 10, C.muted, "center", "serif");
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
-  fill("rgba(238,231,215,.06)", x + 20, 91, 230, 1);
+  fill("rgba(238,231,215,.06)", x + 20, 100, 230, 1);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
   text(`Gold ${game.gold}g`, x + 22, 140, 18, C.gold);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
   if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
-  fill("rgba(220,180,70,.08)", x + 22, 242, 226, 44, 10);
+  gradientRound(x + 22, 242, 226, 44, 10, [[0, "rgba(220,180,70,.14)"], [1, "rgba(220,180,70,.04)"]], true);
+  strokeRound(x + 22, 242, 226, 44, 10, "rgba(220,180,70,.18)", 1);
   text(phaseTitle(), x + 135, 271, 22, C.text, "center");
   drawActionButtons(x + 22, 295);
   drawRelicPanel(x + 22, 500, 226);
@@ -1298,7 +1318,7 @@ function drawBottomPanel() {
     ], true);
   });
   strokeRound(x, y, w, h, 18, "rgba(220,180,70,.3)", 2);
-  text("Dungeon of Cards", x + w / 2, y + 48, 34, C.gold, "center", "serif");
+  text("DUNGEON OF CARDS", x + w / 2, y + 48, 30, C.gold, "center", "serif");
   addButton(x + w - 140, y + 18, 112, 54, "Menu", () => menuOpen = true);
 
   const leftX = x + 24;
@@ -1309,7 +1329,8 @@ function drawBottomPanel() {
   text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
   if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
 
-  fill("rgba(220,180,70,.08)", leftX, y + 192, w - 48, 58, 12);
+  gradientRound(leftX, y + 192, w - 48, 58, 12, [[0, "rgba(220,180,70,.14)"], [1, "rgba(220,180,70,.04)"]], true);
+  strokeRound(leftX, y + 192, w - 48, 58, 12, "rgba(220,180,70,.18)", 1);
   text(phaseTitle(), x + w / 2, y + 230, 29, C.text, "center");
   drawActionButtons(leftX, y + 264);
 
@@ -1743,9 +1764,10 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
     : primary
       ? [[0, hot ? "#ffe081" : "#f0cb64"], [1, "#b8892f"]]
       : [[0, hot ? "#433650" : "#2d2439"], [1, hot ? "#271f33" : "#19131f"]];
-  shadow(0, hot ? 8 : 4, hot ? 18 : 10, "rgba(0,0,0,.28)", () => gradientRound(x, y, w, h, 9, stops, true));
+  shadow(0, hot ? 8 : 4, hot ? 18 : 10, "rgba(0,0,0,.32)", () => gradientRound(x, y, w, h, 9, stops, true));
   strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
+  strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
   text(label, x + w / 2, y + h / 2 + (portrait ? 9 : 7), portrait ? Math.min(28, Math.max(23, h * .36)) : 17, primary ? C.black : enabled ? C.text : C.muted, "center");
 }
 
