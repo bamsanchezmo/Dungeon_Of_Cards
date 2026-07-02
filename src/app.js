@@ -1656,14 +1656,10 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
   const color = red ? "#aa2323" : "#191923";
   const suit = { S: "\u2660", H: "\u2665", D: "\u2666", C: "\u2663" }[card.suit];
   text(card.rank, x + 8, y + 28, card.rank === "10" ? 22 : 26, color, "left", "serif");
-  text(suit, x + 8 + (card.rank === "10" ? 13 : 10), y + 49, 18, color, "center", "serif");
-  text(suit, x + CARD_W / 2, y + CARD_H / 2 + 22, 54, color, "center", "serif");
-  ctx.save();
-  ctx.translate(x + CARD_W - 8, y + CARD_H - 8);
-  ctx.rotate(Math.PI);
-  text(card.rank, 0, 0, card.rank === "10" ? 20 : 24, color, "left", "serif");
-  text(suit, card.rank === "10" ? 13 : 10, 21, 16, color, "center", "serif");
-  ctx.restore();
+  text(suit, x + 8 + (card.rank === "10" ? 13 : 10), y + 47, 15, color, "center", "serif");
+  text(suit, x + CARD_W / 2, y + CARD_H / 2 + 18, 44, color, "center", "serif");
+  text(card.rank, x + CARD_W - 8, y + CARD_H - 10, card.rank === "10" ? 18 : 21, color, "right", "serif");
+  text(suit, x + CARD_W - 18, y + CARD_H - 32, 14, color, "center", "serif");
 };
 
 drawChips = function drawChips(x, y, amount) {
