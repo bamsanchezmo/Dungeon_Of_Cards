@@ -3,6 +3,8 @@ import { GuestPeer, HostPeer, createLobbyCode, normalizeLobbyCode } from "./webr
 const W = 1280;
 const H = 800;
 const PORTRAIT_W = 760;
+const PORTRAIT_MIN_H = 1470;
+const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const MIN_BET = 1;
 const MAX_BET = 500;
@@ -39,7 +41,19 @@ const joinFields = document.querySelector("#joinFields");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
-const viewport = { cssW: W, cssH: H, dpr: 1, scale: 1, logicalW: W, logicalH: H, portrait: false };
+const viewport = {
+  cssW: W,
+  cssH: H,
+  dpr: 1,
+  scale: 1,
+  surfaceW: W,
+  surfaceH: H,
+  logicalW: W,
+  logicalH: H,
+  contentX: 0,
+  contentY: 0,
+  portrait: false
+};
 
 let appScene = "menu";
 let role = "solo";
@@ -1052,8 +1066,8 @@ function sfx(kind) {
 }
 
 function drawBackdrop() {
-  const lw = layoutW();
-  const lh = layoutH();
+  const lw = viewport.surfaceW;
+  const lh = viewport.surfaceH;
   const g = ctx.createLinearGradient(0, 0, lw, lh);
   g.addColorStop(0, "#17101f");
   g.addColorStop(.48, "#0f1718");
@@ -1086,6 +1100,7 @@ function draw() {
   ctx.save();
   ctx.scale(viewport.scale, viewport.scale);
   drawBackdrop();
+  ctx.translate(viewport.contentX, viewport.contentY);
   if (!game || appScene === "menu") {
     drawMenu();
   } else {
@@ -1928,8 +1943,8 @@ function eventPoint(ev) {
   const cssX = ev.clientX - rect.left;
   const cssY = ev.clientY - rect.top;
   return {
-    x: cssX / viewport.scale,
-    y: cssY / viewport.scale
+    x: cssX / viewport.scale - viewport.contentX,
+    y: cssY / viewport.scale - viewport.contentY
   };
 }
 
@@ -1965,12 +1980,20 @@ function resizeCanvas() {
   viewport.dpr = dpr;
   viewport.portrait = cssH > cssW * 1.12;
   if (viewport.portrait) {
+    viewport.scale = Math.min(cssW / PORTRAIT_W, cssH / PORTRAIT_MIN_H);
+    viewport.surfaceW = cssW / viewport.scale;
+    viewport.surfaceH = cssH / viewport.scale;
     viewport.logicalW = PORTRAIT_W;
-    viewport.scale = cssW / viewport.logicalW;
-    viewport.logicalH = cssH / viewport.scale;
+    viewport.logicalH = viewport.surfaceH;
+    viewport.contentX = (viewport.surfaceW - viewport.logicalW) / 2;
+    viewport.contentY = 0;
   } else {
+    viewport.scale = Math.min(cssW / LANDSCAPE_MIN_W, cssH / H);
+    viewport.surfaceW = cssW / viewport.scale;
+    viewport.surfaceH = cssH / viewport.scale;
+    viewport.logicalW = viewport.surfaceW;
     viewport.logicalH = H;
-    viewport.scale = cssH / viewport.logicalH;
-    viewport.logicalW = cssW / viewport.scale;
+    viewport.contentX = 0;
+    viewport.contentY = (viewport.surfaceH - viewport.logicalH) / 2;
   }
 }
