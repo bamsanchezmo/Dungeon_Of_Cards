@@ -3,6 +3,7 @@ import { GuestPeer, HostPeer, createLobbyCode, normalizeLobbyCode } from "./webr
 const W = 1280;
 const H = 800;
 const PORTRAIT_W = 760;
+const PORTRAIT_H = 1500;
 const FPS = 60;
 const MIN_BET = 1;
 const MAX_BET = 500;
@@ -39,7 +40,7 @@ const joinFields = document.querySelector("#joinFields");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
-const viewport = { cssW: W, cssH: H, dpr: 1, scale: 1, x: 0, y: 0, logicalW: W, logicalH: H, portrait: false };
+const viewport = { cssW: W, cssH: H, dpr: 1, scaleX: 1, scaleY: 1, logicalW: W, logicalH: H, portrait: false };
 
 let appScene = "menu";
 let role = "solo";
@@ -1084,8 +1085,7 @@ function draw() {
   ctx.clearRect(0, 0, viewport.cssW, viewport.cssH);
   fill("#08070b", 0, 0, viewport.cssW, viewport.cssH);
   ctx.save();
-  ctx.translate(viewport.x, viewport.y);
-  ctx.scale(viewport.scale, viewport.scale);
+  ctx.scale(viewport.scaleX, viewport.scaleY);
   drawBackdrop();
   if (!game || appScene === "menu") {
     drawMenu();
@@ -1930,8 +1930,8 @@ function eventPoint(ev) {
   const cssX = ev.clientX - rect.left;
   const cssY = ev.clientY - rect.top;
   return {
-    x: (cssX - viewport.x) / viewport.scale,
-    y: (cssY - viewport.y) / viewport.scale
+    x: cssX / viewport.scaleX,
+    y: cssY / viewport.scaleY
   };
 }
 
@@ -1966,16 +1966,13 @@ function resizeCanvas() {
   viewport.cssH = cssH;
   viewport.dpr = dpr;
   viewport.portrait = cssH > cssW * 1.12;
-  viewport.logicalW = viewport.portrait ? PORTRAIT_W : W;
   if (viewport.portrait) {
-    viewport.scale = cssW / viewport.logicalW;
-    viewport.logicalH = Math.max(1320, cssH / viewport.scale);
-    viewport.x = 0;
-    viewport.y = 0;
+    viewport.logicalW = PORTRAIT_W;
+    viewport.logicalH = PORTRAIT_H;
   } else {
+    viewport.logicalW = W;
     viewport.logicalH = H;
-    viewport.scale = Math.min(cssW / W, cssH / H);
-    viewport.x = Math.round((cssW - W * viewport.scale) / 2);
-    viewport.y = Math.round((cssH - H * viewport.scale) / 2);
   }
+  viewport.scaleX = cssW / viewport.logicalW;
+  viewport.scaleY = cssH / viewport.logicalH;
 }
