@@ -1279,7 +1279,9 @@ function drawMenu() {
 }
 
 function drawTable() {
-  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: layoutW() - 380, h: 720 };
+  const felt = viewport.portrait
+    ? { x: 24, y: 24, w: layoutW() - 48, h: 700 }
+    : { x: 40, y: 40, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 720 };
   const theme = feltTheme();
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
@@ -1386,6 +1388,10 @@ function drawSidePanel() {
     drawBottomPanel();
     return;
   }
+  if (isTouchLandscape()) {
+    drawTouchLandscapePanel();
+    return;
+  }
   const x = layoutW() - 310;
   shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
     gradientRound(x, 40, 270, 720, 18, [
@@ -1469,6 +1475,27 @@ function drawRelicPanel(x, y, w) {
   buttons.push({ x, y: y - 20, w, h: portrait ? 250 : 180, onClick: () => { relicsOpen = true; relicPage = 0; } });
 }
 
+function drawTouchLandscapePanel() {
+  const x = layoutW() - 510;
+  const w = 470;
+  gradientRound(x, 30, w, 740, 20, [[0, "#241a30"], [.44, "#14101b"], [1, "#1b1423"]], true);
+  strokeRound(x, 30, w, 740, 20, "rgba(220,180,70,.32)", 3);
+  text("DUNGEON OF CARDS", x + 190, 82, 25, C.gold, "center", "serif");
+  addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
+  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 24, 142, 27, C.text);
+  text(`Gold ${game.gold}g`, x + 245, 142, 27, C.gold);
+  meter(x + 24, 174, w - 48, 20, game.hp / game.maxHp, C.red, C.green);
+  text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
+  text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
+  drawActionButtons(x + 20, 310);
+  text("Relics", x + 24, 604, 24, C.gold);
+  const relicSummary = game.relics.length ? `${game.relics.length} collected — tap to view` : "None yet";
+  text(relicSummary, x + 24, 642, 20, C.muted);
+  buttons.push({ x: x + 18, y: 574, w: w - 36, h: 94, onClick: () => { relicsOpen = true; relicPage = 0; } });
+  const latest = game.log[0] || "";
+  text(fitLabel(latest, w - 48, 18), x + 24, 718, 18, C.muted);
+}
+
 function drawRelicRow(relic, x, y, w, highlight = false) {
   const portrait = viewport.portrait;
   const rowH = portrait ? 74 : 54;
@@ -1513,6 +1540,38 @@ function drawActionButtons(x, y) {
     }
     if (["roundOver", "victory", "defeat"].includes(game.phase)) {
       addButton(x, y, full, 76, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
+    }
+    return;
+  }
+  if (isTouchLandscape()) {
+    const gap = 10;
+    const bw = 100;
+    const bh = 105;
+    if (game.phase === "betting") {
+      addButton(x, y, bw, bh, "-5", () => action("betDown"));
+      addButton(x + 110, y, bw, bh, "+5", () => action("betUp"));
+      addButton(x + 220, y, bw, bh, "Min", () => action("minBet"));
+      addButton(x + 330, y, bw, bh, "Max", () => action("maxBet"));
+      addButton(x, y + bh + gap, 430, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      return;
+    }
+    if (game.phase === "insurance") {
+      addButton(x, y, 210, 110, "Insure", () => action("insuranceYes"), true);
+      addButton(x + 220, y, 210, 110, "No", () => action("insuranceNo"));
+      return;
+    }
+    if (game.phase === "player") {
+      const mine = activeHand(mySeat());
+      const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
+      addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
+      addButton(x + 110, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
+      addButton(x + 220, y, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
+      addButton(x + 330, y, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
+      addButton(x, y + bh + gap, 430, 105, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+      return;
+    }
+    if (["roundOver", "victory", "defeat"].includes(game.phase)) {
+      addButton(x, y, 430, 110, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
     }
     return;
   }
@@ -1721,7 +1780,9 @@ function animationProgress(anim) {
 }
 
 function deckPosition() {
-  const felt = viewport.portrait ? { x: 24, y: 24, w: layoutW() - 48, h: 700 } : { x: 40, y: 40, w: layoutW() - 380, h: 720 };
+  const felt = viewport.portrait
+    ? { x: 24, y: 24, w: layoutW() - 48, h: 700 }
+    : { x: 40, y: 40, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 720 };
   return { x: felt.x + felt.w - 125, y: felt.y + 50 };
 }
 
@@ -1885,7 +1946,8 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
-  text(label, x + w / 2, y + h / 2 + (portrait ? 9 : 7), portrait ? Math.min(28, Math.max(23, h * .36)) : 17, primary ? C.black : enabled ? C.text : C.muted, "center");
+  const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
+  text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? C.black : enabled ? C.text : C.muted, "center");
 }
 
 function badge(x, y, label, color) {
@@ -2137,6 +2199,10 @@ function layoutW() {
 
 function layoutH() {
   return viewport.logicalH || H;
+}
+
+function isTouchLandscape() {
+  return !viewport.portrait && viewport.cssH <= 540 && viewport.cssW <= 1100;
 }
 
 function clamp(v, min, max) {
