@@ -1011,18 +1011,8 @@ function formatPeerError(err) {
   if (!err) return "Lobby connection failed.";
   const type = err.type ? `${err.type}: ` : "";
   const message = err.message || String(err);
-  if (/Negotiation of connection/i.test(message)) {
-    return `${type}Negotiation failed. Keep the host tab open and try again; if it still fails, switch one device off VPN/Private Relay.`;
-  }
-  if (err.type === "peer-unavailable") {
-    return "Lobby not found. The host needs to keep the lobby open and share a fresh link.";
-  }
-  if (err.type === "network" || err.type === "server-error" || err.type === "socket-error") {
-    return `${type}${message}. Check that this browser can reach PeerJS and try again.`;
-  }
-  if (err.type === "webrtc") {
-    return `${type}${message}. WebRTC was blocked or relay negotiation failed.`;
-  }
+  if (/timed out/i.test(message)) return `${type}${message} Make sure both devices are online and try again.`;
+  if (/service did not load/i.test(message)) return `${type}${message} A browser extension or network filter may be blocking Supabase.`;
   return `${type}${message}`;
 }
 

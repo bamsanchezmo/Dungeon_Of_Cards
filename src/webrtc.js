@@ -1,6 +1,7 @@
-const lobbyPrefix = "dungeon-of-cards";
 const lobbyCodeLength = 8;
-const turnSecret = "openrelayprojectsecret";
+const supabaseUrl = "https://pnladhpwvtdsfkpokqde.supabase.co";
+const supabaseKey = "sb_publishable_0WZ3RRYApemjOYH5G8ti7g_D8gXeZ9-";
+const subscribeTimeoutMs = 15000;
 
 export function createLobbyCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -22,7 +23,7 @@ export function normalizeLobbyCode(value) {
   }
 }
 
-export function lobbyUrl(code) {
+function lobbyUrl(code) {
   const url = new URL(location.href);
   url.search = "";
   url.hash = "";
@@ -30,111 +31,114 @@ export function lobbyUrl(code) {
   return url.toString();
 }
 
-function peerIdFor(code) {
-  return `${lobbyPrefix}-${code.toLowerCase()}`;
+function roomName(code) {
+  return `dungeon-of-cards:${normalizeLobbyCode(code).toLowerCase()}`;
 }
 
-async function makePeer(id) {
-  if (!globalThis.Peer) {
-    throw new Error("Peer lobby script did not load. Check your connection and refresh.");
+function requireSupabase() {
+  if (!globalThis.supabase?.createClient) {
+    throw new Error("Multiplayer service did not load. Check your connection and refresh.");
   }
-  const iceServers = await createIceServers();
-  return new globalThis.Peer(id, {
-    debug: 1,
-    host: "0.peerjs.com",
-    port: 443,
-    path: "/",
-    secure: true,
-    config: {
-      iceServers,
-      iceCandidatePoolSize: 8
+  return globalThis.supabase.createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    },
+    realtime: {
+      params: { eventsPerSecond: 20 }
     }
   });
 }
 
-async function createIceServers() {
-  const servers = [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
-    { urls: "stun:stun.relay.metered.ca:80" }
-  ];
-  try {
-    const credentials = await createTurnCredentials();
-    servers.push(
-      { urls: "turn:staticauth.openrelay.metered.ca:80", ...credentials },
-      { urls: "turn:staticauth.openrelay.metered.ca:80?transport=tcp", ...credentials },
-      { urls: "turn:staticauth.openrelay.metered.ca:443", ...credentials },
-      { urls: "turns:staticauth.openrelay.metered.ca:443?transport=tcp", ...credentials }
-    );
-  } catch {
-    servers.push(
-      { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-      { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
-    );
-  }
-  return servers;
+function randomPlayerId() {
+  if (crypto.randomUUID) return `guest-${crypto.randomUUID()}`;
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `guest-${[...bytes].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
 }
 
-async function createTurnCredentials() {
-  const username = String(Math.floor(Date.now() / 1000) + 24 * 60 * 60);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(turnSecret),
-    { name: "HMAC", hash: "SHA-1" },
-    false,
-    ["sign"]
-  );
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(username));
-  const credential = btoa(String.fromCharCode(...new Uint8Array(digest)));
-  return { username, credential };
-}
-
-function waitForPeerOpen(peer) {
-  if (peer.open) return Promise.resolve(peer.id);
+function subscribe(channel, onStatus) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Lobby server timed out. Try refreshing the host tab and sharing a new link.")), 12000);
-    peer.once("open", (id) => {
-      clearTimeout(timer);
-      resolve(id);
-    });
-    peer.once("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Lobby service timed out. Refresh and try again."));
+    }, subscribeTimeoutMs);
+
+    channel.subscribe((status, error) => {
+      if (status === "SUBSCRIBED" && !settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+        return;
+      }
+      if ((status === "CHANNEL_ERROR" || status === "TIMED_OUT") && !settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(error || new Error("Could not connect to the lobby service."));
+        return;
+      }
+      if (status === "CLOSED") onStatus?.("closed");
+      if (status === "CHANNEL_ERROR") onStatus?.("error", error || new Error("Lobby channel failed."));
     });
   });
 }
 
-function waitForConnectionOpen(connection) {
-  if (connection.open) return Promise.resolve(connection);
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Connection timed out. Keep the host tab open and try the link again.")), 20000);
-    connection.once("open", () => {
-      clearTimeout(timer);
-      resolve(connection);
-    });
-    connection.once("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-
-export class HostPeer {
-  constructor({ code, onMessage, onStatus, onConnection }) {
-    this.code = code;
-    this.onMessage = onMessage;
+class RealtimePeer {
+  constructor({ code, role, playerId, onStatus }) {
+    this.code = normalizeLobbyCode(code);
+    this.role = role;
+    this.id = playerId;
     this.onStatus = onStatus;
+    this.client = requireSupabase();
+    this.channel = null;
+    this.closed = false;
+    // Keep the old cleanup shape used by app.js while the transport changes underneath it.
+    this.peer = { destroy: () => this.destroy() };
+  }
+
+  async destroy() {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.channel) await this.client.removeChannel(this.channel);
+  }
+
+  async broadcast(event, payload) {
+    if (!this.channel || this.closed) return;
+    const result = await this.channel.send({ type: "broadcast", event, payload });
+    if (result !== "ok") this.onStatus?.("error", new Error("A multiplayer message could not be sent."));
+  }
+}
+
+export class HostPeer extends RealtimePeer {
+  constructor({ code, onMessage, onStatus, onConnection }) {
+    super({ code, role: "host", playerId: "host", onStatus });
+    this.onMessage = onMessage;
     this.onConnection = onConnection;
-    this.connections = new Map();
-    this.peer = null;
-    this.ready = makePeer(peerIdFor(code)).then((peer) => {
-      this.peer = peer;
-      peer.on("connection", (connection) => this.#wireConnection(connection));
-      peer.on("disconnected", () => this.onStatus?.("disconnected"));
-      peer.on("close", () => this.onStatus?.("closed"));
-      peer.on("error", (err) => this.onStatus?.("error", err));
-      return waitForPeerOpen(peer);
+    this.connections = new Set();
+    this.blocked = new Set();
+    this.ready = this.#connect();
+  }
+
+  async #connect() {
+    this.channel = this.client.channel(roomName(this.code), {
+      config: { broadcast: { self: false, ack: true }, presence: { key: this.id } }
     });
+    this.channel.on("broadcast", { event: "guest-message" }, ({ payload }) => {
+      const playerId = payload?.playerId;
+      if (!playerId || this.blocked.has(playerId)) return;
+      if (!this.connections.has(playerId)) {
+        this.connections.add(playerId);
+        this.onConnection?.(playerId);
+        this.onStatus?.("connected", { playerId });
+      }
+      this.onMessage?.(payload.message, playerId);
+    });
+    await subscribe(this.channel, this.onStatus);
+    await this.channel.track({ role: "host", onlineAt: Date.now() });
+    return this.id;
   }
 
   async createInvite() {
@@ -143,80 +147,48 @@ export class HostPeer {
   }
 
   send(message, targetId = "") {
-    if (targetId) {
-      const connection = this.connections.get(targetId);
-      if (connection?.open) connection.send(message);
-      return;
-    }
-    this.connections.forEach((connection) => {
-      if (connection.open) connection.send(message);
-    });
+    void this.broadcast("host-message", { targetId, message });
   }
 
   disconnect(targetId) {
-    const connection = this.connections.get(targetId);
-    if (connection) {
-      setTimeout(() => connection.close(), 250);
-    }
-  }
-
-  #wireConnection(connection) {
-    connection.on("open", () => {
-      this.connections.set(connection.peer, connection);
-      this.onConnection?.(connection.peer);
-      this.onStatus?.("connected", { playerId: connection.peer });
-    });
-    connection.on("data", (data) => {
-      this.onMessage?.(data, connection.peer);
-    });
-    connection.on("close", () => {
-      this.connections.delete(connection.peer);
-      this.onStatus?.("closed", { playerId: connection.peer });
-    });
-    connection.on("error", (err) => this.onStatus?.("error", err));
+    this.blocked.add(targetId);
+    this.connections.delete(targetId);
+    void this.broadcast("host-control", { targetId, action: "disconnect" });
   }
 }
 
-export class GuestPeer {
+export class GuestPeer extends RealtimePeer {
   constructor({ code, onMessage, onStatus }) {
-    this.code = code;
+    super({ code, role: "guest", playerId: randomPlayerId(), onStatus });
     this.onMessage = onMessage;
-    this.onStatus = onStatus;
-    this.peer = null;
-    this.connection = null;
-    this.id = "";
-    this.ready = makePeer().then((peer) => {
-      this.peer = peer;
-      peer.on("disconnected", () => this.onStatus?.("disconnected"));
-      peer.on("close", () => this.onStatus?.("closed"));
-      peer.on("error", (err) => this.onStatus?.("error", err));
-      return waitForPeerOpen(peer).then((id) => {
-        this.id = id;
-        return id;
-      });
+    this.ready = this.#connect();
+  }
+
+  async #connect() {
+    this.channel = this.client.channel(roomName(this.code), {
+      config: { broadcast: { self: false, ack: true }, presence: { key: this.id } }
     });
+    this.channel.on("broadcast", { event: "host-message" }, ({ payload }) => {
+      if (payload?.targetId && payload.targetId !== this.id) return;
+      this.onMessage?.(payload?.message);
+    });
+    this.channel.on("broadcast", { event: "host-control" }, ({ payload }) => {
+      if (payload?.targetId !== this.id || payload.action !== "disconnect") return;
+      void this.destroy();
+      this.onStatus?.("closed");
+    });
+    await subscribe(this.channel, this.onStatus);
+    await this.channel.track({ role: "guest", playerId: this.id, onlineAt: Date.now() });
+    return this.id;
   }
 
   async connect() {
     await this.ready;
-    this.connection = this.peer.connect(peerIdFor(this.code), { serialization: "json" });
-    this.#wireConnection(this.connection);
-    await waitForConnectionOpen(this.connection);
     this.onStatus?.("connected", { playerId: this.id });
     return this.id;
   }
 
   send(message) {
-    if (this.connection?.open) {
-      this.connection.send(message);
-    }
-  }
-
-  #wireConnection(connection) {
-    connection.on("data", (data) => {
-      this.onMessage?.(data);
-    });
-    connection.on("close", () => this.onStatus?.("closed"));
-    connection.on("error", (err) => this.onStatus?.("error", err));
+    void this.broadcast("guest-message", { playerId: this.id, message });
   }
 }
