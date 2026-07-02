@@ -1230,7 +1230,7 @@ function drawMenu() {
   const lh = layoutH();
   const cx = lw / 2;
   const portrait = viewport.portrait;
-  const table = portrait ? { x: 34, y: 70, w: lw - 68, h: 880 } : { x: cx - 422, y: 70, w: 844, h: 660 };
+  const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1210, lh - 108) } : { x: cx - 422, y: 70, w: 844, h: 660 };
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
       [0, "#1d3028"],
@@ -1250,28 +1250,28 @@ function drawMenu() {
   ctx.save();
   ctx.shadowColor = "rgba(220,180,70,.35)";
   ctx.shadowBlur = 18;
-  text("DUNGEON", cx, portrait ? 176 : 188, portrait ? 58 : 76, C.gold, "center", "serif");
+  text("DUNGEON", cx, portrait ? 168 : 188, portrait ? 58 : 76, C.gold, "center", "serif");
   ctx.restore();
-  text("of CARDS", cx, portrait ? 236 : 264, portrait ? 56 : 72, C.parchment, "center", "serif");
-  text("A blackjack roguelike", cx, portrait ? 288 : 316, portrait ? 29 : 25, C.muted, "center");
+  text("of CARDS", cx, portrait ? 234 : 264, portrait ? 56 : 72, C.parchment, "center", "serif");
+  text("A blackjack roguelike", cx, portrait ? 302 : 316, portrait ? 29 : 25, C.muted, "center");
   const lines = [
     "Win chips to damage dealer-monsters.",
     "Lose chips and the dungeon takes blood.",
     "Collect relics, bend the rules, beat the final boss."
   ];
-  lines.forEach((line, i) => text(line, cx, (portrait ? 350 : 372) + i * 34, portrait ? 22 : 21, C.text, "center"));
+  lines.forEach((line, i) => text(line, cx, (portrait ? 382 : 372) + i * (portrait ? 40 : 34), portrait ? 22 : 21, C.text, "center"));
   const buttonW = portrait ? 480 : 300;
   const buttonX = cx - buttonW / 2;
-  const buttonY = portrait ? 500 : 475;
-  addButton(buttonX, portrait ? 420 : 414, buttonW, portrait ? 62 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
-  addButton(buttonX, buttonY, buttonW, portrait ? 68 : 52, "Single Player", () => {
+  const buttonY = portrait ? 650 : 475;
+  addButton(buttonX, portrait ? 548 : 414, buttonW, portrait ? 72 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
+  addButton(buttonX, buttonY, buttonW, portrait ? 78 : 52, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
     newGame([{ id: hostId, name: savedPlayerName("You") }]);
   }, true);
-  addButton(buttonX, buttonY + (portrait ? 82 : 60), buttonW, portrait ? 68 : 52, "Host Game", hostLobby);
-  addButton(buttonX, buttonY + (portrait ? 164 : 120), buttonW, portrait ? 68 : 52, "Join Game", joinLobby);
-  addButton(buttonX, buttonY + (portrait ? 246 : 180), buttonW, portrait ? 62 : 44, `Mode: ${freePlayPreference ? "Free Play" : "Classic Turns"}`, () => {
+  addButton(buttonX, buttonY + (portrait ? 102 : 60), buttonW, portrait ? 78 : 52, "Host Game", hostLobby);
+  addButton(buttonX, buttonY + (portrait ? 204 : 120), buttonW, portrait ? 78 : 52, "Join Game", joinLobby);
+  addButton(buttonX, buttonY + (portrait ? 306 : 180), buttonW, portrait ? 72 : 44, `Mode: ${freePlayPreference ? "Free Play" : "Classic Turns"}`, () => {
     freePlayPreference = !freePlayPreference;
     localStorage.setItem("dungeon-free-play", String(freePlayPreference));
   });
