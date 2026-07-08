@@ -1214,51 +1214,46 @@ function resumeMusicForFocus() {
 function sfx(kind) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
-  const blip = (freq, start, duration, volume = .08, type = "square", endFreq = freq) => {
+  const blip = (freq, start, duration, volume = .14, type = "square", endFreq = freq) => {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, now + start);
     if (endFreq !== freq) osc.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), now + start + duration);
     gain.gain.setValueAtTime(.0001, now + start);
-    gain.gain.exponentialRampToValueAtTime(volume, now + start + .01);
+    gain.gain.exponentialRampToValueAtTime(volume, now + start + .006);
+    gain.gain.setValueAtTime(volume * .72, now + start + duration * .45);
     gain.gain.exponentialRampToValueAtTime(.0001, now + start + duration);
     osc.connect(gain).connect(audioCtx.destination);
     osc.start(now + start);
     osc.stop(now + start + duration + .02);
   };
   if (kind === "click") {
-    blip(520, 0, .045, .055);
+    blip(620, 0, .06, .105);
     return;
   }
   if (kind === "ready") {
-    blip(520, 0, .07, .08);
-    blip(780, .075, .09, .08);
+    blip(520, 0, .09, .13);
+    blip(780, .085, .11, .14);
+    blip(1040, .18, .08, .105);
     return;
   }
   if (kind === "coin") {
-    blip(880, 0, .08, .075);
-    blip(1175, .07, .1, .08);
+    blip(740, 0, .08, .12);
+    blip(990, .065, .095, .145);
+    blip(1320, .145, .09, .12);
     return;
   }
   if (kind === "coinDown") {
-    blip(440, 0, .08, .075);
-    blip(260, .075, .12, .08, "square", 190);
+    blip(520, 0, .085, .13);
+    blip(320, .07, .13, .145, "square", 190);
+    blip(180, .18, .1, .095, "square", 120);
     return;
   }
   if (kind === "life") {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "square";
-    osc.frequency.setValueAtTime(132, now);
-    osc.frequency.exponentialRampToValueAtTime(54, now + .16);
-    gain.gain.setValueAtTime(.0001, now);
-    gain.gain.exponentialRampToValueAtTime(.2, now + .012);
-    gain.gain.setValueAtTime(.16, now + .05);
-    gain.gain.exponentialRampToValueAtTime(.0001, now + .22);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(now);
-    osc.stop(now + .24);
+    blip(150, 0, .2, .24, "square", 52);
+    blip(78, .025, .26, .18, "sawtooth", 38);
+    blip(310, .02, .045, .11, "square", 180);
     return;
   }
   const osc = audioCtx.createOscillator();
