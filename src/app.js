@@ -66,6 +66,7 @@ let buttons = [];
 let hover = { x: -1, y: -1 };
 let last = performance.now();
 let musicStarted = false;
+let musicPausedForFocus = false;
 let audio = null;
 let audioCtx = null;
 let flash = "";
@@ -79,7 +80,10 @@ let statsPlayerId = "";
 let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
+let signalKind = "";
 let freePlayPreference = localStorage.getItem("dungeon-free-play") === "true";
+let hpAnimation = null;
+let moneyAnimations = [];
 
 let enemyTemplates = [];
 
@@ -219,6 +223,12 @@ window.addEventListener("keydown", (ev) => {
   if (key === "enter") action(game?.phase === "betting" ? "ready" : "continue");
   if (key === "m") toggleMusic();
 });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) pauseMusicForFocus();
+  else resumeMusicForFocus();
+});
+window.addEventListener("blur", pauseMusicForFocus);
+window.addEventListener("focus", resumeMusicForFocus);
 
 requestAnimationFrame(tick);
 joinFromSharedLink();
@@ -229,6 +239,8 @@ function tick(now) {
   last = now;
   if (flashTimer > 0) flashTimer -= dt;
   cardAnimations = cardAnimations.filter((a) => now < a.start + a.duration + 120);
+  moneyAnimations = moneyAnimations.filter((a) => now < a.start + a.duration + 180);
+  if (hpAnimation && now > hpAnimation.start + hpAnimation.duration + 250) hpAnimation = null;
   if (game?.peekTimer > 0) {
     game.peekTimer -= dt;
     if (game.peekTimer <= 0) {
@@ -239,6 +251,10 @@ function tick(now) {
   if (game?.phase === "dealer" && role !== "guest") {
     game.dealerTimer -= dt;
     if (game.dealerTimer <= 0) dealerStep();
+  }
+  if (game?.phase === "dealerReveal" && role !== "guest") {
+    game.dealerTimer -= dt;
+    if (game.dealerTimer <= 0) settleRound();
   }
   draw();
   requestAnimationFrame(tick);
@@ -259,8 +275,8 @@ function newGame(players, code = "") {
     active: 0,
     finished: false,
     spectating: false,
-    profit: Number(p.profit) || 0,
-    profitHistory: Array.isArray(p.profitHistory) ? p.profitHistory : [0]
+    profit: 0,
+    profitHistory: [0]
   }));
   game = {
     code,
@@ -269,7 +285,7 @@ function newGame(players, code = "") {
     gold: 200 + Math.max(0, seats.length - 1) * 100,
     hp: 100 + Math.max(0, seats.length - 1) * 40,
     maxHp: 100 + Math.max(0, seats.length - 1) * 40,
-    enemy: cloneEnemy(0),
+    enemy: cloneEnemy(0, seats.length),
     deck: makeDeck(),
     dealer: [],
     seats,
@@ -292,9 +308,22 @@ function newGame(players, code = "") {
   appScene = "game";
 }
 
-function cloneEnemy(index) {
+function cloneEnemy(index, playerCount = game?.seats?.length || 1) {
   const e = enemyTemplates[Math.min(index, enemyTemplates.length - 1)];
-  return { ...e, maxHp: e.hp, hp: e.hp, dealerPeek: e.dealerPeek !== false };
+  const hp = Math.max(1, Math.ceil(e.hp * houseHpMultiplier(playerCount)));
+  return { ...e, baseHp: e.hp, maxHp: hp, hp, dealerPeek: e.dealerPeek !== false };
+}
+
+function houseHpMultiplier(playerCount = 1) {
+  return 1 + Math.max(0, playerCount - 1) * .6;
+}
+
+function rescaleEnemyForPlayers() {
+  if (!game?.enemy) return;
+  const nextMax = Math.max(1, Math.ceil((game.enemy.baseHp || game.enemy.maxHp || game.enemy.hp || 1) * houseHpMultiplier(game.seats.length)));
+  const ratio = game.enemy.maxHp ? game.enemy.hp / game.enemy.maxHp : 1;
+  game.enemy.maxHp = nextMax;
+  game.enemy.hp = ratio <= 0 ? 0 : Math.max(1, Math.min(nextMax, Math.ceil(nextMax * ratio)));
 }
 
 function addPlayerSeat(id, name = "") {
@@ -306,6 +335,7 @@ function addPlayerSeat(id, name = "") {
   game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
+  rescaleEnemyForPlayers();
   log(`${playerName} joined the table.`);
   return true;
 }
@@ -439,6 +469,7 @@ function dealRound() {
   if (game.gold < totalBets || totalBets <= 0) return;
   game.gold -= totalBets;
   if ((game.enemy.hitFee || 0) > game.gold) {
+    queueHpAnimation(game.hp, 0, game.maxHp);
     game.hp = 0;
     game.phase = "defeat";
     log("You cannot pay the table toll. The house wins.");
@@ -482,7 +513,11 @@ function peekCheck() {
   const dealerBj = game.enemy.dealerPeek && isBlackjackCards(game.dealer);
   if (dealerBj) {
     game.dealer[1].up = true;
-    settleRound();
+    game.phase = "dealerReveal";
+    game.dealerTimer = 1.25;
+    log("Dealer reveals blackjack.");
+    sfx("flip");
+    broadcast();
     return;
   }
   for (const s of game.seats) {
@@ -498,6 +533,7 @@ function hit(seatIndex) {
   const fee = game.enemy.hitFee || 0;
   if (fee) {
     if (game.gold < fee) {
+      queueHpAnimation(game.hp, 0, game.maxHp);
       game.hp = 0;
       game.phase = "defeat";
       log("You cannot pay the hit toll. The house wins.");
@@ -667,6 +703,7 @@ function settleRound() {
   game.dealer.forEach((c) => c.up = true);
   const dealerTotal = handTotal({ cards: game.dealer });
   const dealerBj = isBlackjackCards(game.dealer);
+  const hpBefore = game.hp;
   let net = 0;
   let winHands = 0;
   let grossLoss = 0;
@@ -697,6 +734,8 @@ function settleRound() {
   } else {
     sfx("push");
   }
+  if (hpBefore > game.hp) queueHpAnimation(hpBefore, game.hp, game.maxHp);
+  if (net !== 0) queueMoneyAnimation(net);
   game.roundNet = net;
   results.slice(0, 6).reverse().forEach(log);
   game.phase = game.hp <= 0 ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
@@ -990,10 +1029,17 @@ function handleGuestMessage(msg) {
     notify("That lobby is full.");
   }
   if (msg.type === "state") {
-    game = msg.state;
+    const previous = game;
+    const next = msg.state;
+    if (previous?.session && previous.session === next?.session) {
+      if (previous.hp > next.hp) queueHpAnimation(previous.hp, next.hp, next.maxHp);
+      const finishedRound = previous.phase !== next.phase && ["roundOver", "victory", "defeat"].includes(next.phase);
+      if (finishedRound && next.roundNet) queueMoneyAnimation(next.roundNet);
+    }
+    game = next;
     appScene = "game";
-    hideSignal();
-    notify("Joined the table.");
+    if (signalKind !== "name") hideSignal();
+    if (signalKind !== "name") notify("Joined the table.");
   }
 }
 
@@ -1014,6 +1060,7 @@ function joinFromSharedLink() {
 }
 
 function showSignal(kind, title, text) {
+  signalKind = kind;
   signalPanel.hidden = false;
   hostFields.hidden = kind !== "host";
   joinFields.hidden = kind !== "join";
@@ -1049,6 +1096,7 @@ function savePlayerName() {
 }
 
 function hideSignal() {
+  signalKind = "";
   signalPanel.hidden = true;
 }
 
@@ -1100,7 +1148,7 @@ function formatPeerError(err) {
 }
 
 function restartLobbyRun() {
-  const players = game.seats.map((s) => ({ id: s.id, name: s.name, profit: s.profit, profitHistory: s.profitHistory }));
+  const players = game.seats.map((s) => ({ id: s.id, name: s.name }));
   const code = game.code;
   const mode = game.freePlay;
   newGame(players, code);
@@ -1144,6 +1192,18 @@ function toggleMusic() {
   if (!audio) return;
   audio.muted = !audio.muted;
   flashMsg(audio.muted ? "Music muted" : "Music on");
+}
+
+function pauseMusicForFocus() {
+  if (!audio || audio.paused || audio.muted) return;
+  musicPausedForFocus = true;
+  audio.pause();
+}
+
+function resumeMusicForFocus() {
+  if (!audio || !musicPausedForFocus || audio.muted || document.hidden) return;
+  musicPausedForFocus = false;
+  audio.play().catch(() => {});
 }
 
 function sfx(kind) {
@@ -1217,6 +1277,7 @@ function draw() {
   if (statsPlayerId) drawStatsOverlay();
   if (rulesOpen) drawRulesOverlay();
   if (relicsOpen) drawRelicsOverlay();
+  drawFeedbackAnimations();
   if (menuOpen) {
     buttons = [];
     drawGameMenu();
@@ -1356,14 +1417,19 @@ function drawSeats(felt) {
     const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 50 + (idx % 2) * columnW;
     const y = portrait ? felt.y + 372 + Math.floor(idx / 2) * 156 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
+    const isReady = game.phase === "betting" && seat.ready;
     if (isActive) {
       shadow(0, 0, 26, "rgba(220,180,70,.42)", () => {
         gradientRound(x - 18, y - 42, seatW, 150, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
       });
+    } else if (isReady) {
+      shadow(0, 0, 22, "rgba(90,180,110,.35)", () => {
+        fill("rgba(20,50,34,.48)", x - 18, y - 42, seatW, 150, 14);
+      });
     } else {
       fill("rgba(5,8,7,.28)", x - 18, y - 42, seatW, 150, 14);
     }
-    strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : "rgba(238,231,215,.11)", isActive ? 3 : 1);
+    strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : isReady ? C.green : "rgba(238,231,215,.11)", isActive || isReady ? 3 : 1);
     const rank = playerRankIcon(seat);
     const displayName = `${rank}${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`;
     text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, isActive ? C.gold : C.text);
@@ -1686,6 +1752,73 @@ function drawFlash() {
   text(flash, cx, 52, 18, C.gold, "center");
 }
 
+function queueHpAnimation(from, to, max) {
+  if (from === to) return;
+  hpAnimation = { from, to, max: Math.max(1, max), start: performance.now(), duration: 1250 };
+}
+
+function queueMoneyAnimation(delta) {
+  if (!delta) return;
+  moneyAnimations.push({ delta, start: performance.now(), duration: 1200 });
+}
+
+function drawFeedbackAnimations() {
+  drawHpAnimation();
+  drawMoneyAnimations();
+}
+
+function drawHpAnimation() {
+  if (!hpAnimation) return;
+  const raw = clamp((performance.now() - hpAnimation.start) / hpAnimation.duration, 0, 1);
+  const t = raw < .18 ? 0 : clamp((raw - .18) / .62, 0, 1);
+  const eased = 1 - Math.pow(1 - t, 3);
+  const shown = lerp(hpAnimation.from, hpAnimation.to, eased);
+  const lw = layoutW();
+  const x = lw / 2 - 270;
+  const y = viewport.portrait ? 265 : 250;
+  const w = 540;
+  const h = 124;
+  fill("rgba(0,0,0,.58)", 0, 0, lw, layoutH());
+  shadow(0, 18, 44, "rgba(0,0,0,.5)", () => gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true));
+  strokeRound(x, y, w, h, 18, "rgba(220,180,70,.5)", 2);
+  text(`HP -${Math.max(0, hpAnimation.from - hpAnimation.to)}`, lw / 2, y + 42, 27, C.red, "center", "serif");
+  fill("#08070b", x + 38, y + 64, w - 76, 24, 12);
+  const oldW = (w - 76) * clamp(hpAnimation.from / hpAnimation.max, 0, 1);
+  const newW = (w - 76) * clamp(shown / hpAnimation.max, 0, 1);
+  fill("rgba(200,60,60,.42)", x + 38, y + 64, oldW, 24, 12);
+  fillGradientBar(x + 38, y + 64, newW, 24, C.red, C.green);
+  text(`${Math.round(shown)}/${hpAnimation.max}`, lw / 2, y + 112, 22, C.text, "center");
+}
+
+function drawMoneyAnimations() {
+  const now = performance.now();
+  moneyAnimations.forEach((anim, i) => {
+    const t = clamp((now - anim.start) / anim.duration, 0, 1);
+    const y = (viewport.portrait ? 220 : 178) - t * 52 - i * 30;
+    const alpha = Math.min(1, (1 - t) * 1.6);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const positive = anim.delta > 0;
+    const label = `${positive ? "+" : "-"}${Math.abs(anim.delta)}g`;
+    const color = positive ? C.green : C.red;
+    const cx = layoutW() / 2;
+    ctx.font = `700 ${viewport.portrait ? 28 : 24}px serif`;
+    const width = Math.max(130, ctx.measureText(label).width + 46);
+    fill("rgba(0,0,0,.58)", cx - width / 2, y - 30, width, 44, 14);
+    strokeRound(cx - width / 2, y - 30, width, 44, 14, color, 2);
+    text(label, cx, y, viewport.portrait ? 28 : 24, color, "center", "serif");
+    ctx.restore();
+  });
+}
+
+function fillGradientBar(x, y, w, h, c1, c2) {
+  if (w <= 0) return;
+  const g = ctx.createLinearGradient(x, y, x + w, y);
+  g.addColorStop(0, c1);
+  g.addColorStop(1, c2);
+  fill(g, x, y, w, h, h / 2);
+}
+
 function drawGameMenu() {
   const lw = layoutW();
   const lh = layoutH();
@@ -1720,13 +1853,19 @@ function goHome() {
 }
 
 function drawHand(cards, x, y, highlight, maxWidth = Infinity) {
-  const step = cards.length < 2 ? 0 : Math.max(14, Math.min(62, (maxWidth - CARD_W) / (cards.length - 1)));
+  const step = cards.length < 2 ? 0 : Math.max(10, Math.min(62, (maxWidth - CARD_W) / Math.max(1, cards.length - 1)));
+  const handW = cards.length < 2 ? CARD_W : CARD_W + step * (cards.length - 1);
+  const scale = Number.isFinite(maxWidth) && handW > maxWidth ? clamp(maxWidth / handW, .62, 1) : 1;
   cards.forEach((card, i) => {
     const cx = x + i * step;
     const cy = y + Math.sin(i * .6) * 2;
     const anim = prepareCardAnimation(card, cx, cy);
     if (anim && animationProgress(anim) < .92) return;
-    drawCardFace(card, cx, cy, highlight && i === cards.length - 1);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    drawCardFace(card, 0, 0, highlight && i === cards.length - 1);
+    ctx.restore();
   });
 }
 
@@ -1980,6 +2119,7 @@ function phaseTitle() {
     insurance: "Insurance",
     player: game.freePlay ? "Free Play — Everyone Acts" : game.seats[game.activeSeat]?.id === localPlayerId ? "Your Turn" : `${game.seats[game.activeSeat]?.name}'s Turn`,
     dealer: "Dealer Turn",
+    dealerReveal: "Dealer Blackjack",
     roundOver: game.roundNet > 0 ? "Round Won" : game.roundNet < 0 ? "Round Lost" : "Push",
     shop: "Shop",
     victory: "Victory",
