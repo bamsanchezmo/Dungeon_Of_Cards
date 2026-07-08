@@ -1209,6 +1209,21 @@ function resumeMusicForFocus() {
 function sfx(kind) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
+  if (kind === "life") {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(132, now);
+    osc.frequency.exponentialRampToValueAtTime(54, now + .16);
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(.2, now + .012);
+    gain.gain.setValueAtTime(.16, now + .05);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + .22);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + .24);
+    return;
+  }
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   const freq = { deal: 440, flip: 560, win: 740, lose: 160, bust: 120, push: 300, shuffle: 220 }[kind] || 330;
@@ -1754,6 +1769,7 @@ function drawFlash() {
 
 function queueHpAnimation(from, to, max) {
   if (from === to) return;
+  if (from > to) sfx("life");
   hpAnimation = { from, to, max: Math.max(1, max), start: performance.now(), duration: 1250 };
 }
 
