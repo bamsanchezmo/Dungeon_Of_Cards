@@ -208,7 +208,10 @@ canvas.addEventListener("pointerdown", (ev) => {
   const p = eventPoint(ev);
   startAudio();
   const hit = [...buttons].reverse().find((b) => b.enabled !== false && inRect(p, b));
-  if (hit) hit.onClick();
+  if (hit) {
+    sfx("click");
+    hit.onClick();
+  }
 });
 window.addEventListener("keydown", (ev) => {
   if (signalPanel.hidden === false) return;
@@ -424,6 +427,7 @@ function applyAction(playerId, name) {
     if (name === "maxBet") seat.bet = max;
     if (name === "ready") {
       seat.ready = !seat.ready;
+      sfx(seat.ready ? "ready" : "click");
       log(`${seat.name} ${seat.ready ? "is ready" : "is adjusting their bet"}.`);
       if (game.seats.every((s) => s.ready) && game.seats.some((s) => s.bet > 0)) dealRound();
     }
@@ -815,6 +819,7 @@ function buyRelic(index) {
   const cost = 45 + game.floor * 15;
   if (game.gold < cost) return flashMsg("Not enough gold");
   game.gold -= cost;
+  sfx("coinDown");
   game.relics.push(relic);
   game.foresightUsesLeft += relic.foresightUses || 0;
   lastRelicName = relic.name;
@@ -1209,6 +1214,38 @@ function resumeMusicForFocus() {
 function sfx(kind) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
+  const blip = (freq, start, duration, volume = .08, type = "square", endFreq = freq) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now + start);
+    if (endFreq !== freq) osc.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), now + start + duration);
+    gain.gain.setValueAtTime(.0001, now + start);
+    gain.gain.exponentialRampToValueAtTime(volume, now + start + .01);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + start + duration);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(now + start);
+    osc.stop(now + start + duration + .02);
+  };
+  if (kind === "click") {
+    blip(520, 0, .045, .055);
+    return;
+  }
+  if (kind === "ready") {
+    blip(520, 0, .07, .08);
+    blip(780, .075, .09, .08);
+    return;
+  }
+  if (kind === "coin") {
+    blip(880, 0, .08, .075);
+    blip(1175, .07, .1, .08);
+    return;
+  }
+  if (kind === "coinDown") {
+    blip(440, 0, .08, .075);
+    blip(260, .075, .12, .08, "square", 190);
+    return;
+  }
   if (kind === "life") {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -1775,6 +1812,7 @@ function queueHpAnimation(from, to, max) {
 
 function queueMoneyAnimation(delta) {
   if (!delta) return;
+  sfx(delta > 0 ? "coin" : "coinDown");
   moneyAnimations.push({ delta, start: performance.now(), duration: 1200 });
 }
 
