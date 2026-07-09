@@ -1,10 +1,10 @@
-const lobbyCodeLength = 8;
+const lobbyCodeLength = 4;
 const supabaseUrl = "https://pnladhpwvtdsfkpokqde.supabase.co";
 const supabaseKey = "sb_publishable_0WZ3RRYApemjOYH5G8ti7g_D8gXeZ9-";
 const subscribeTimeoutMs = 15000;
 
 export function createLobbyCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   let code = "";
   crypto.getRandomValues(new Uint8Array(lobbyCodeLength)).forEach((n) => {
     code += alphabet[n % alphabet.length];
@@ -158,8 +158,8 @@ export class HostPeer extends RealtimePeer {
 }
 
 export class GuestPeer extends RealtimePeer {
-  constructor({ code, onMessage, onStatus }) {
-    super({ code, role: "guest", playerId: randomPlayerId(), onStatus });
+  constructor({ code, playerId = randomPlayerId(), onMessage, onStatus }) {
+    super({ code, role: "guest", playerId, onStatus });
     this.onMessage = onMessage;
     this.ready = this.#connect();
   }

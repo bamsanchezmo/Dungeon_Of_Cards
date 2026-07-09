@@ -40,6 +40,7 @@ const C = {
 
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
+const localDeviceId = getOrCreateDeviceId();
 const signalPanel = document.querySelector("#signalPanel");
 const signalTitle = document.querySelector("#signalTitle");
 const signalText = document.querySelector("#signalText");
@@ -95,6 +96,7 @@ let menuOpen = false;
 let cardAnimations = [];
 let seenCardIds = new Set();
 let statsPlayerId = "";
+let handCarousel = {};
 let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
@@ -345,6 +347,7 @@ function newGame(players, code = "", mode = modePreference) {
     loanDebt: 0,
     loanSeatId: "",
     loanReason: "",
+    loanVotes: {},
     loanSignedAt: 0,
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
@@ -381,6 +384,23 @@ function addPlayerSeat(id, name = "") {
   rescaleEnemyForPlayers();
   log(`${playerName} joined the table.`);
   return true;
+}
+
+function kickPlayer(id) {
+  if (role !== "host" || id === hostId || !game) return;
+  const index = game.seats.findIndex((s) => s.id === id);
+  if (index < 0) return;
+  const [removed] = game.seats.splice(index, 1);
+  peer?.disconnect(id);
+  if (!isFreeForAll()) game.gold = Math.max(0, game.gold - 100);
+  game.maxHp = Math.max(100, game.maxHp - 40);
+  game.hp = Math.min(game.hp, game.maxHp);
+  if (game.activeSeat >= game.seats.length) game.activeSeat = Math.max(0, game.seats.length - 1);
+  delete handCarousel[id];
+  statsPlayerId = "";
+  rescaleEnemyForPlayers();
+  log(`${removed.name} was removed from the lobby.`);
+  broadcast();
 }
 
 function makeDeck() {
@@ -460,10 +480,14 @@ function applyAction(playerId, name) {
   if (!seat) return;
 
   if (game.phase === "loanOffer") {
-    if (name === "signLoan") signLoan(playerId);
+    if (!canSeeLoanOffer(playerId)) return;
+    if (name === "signLoan") {
+      if (sharedLoanNeedsVote()) voteLoan(playerId, true);
+      else signLoan(playerId);
+    }
     if (name === "declineLoan") {
-      game.phase = "defeat";
-      log("The contract goes unsigned.");
+      if (sharedLoanNeedsVote()) voteLoan(playerId, false);
+      else declineLoan(playerId);
     }
     return;
   }
@@ -1076,7 +1100,7 @@ function joinLobby(code = "") {
   localPlayerId = "";
   appScene = "lobby";
   lobbyCodeInput.value = code;
-  showSignal("join", "Join Lobby", "Paste a lobby link or enter the 8-character code.");
+  showSignal("join", "Join Lobby", "Paste a lobby link or enter the 4-letter code.");
   if (code) connectGuest();
 }
 
@@ -1088,6 +1112,7 @@ async function connectGuest() {
     signalText.textContent = `Connecting to lobby ${code}...`;
     peer = new GuestPeer({
       code,
+      playerId: `guest-${localDeviceId}`,
       onMessage: handleGuestMessage,
       onStatus: handlePeerStatus
     });
@@ -1120,7 +1145,7 @@ function handleHostConnection(playerId) {
 
 function handleHostMessage(msg, fromId = "") {
   if (msg.type === "hello") {
-    const id = msg.playerId || fromId;
+    const id = fromId;
     if (!addPlayerSeat(id, cleanPlayerName(msg.name) || guestNameFor(id))) {
       peer?.send({ type: "lobbyFull" }, id);
       peer?.disconnect(id);
@@ -1130,11 +1155,13 @@ function handleHostMessage(msg, fromId = "") {
     broadcast();
   }
   if (msg.type === "action") {
-    applyAction(msg.playerId, msg.action);
+    if (msg.playerId && msg.playerId !== fromId) return;
+    applyAction(fromId, msg.action);
     broadcast();
   }
   if (msg.type === "rename") {
-    const seat = game?.seats.find((s) => s.id === (msg.playerId || fromId));
+    if (msg.playerId && msg.playerId !== fromId) return;
+    const seat = game?.seats.find((s) => s.id === fromId);
     const name = cleanPlayerName(msg.name);
     if (seat && name) seat.name = name;
     broadcast();
@@ -1191,6 +1218,16 @@ function showSignal(kind, title, text) {
 
 function savedPlayerName(fallback = "Player") {
   return cleanPlayerName(localStorage.getItem("dungeon-player-name")) || fallback;
+}
+
+function getOrCreateDeviceId() {
+  const key = "dungeon-device-id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID?.() || String(Date.now()) + String(Math.random()).slice(2);
+    localStorage.setItem(key, id);
+  }
+  return id.replace(/[^a-z0-9-]/gi, "").slice(0, 48);
 }
 
 function cleanPlayerName(value) {
@@ -1291,16 +1328,40 @@ function canOfferBankruptcyLoan(seat = null) {
   return sharedBankrupt() && (Number(game.loanDebt) || 0) <= 0;
 }
 
+function sharedLoanNeedsVote() {
+  return !!game?.code && !isFreeForAll() && game.seats.length > 1;
+}
+
+function loanVoters() {
+  return game?.seats?.filter((s) => !s.spectating) || [];
+}
+
+function canSeeLoanOffer(playerId = localPlayerId) {
+  if (!game || game.phase !== "loanOffer") return false;
+  if (!isFreeForAll()) return true;
+  return playerId === game.loanSeatId;
+}
+
+function loanDisplaySigner(playerId = localPlayerId) {
+  if (sharedLoanNeedsVote()) return game.seats.find((s) => s.id === playerId) || loanSigner();
+  return loanSigner();
+}
+
 function triggerBankruptcyDeath(reason, seat = null) {
   const signerSeat = seat || game.seats[game.activeSeat] || mySeat() || game.seats[0];
   const hpBefore = Math.max(1, game.hp || game.maxHp || 1);
-  if (game.hp > 0) queueHpAnimation(game.hp, 0, game.maxHp);
-  game.hp = 0;
+  if (!isFreeForAll()) {
+    if (game.hp > 0) queueHpAnimation(game.hp, 0, game.maxHp);
+    game.hp = 0;
+  }
   game.loanSeatId = signerSeat?.id || "";
   game.loanReason = reason || "Bankruptcy";
+  game.loanVotes = {};
   if (canOfferBankruptcyLoan(signerSeat)) {
     game.phase = "loanOffer";
-    log(`${reason}. A blood contract is offered.`);
+    if (!isFreeForAll()) log(`${reason}. A blood contract is offered.`);
+  } else if (isFreeForAll()) {
+    eliminateSeat(signerSeat, `${reason}. No contract remains.`);
   } else {
     game.phase = "defeat";
     log(`${reason}. No contract remains.`);
@@ -1308,12 +1369,57 @@ function triggerBankruptcyDeath(reason, seat = null) {
   return hpBefore;
 }
 
+function voteLoan(playerId, signed) {
+  if (!sharedLoanNeedsVote()) return;
+  game.loanVotes ||= {};
+  game.loanVotes[playerId] = signed ? "sign" : "decline";
+  const seat = game.seats.find((s) => s.id === playerId);
+  if (!signed) {
+    game.phase = "defeat";
+    log(`${seat?.name || "Someone"} refused the blood contract.`);
+    return;
+  }
+  const voters = loanVoters();
+  log(`${seat?.name || "A player"} signed the contract vote.`);
+  if (voters.every((s) => game.loanVotes?.[s.id] === "sign")) signLoan(game.loanSeatId || hostId);
+}
+
+function declineLoan(playerId) {
+  if (isFreeForAll()) {
+    const seat = game.seats.find((s) => s.id === playerId);
+    eliminateSeat(seat, "Declined the contract.");
+    return;
+  }
+  game.phase = "defeat";
+  log("The contract goes unsigned.");
+}
+
+function eliminateSeat(seat, reason = "Bankrupt.") {
+  if (!seat) return;
+  seat.bankrupt = true;
+  seat.dead = true;
+  seat.spectating = true;
+  seat.finished = true;
+  seat.ready = true;
+  seat.bet = 0;
+  seat.hands = [];
+  log(`${seat.name}: dead.`);
+  if (freeForAllAllOut()) {
+    game.phase = "defeat";
+    log("Every bankroll is gone. The table closes.");
+  } else {
+    enterBettingRound({ chargeInterest: false });
+    log(reason);
+  }
+}
+
 function signLoan(playerId) {
   if (game.phase !== "loanOffer") return;
-  if (game.loanSeatId && playerId !== game.loanSeatId) return flashMsg(`${loanSigner().name} must sign`);
+  if (isFreeForAll() && game.loanSeatId && playerId !== game.loanSeatId) return flashMsg(`${loanSigner().name} must sign`);
   const seat = game.seats.find((s) => s.id === (game.loanSeatId || playerId));
   if (!canOfferBankruptcyLoan(seat)) {
-    game.phase = "defeat";
+    if (isFreeForAll()) eliminateSeat(seat, "No contract remains.");
+    else game.phase = "defeat";
     return;
   }
   const reviveHp = Math.max(1, Math.ceil(game.maxHp * .35));
@@ -1323,6 +1429,7 @@ function signLoan(playerId) {
     seat.debt = LOAN_AMOUNT + LOAN_INTEREST;
     seat.loanUsed = true;
     seat.bankrupt = false;
+    seat.dead = false;
     seat.spectating = false;
     seat.ready = false;
     seat.bet = Math.min(25, maxBetForSeat(seat));
@@ -1335,12 +1442,19 @@ function signLoan(playerId) {
   queueHpAnimation(0, reviveHp, game.maxHp);
   game.hp = reviveHp;
   enterBettingRound({ chargeInterest: false });
-  log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
+  if (!isFreeForAll()) log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
   sfx("life");
 }
 
 function updateSeatBankruptcy(seat) {
   if (!isFreeForAll() || !seat) return false;
+  if (seat.dead) {
+    seat.bankrupt = true;
+    seat.spectating = true;
+    seat.ready = true;
+    seat.bet = 0;
+    return false;
+  }
   const was = !!seat.bankrupt;
   seat.bankrupt = seatBankroll(seat) < MIN_BET;
   if (seat.bankrupt) {
@@ -1369,7 +1483,7 @@ function updateFreeForAllBankruptcy(results = []) {
 function freeForAllAllOut() {
   return isFreeForAll()
     && game.seats.length > 0
-    && game.seats.every((seat) => seatBankroll(seat) < MIN_BET && !canTakeLoan(seat));
+    && game.seats.every((seat) => seat.dead || (seatBankroll(seat) < MIN_BET && !canTakeLoan(seat)));
 }
 
 function canTakeLoan(seat) {
@@ -1394,7 +1508,7 @@ function debtForSeat(seat = mySeat()) {
 function seatInDebt(seat) {
   if (!seat) return false;
   if (isFreeForAll()) return (Number(seat.debt) || 0) > 0;
-  return (Number(game?.loanDebt) || 0) > 0 && (!game.loanSeatId || seat.id === game.loanSeatId);
+  return (Number(game?.loanDebt) || 0) > 0;
 }
 
 function goldLabel() {
@@ -1765,7 +1879,7 @@ function draw() {
     drawTable();
     drawFlyingCards();
     if (game.phase === "shop") drawShop();
-    if (game.phase === "loanOffer") drawLoanOffer();
+    if (game.phase === "loanOffer" && canSeeLoanOffer()) drawLoanOffer();
     if (game.phase === "victory" || game.phase === "defeat") drawEnd();
     if (game.peekCard) drawPeekOverlay();
   }
@@ -1943,13 +2057,32 @@ function drawSeats(felt) {
     const nameColor = seatInDebt(seat) ? C.red : isActive ? C.gold : C.text;
     text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, nameColor);
     text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
+    if (seat.hands.length > 1) buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 42, onClick: () => statsPlayerId = seat.id });
     if (seat.hands.length) {
-      const slotW = Math.max(24, (seatW - CARD_W - 22) / seat.hands.length);
-      seat.hands.forEach((hand, hidx) => {
-        const hx = x + hidx * slotW;
-        drawHand(hand.cards, hx, y + 10, hidx === seat.active && isActive, CARD_W + slotW);
-        badge(hx + 45, y + 148, handLabel(hand), handColor(hand));
-      });
+      const selected = clamp(handCarousel[seat.id] ?? seat.active ?? 0, 0, seat.hands.length - 1);
+      handCarousel[seat.id] = selected;
+      if (seat.hands.length > 1) {
+        const centerX = x + seatW / 2 - CARD_W / 2 - 18;
+        [-1, 1].forEach((offset) => {
+          const hidx = selected + offset;
+          const hand = seat.hands[hidx];
+          if (!hand) return;
+          ctx.save();
+          ctx.globalAlpha = .38;
+          ctx.translate(centerX + offset * 92, y + 22);
+          ctx.scale(.72, .72);
+          drawHand(hand.cards, 0, 0, false, 150);
+          ctx.restore();
+        });
+        drawHand(seat.hands[selected].cards, centerX, y + 8, selected === seat.active && isActive, Math.min(210, seatW - 72));
+        badge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, handColor(seat.hands[selected]));
+        buttons.push({ x: x - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected > 0, onClick: () => handCarousel[seat.id] = selected - 1 });
+        buttons.push({ x: x + seatW / 2 - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected < seat.hands.length - 1, onClick: () => handCarousel[seat.id] = selected + 1 });
+      } else {
+        const hand = seat.hands[0];
+        drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 40));
+        badge(x + 45, y + 148, handLabel(hand), handColor(hand));
+      }
     } else {
       drawChips(x + 38, y + 50, seat.bet);
       badge(x + 110, y + 70, `Bet ${seat.bet}g`, C.gold);
@@ -1958,7 +2091,7 @@ function drawSeats(felt) {
         text(`${seatBankroll(seat)}g${debt ? ` / D${debt}g` : ""}`, x + seatW - 42, y + 72, portrait ? 17 : 14, debt ? C.red : C.gold, "right");
       }
     }
-    buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 150, onClick: () => statsPlayerId = seat.id });
+    if (seat.hands.length <= 1) buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 150, onClick: () => statsPlayerId = seat.id });
   });
 }
 
@@ -2272,7 +2405,7 @@ function drawEnd() {
 function drawLoanOffer() {
   const lw = layoutW();
   const lh = layoutH();
-  const signer = loanSigner();
+  const signer = loanDisplaySigner();
   const portrait = viewport.portrait;
   const panelW = Math.min(portrait ? 650 : 740, lw - 60);
   const panelH = portrait ? 820 : 610;
@@ -2282,7 +2415,7 @@ function drawLoanOffer() {
   shadow(0, 24, 70, "rgba(0,0,0,.58)", () => gradientRound(x, y, panelW, panelH, 18, [[0, "#2b1720"], [.62, "#150b10"], [1, "#28121a"]], true));
   strokeRound(x, y, panelW, panelH, 18, C.red, 3);
   text("BANKRUPTCY", lw / 2, y + 60, portrait ? 40 : 44, C.red, "center", "serif");
-  text("The table offers one final contract.", lw / 2, y + 104, portrait ? 21 : 19, C.text, "center");
+  text(sharedLoanNeedsVote() ? "The table demands every signature." : "The table offers one final contract.", lw / 2, y + 104, portrait ? 21 : 19, C.text, "center");
   const terms = [
     `Signer: ${signer.name}`,
     `Advance: ${LOAN_AMOUNT}g`,
@@ -2316,8 +2449,11 @@ function drawLoanOffer() {
   ctx.lineTo(x + panelW - 86, sigY + (portrait ? 76 : 68));
   ctx.stroke();
   ctx.restore();
-  addButton(x + 54, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, "Decline", () => action("declineLoan"));
-  addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, "Sign", () => action("signLoan"), true);
+  const vote = game.loanVotes?.[localPlayerId];
+  const signLabel = sharedLoanNeedsVote() ? vote === "sign" ? "Signed" : "Sign Vote" : "Sign";
+  const declineLabel = sharedLoanNeedsVote() ? vote === "decline" ? "Declined" : "Decline Vote" : "Decline";
+  addButton(x + 54, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, declineLabel, () => action("declineLoan"), false, vote !== "sign");
+  addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, signLabel, () => action("signLoan"), true, vote !== "decline");
 }
 
 function drawFlash() {
@@ -2394,9 +2530,10 @@ function drawMoneyAnimations() {
 
 function drawBloodSignature() {
   if (!game?.loanSignedAt) return;
+  if (isFreeForAll() && game.loanSeatId !== localPlayerId) return;
   const t = clamp((performance.now() - game.loanSignedAt) / 2600, 0, 1);
   if (t >= 1) return;
-  const signer = loanSigner();
+  const signer = loanDisplaySigner();
   const lw = layoutW();
   const lh = layoutH();
   const y = viewport.portrait ? lh * .42 : lh * .46;
@@ -2804,6 +2941,7 @@ function meter(x, y, w, h, value, c1, c2) {
 }
 
 function phaseTitle() {
+  if (game.phase === "loanOffer" && !canSeeLoanOffer()) return "Waiting";
   if (game.phase === "player" && isFreeForAll()) return "Free For All";
   return {
     betting: "Betting",
@@ -2820,6 +2958,7 @@ function phaseTitle() {
 }
 
 function seatStatus(seat) {
+  if (seat.dead) return "Dead";
   if (isFreeForAll() && seat.bankrupt) return canTakeLoan(seat) ? "Bankrupt" : "Out";
   if (game.phase === "betting") return seat.ready ? "Ready" : `${seat.bet}g`;
   if (seat.spectating) return "Spectating";
@@ -3112,7 +3251,12 @@ function drawStatsOverlay() {
   });
   ctx.stroke();
   text(`${history.length - 1} completed round${history.length === 2 ? "" : "s"}`, x + 40, y + h - 112, 17, C.muted);
-  addButton(x + w / 2 - 100, y + h - 75, 200, 48, "Close", () => statsPlayerId = "");
+  if (role === "host" && seat.id !== hostId) {
+    addButton(x + w / 2 - 210, y + h - 75, 200, 48, "Kick", () => kickPlayer(seat.id), false);
+    addButton(x + w / 2 + 10, y + h - 75, 200, 48, "Close", () => statsPlayerId = "");
+  } else {
+    addButton(x + w / 2 - 100, y + h - 75, 200, 48, "Close", () => statsPlayerId = "");
+  }
 }
 
 function drawRulesOverlay() {
