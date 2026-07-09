@@ -69,7 +69,6 @@ let musicStarted = false;
 let musicPausedForFocus = false;
 let audio = null;
 let audioCtx = null;
-let sfxCounter = 0;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -781,7 +780,8 @@ function settleRound() {
   if ((isFreeForAll() ? localNet : net) !== 0) queueMoneyAnimation(isFreeForAll() ? localNet : net);
   game.roundNet = net;
   results.slice(0, 6).reverse().forEach(log);
-  game.phase = game.hp <= 0 ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
+  game.phase = game.hp <= 0 || sharedBankrupt() ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
+  if (sharedBankrupt()) log("You are out of gold. The dungeon claims you.");
   broadcast();
 }
 
@@ -879,6 +879,11 @@ function nextBattle() {
 
 function resetRound() {
   game.phase = "betting";
+  if (sharedBankrupt()) {
+    game.phase = "defeat";
+    log("You are out of gold. The dungeon claims you.");
+    return;
+  }
   game.dealer = [];
   game.roundDealCount = 0;
   cardAnimations = [];
@@ -1209,6 +1214,10 @@ function isFreeForAll() {
   return game?.mode === "freeForAll";
 }
 
+function sharedBankrupt() {
+  return !!game && !isFreeForAll() && (Number(game.gold) || 0) <= 0;
+}
+
 function cycleModePreference() {
   const modes = ["classic", "freePlay", "freeForAll"];
   modePreference = modes[(modes.indexOf(modePreference) + 1) % modes.length];
@@ -1248,7 +1257,7 @@ function addGold(seat, amount) {
 function maxBetForSeat(seat) {
   if (isFreeForAll()) return Math.max(0, Math.min(MAX_BET, seatBankroll(seat)));
   const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
-  return Math.max(MIN_BET, Math.min(MAX_BET, game.gold - committedByOthers));
+  return Math.max(0, Math.min(MAX_BET, game.gold - committedByOthers));
 }
 
 function voteRelic(playerId, index) {
@@ -1271,6 +1280,10 @@ function startAudio() {
     audio = new Audio("./assets/Velvet_Blackjack.ogg");
     audio.loop = true;
     audio.volume = .35;
+    audio.playbackRate = 1;
+    audio.preservesPitch = true;
+    audio.mozPreservesPitch = true;
+    audio.webkitPreservesPitch = true;
   }
   if (!audioCtx) audioCtx = new AudioContext();
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
@@ -1301,13 +1314,10 @@ function sfx(kind) {
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   const now = audioCtx.currentTime;
-  const pitchShift = kind === "click" || kind === "ready" ? [0.94, 0.98, 1, 1.04, 1.08][sfxCounter++ % 5] : 1;
   const blip = (freq, start, duration, volume = .14, type = "square", endFreq = freq) => {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = type;
-    freq *= pitchShift;
-    endFreq *= pitchShift;
     osc.frequency.setValueAtTime(freq, now + start);
     if (endFreq !== freq) osc.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), now + start + duration);
     gain.gain.setValueAtTime(.0001, now + start);
