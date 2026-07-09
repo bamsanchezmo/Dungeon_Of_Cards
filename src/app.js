@@ -77,6 +77,7 @@ let musicFilter = null;
 let musicDistortion = null;
 let musicGain = null;
 let musicDeathMode = false;
+let musicDeathStarted = 0;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -1370,11 +1371,15 @@ function seatBankroll(seat) {
   return isFreeForAll() ? Math.max(0, Number(seat?.gold) || 0) : Math.max(0, Number(game?.gold) || 0);
 }
 
+function debtForSeat(seat = mySeat()) {
+  return isFreeForAll() ? Math.max(0, Number(seat?.debt) || 0) : Math.max(0, Number(game?.loanDebt) || 0);
+}
+
 function goldLabel() {
-  if (!isFreeForAll()) return `Gold ${game.gold}g`;
   const seat = mySeat() || game.seats[0];
-  const debt = Number(seat?.debt) || 0;
-  return `Bank ${seatBankroll(seat)}g${debt ? ` / Loan ${debt}g` : ""}`;
+  const debt = debtForSeat(seat);
+  const base = isFreeForAll() ? `Bank ${seatBankroll(seat)}g` : `Gold ${game.gold}g`;
+  return `${base}${debt ? ` / Debt ${debt}g` : ""}`;
 }
 
 function spendGold(seat, amount) {
@@ -1481,18 +1486,31 @@ function updateMusicMood(now = performance.now()) {
   if (!audio) return;
   const death = game?.phase === "loanOffer" || game?.phase === "defeat";
   if (death) {
+    if (!musicDeathMode) {
+      musicDeathStarted = now;
+      if (musicDistortion) musicDistortion.curve = makeDistortionCurve(520);
+      if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
+    }
+    const elapsed = now - musicDeathStarted;
+    if (elapsed >= 1000) {
+      audio.pause();
+      audio.volume = 0;
+      if (musicGain) musicGain.gain.setTargetAtTime(0, audioCtx.currentTime, .04);
+      musicDeathMode = true;
+      return;
+    }
+    const fade = clamp((1000 - elapsed) / 260, 0, 1);
     const wobble = Math.sin(now / 180) * .045 + Math.sin(now / 71) * .018;
     audio.preservesPitch = false;
     audio.mozPreservesPitch = false;
     audio.webkitPreservesPitch = false;
     audio.playbackRate = clamp(.58 + wobble, .48, .68);
-    audio.volume = .42;
+    audio.volume = .42 * fade;
     if (musicFilter) {
       musicFilter.frequency.setTargetAtTime(540 + Math.sin(now / 230) * 120, audioCtx.currentTime, .08);
       musicFilter.Q.setTargetAtTime(12, audioCtx.currentTime, .08);
     }
-    if (musicGain) musicGain.gain.setTargetAtTime(.92, audioCtx.currentTime, .08);
-    if (musicDistortion && !musicDeathMode) musicDistortion.curve = makeDistortionCurve(520);
+    if (musicGain) musicGain.gain.setTargetAtTime(.92 * fade, audioCtx.currentTime, .08);
     musicDeathMode = true;
     return;
   }
@@ -1509,6 +1527,8 @@ function updateMusicMood(now = performance.now()) {
   if (musicGain) musicGain.gain.setTargetAtTime(1, audioCtx.currentTime, .18);
   if (musicDistortion) musicDistortion.curve = makeDistortionCurve(0);
   musicDeathMode = false;
+  musicDeathStarted = 0;
+  if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
 }
 
 function toggleMusic() {
@@ -1826,7 +1846,10 @@ function drawSeats(felt) {
     } else {
       drawChips(x + 38, y + 50, seat.bet);
       badge(x + 110, y + 70, `Bet ${seat.bet}g`, C.gold);
-      if (isFreeForAll()) text(`${seatBankroll(seat)}g`, x + seatW - 42, y + 72, portrait ? 18 : 15, C.gold, "right");
+      if (isFreeForAll()) {
+        const debt = debtForSeat(seat);
+        text(`${seatBankroll(seat)}g${debt ? ` / D${debt}g` : ""}`, x + seatW - 42, y + 72, portrait ? 17 : 14, debt ? C.red : C.gold, "right");
+      }
     }
     buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 150, onClick: () => statsPlayerId = seat.id });
   });
@@ -2178,7 +2201,6 @@ function drawLoanOffer() {
   const sigY = y + panelH - (portrait ? 240 : 214);
   fill("rgba(0,0,0,.34)", x + 50, sigY, panelW - 100, portrait ? 104 : 92, 12);
   strokeRound(x + 50, sigY, panelW - 100, portrait ? 104 : 92, 12, "rgba(200,60,60,.58)", 2);
-  text("Signature required", x + 70, sigY + 31, 17, C.muted);
   ctx.save();
   ctx.strokeStyle = "rgba(216,59,59,.58)";
   ctx.lineWidth = 2;
@@ -2265,18 +2287,24 @@ function drawMoneyAnimations() {
 
 function drawBloodSignature() {
   if (!game?.loanSignedAt) return;
-  const t = clamp((performance.now() - game.loanSignedAt) / 2300, 0, 1);
+  const t = clamp((performance.now() - game.loanSignedAt) / 2600, 0, 1);
   if (t >= 1) return;
   const signer = loanSigner();
   const lw = layoutW();
   const lh = layoutH();
   const y = viewport.portrait ? lh * .42 : lh * .46;
   const name = signer.name || "Player";
-  const size = viewport.portrait ? 54 : 62;
-  ctx.font = `700 ${size}px cursive`;
-  const width = Math.min(lw - 120, Math.max(220, ctx.measureText(name).width + 56));
+  const maxTextW = lw - 170;
+  let size = viewport.portrait ? 60 : 70;
+  ctx.font = signatureFont(size);
+  if (ctx.measureText(name).width > maxTextW) {
+    size = Math.max(viewport.portrait ? 42 : 48, size * maxTextW / ctx.measureText(name).width);
+    ctx.font = signatureFont(size);
+  }
+  const textW = ctx.measureText(name).width;
+  const width = Math.min(lw - 120, Math.max(260, textW + 104));
   const x = lw / 2 - width / 2;
-  const reveal = clamp(t / .72, 0, 1);
+  const reveal = clamp(t / .68, 0, 1);
   ctx.save();
   ctx.globalAlpha = Math.min(1, (1 - t) * 1.35);
   fill("rgba(0,0,0,.40)", 0, 0, lw, lh);
@@ -2291,15 +2319,16 @@ function drawBloodSignature() {
   ctx.stroke();
   ctx.save();
   ctx.beginPath();
-  ctx.rect(x - 8, y - 48, (width + 16) * reveal, 96);
+  ctx.rect(x - 18, y - 56, (width + 36) * reveal, 114);
   ctx.clip();
   ctx.shadowColor = "rgba(216,59,59,.6)";
   ctx.shadowBlur = 10;
-  text(name, lw / 2, y + 16, size, "#d83b3b", "center", "cursive");
+  drawSignatureName(name, lw / 2, y + 13, size);
   ctx.restore();
+  drawSignatureFlourish(x + 26, y + 27, width - 52, clamp((reveal - .18) / .82, 0, 1));
   const penX = x + width * reveal;
   if (reveal < 1) {
-    fill("#e15353", penX - 5, y + 20 + Math.sin(reveal * Math.PI * 5) * 5, 10, 10, 5);
+    fill("#e15353", penX - 5, y + 8 + Math.sin(reveal * Math.PI * 5) * 6, 10, 10, 5);
   }
   const drops = [
     [.18, 8, .16],
@@ -2319,6 +2348,49 @@ function drawBloodSignature() {
     ctx.fill();
     fill("rgba(181,31,42,.75)", dx - 1.5, top, 3, len * drip, 2);
   });
+  ctx.restore();
+}
+
+function signatureFont(size) {
+  return `italic 700 ${size}px "Snell Roundhand", "Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive`;
+}
+
+function drawSignatureName(name, x, y, size) {
+  ctx.save();
+  ctx.font = signatureFont(size);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#6f1018";
+  ctx.lineWidth = Math.max(1.4, size * .038);
+  ctx.strokeText(name, x, y);
+  ctx.fillStyle = "#d83b3b";
+  ctx.fillText(name, x, y);
+  ctx.globalAlpha = .46;
+  ctx.strokeStyle = "#ff7777";
+  ctx.lineWidth = Math.max(.8, size * .012);
+  ctx.strokeText(name, x + 1.5, y - 1);
+  ctx.restore();
+}
+
+function drawSignatureFlourish(x, y, w, progress) {
+  if (progress <= 0) return;
+  ctx.save();
+  ctx.strokeStyle = "#b51f2a";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  const steps = 72;
+  for (let i = 0; i <= steps * progress; i++) {
+    const u = i / steps;
+    const px = x + w * u;
+    const py = y + Math.sin(u * Math.PI * 2.25) * 8 * (1 - u * .35) + Math.sin(u * Math.PI * 7) * 2;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
   ctx.restore();
 }
 
