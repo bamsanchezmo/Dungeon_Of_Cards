@@ -12,6 +12,8 @@ const CARD_W = 90;
 const CARD_H = 130;
 const MAX_PLAYERS = 4;
 const hostId = "host";
+const LOAN_AMOUNT = 100;
+const LOAN_INTEREST = 25;
 
 const C = {
   bg: "#120e16",
@@ -285,6 +287,7 @@ function newGame(players, code = "", mode = modePreference) {
     name: p.name,
     gold: freeForAll ? 200 : 0,
     debt: 0,
+    loanUsed: false,
     bet: 25,
     ready: false,
     hands: [],
@@ -348,7 +351,7 @@ function addPlayerSeat(id, name = "") {
   if (game.seats.some((s) => s.id === id)) return true;
   if (game.seats.length >= MAX_PLAYERS) return false;
   const playerName = name || `Guest ${game.seats.length}`;
-  game.seats.push({ id, name: playerName, gold: isFreeForAll() ? 200 : 0, debt: 0, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
+  game.seats.push({ id, name: playerName, gold: isFreeForAll() ? 200 : 0, debt: 0, loanUsed: false, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
   if (!isFreeForAll()) game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
@@ -437,10 +440,12 @@ function applyAction(playerId, name) {
     const max = maxBetForSeat(seat);
     const min = max >= MIN_BET ? MIN_BET : 0;
     if (name === "loan" && isFreeForAll()) {
-      seat.gold = seatBankroll(seat) + 100;
-      seat.debt = (Number(seat.debt) || 0) + 100;
+      if (!canTakeLoan(seat)) return flashMsg("Loan already used");
+      seat.gold = seatBankroll(seat) + LOAN_AMOUNT;
+      seat.debt = (Number(seat.debt) || 0) + LOAN_AMOUNT + LOAN_INTEREST;
+      seat.loanUsed = true;
       seat.bet = Math.min(25, maxBetForSeat(seat));
-      log(`${seat.name} takes a 100g loan.`);
+      log(`${seat.name} takes a ${LOAN_AMOUNT}g loan. Debt: ${seat.debt}g.`);
       sfx("coin");
       return;
     }
@@ -449,7 +454,6 @@ function applyAction(playerId, name) {
     if (name === "minBet") seat.bet = min;
     if (name === "maxBet") seat.bet = max;
     if (name === "ready") {
-      if (isFreeForAll() && seatBankroll(seat) < MIN_BET) return flashMsg("Take a loan to keep playing");
       seat.ready = !seat.ready;
       sfx(seat.ready ? "ready" : "click");
       log(`${seat.name} ${seat.ready ? "is ready" : "is adjusting their bet"}.`);
@@ -751,6 +755,7 @@ function settleRound() {
   const results = [];
   for (const seat of game.seats) {
     let seatNet = 0;
+    seat.loanPaidThisRound = 0;
     for (const h of seat.hands) {
       const result = settleHand(seat, h, dealerTotal, dealerBj);
       net += result.net;
@@ -759,6 +764,7 @@ function settleRound() {
       if (result.net > 0) winHands++;
       results.push(`${seat.name}: ${result.msg}`);
     }
+    if (seat.loanPaidThisRound > 0) results.push(`${seat.name}: loan payment -${seat.loanPaidThisRound}g`);
     if (seat.id === localPlayerId) localNet = seatNet;
     seat.profit = (Number(seat.profit) || 0) + seatNet;
     seat.profitHistory = [...(seat.profitHistory || [0]), seat.profit].slice(-40);
@@ -1218,6 +1224,10 @@ function sharedBankrupt() {
   return !!game && !isFreeForAll() && (Number(game.gold) || 0) <= 0;
 }
 
+function canTakeLoan(seat) {
+  return isFreeForAll() && !!seat && seatBankroll(seat) < MIN_BET && !seat.loanUsed && (Number(seat.debt) || 0) <= 0;
+}
+
 function cycleModePreference() {
   const modes = ["classic", "freePlay", "freeForAll"];
   modePreference = modes[(modes.indexOf(modePreference) + 1) % modes.length];
@@ -1250,8 +1260,18 @@ function spendGold(seat, amount) {
 
 function addGold(seat, amount) {
   if (amount <= 0) return;
-  if (isFreeForAll()) seat.gold = seatBankroll(seat) + amount;
-  else game.gold += amount;
+  if (!isFreeForAll()) {
+    game.gold += amount;
+    return;
+  }
+  const debt = Math.max(0, Number(seat?.debt) || 0);
+  const payment = Math.min(amount, debt);
+  if (payment > 0) {
+    seat.debt = debt - payment;
+    seat.loanPaidThisRound = (Number(seat.loanPaidThisRound) || 0) + payment;
+  }
+  const remainder = amount - payment;
+  if (remainder > 0) seat.gold = seatBankroll(seat) + remainder;
 }
 
 function maxBetForSeat(seat) {
@@ -1742,15 +1762,17 @@ function drawActionButtons(x, y) {
     const bh = 64;
     const full = bw * 2 + gap;
     if (game.phase === "betting") {
-      if (isFreeForAll() && seatBankroll(mySeat()) < MIN_BET) {
-        addButton(x, y, full, 72, "Loan +100g", () => action("loan"), true);
-        return;
-      }
+      const loanReady = canTakeLoan(mySeat());
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
       addButton(x, y + 76, bw, bh, "Min", () => action("minBet"));
       addButton(x + bw + gap, y + 76, bw, bh, "Max", () => action("maxBet"));
-      addButton(x, y + 152, full, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      if (loanReady) {
+        addButton(x, y + 152, bw, 72, `Loan +${LOAN_AMOUNT}g`, () => action("loan"));
+        addButton(x + bw + gap, y + 152, bw, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      } else {
+        addButton(x, y + 152, full, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      }
       return;
     }
     if (game.phase === "insurance") {
@@ -1781,15 +1803,17 @@ function drawActionButtons(x, y) {
     const bw = 100;
     const bh = 105;
     if (game.phase === "betting") {
-      if (isFreeForAll() && seatBankroll(mySeat()) < MIN_BET) {
-        addButton(x, y, 430, 110, "Loan +100g", () => action("loan"), true);
-        return;
-      }
+      const loanReady = canTakeLoan(mySeat());
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + 110, y, bw, bh, "+5", () => action("betUp"));
       addButton(x + 220, y, bw, bh, "Min", () => action("minBet"));
       addButton(x + 330, y, bw, bh, "Max", () => action("maxBet"));
-      addButton(x, y + bh + gap, 430, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      if (loanReady) {
+        addButton(x, y + bh + gap, 210, 110, `Loan +${LOAN_AMOUNT}g`, () => action("loan"));
+        addButton(x + 220, y + bh + gap, 210, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      } else {
+        addButton(x, y + bh + gap, 430, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      }
       return;
     }
     if (game.phase === "insurance") {
@@ -1813,15 +1837,17 @@ function drawActionButtons(x, y) {
     return;
   }
   if (game.phase === "betting") {
-    if (isFreeForAll() && seatBankroll(mySeat()) < MIN_BET) {
-      addButton(x, y, 228, 50, "Loan +100g", () => action("loan"), true);
-      return;
-    }
+    const loanReady = canTakeLoan(mySeat());
     addButton(x, y, 110, 42, "-5", () => action("betDown"));
     addButton(x + 118, y, 110, 42, "+5", () => action("betUp"));
     addButton(x, y + 50, 110, 42, "Min", () => action("minBet"));
     addButton(x + 118, y + 50, 110, 42, "Max", () => action("maxBet"));
-    addButton(x, y + 102, 228, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+    if (loanReady) {
+      addButton(x, y + 102, 110, 48, `Loan`, () => action("loan"));
+      addButton(x + 118, y + 102, 110, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+    } else {
+      addButton(x, y + 102, 228, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+    }
     return;
   }
   if (game.phase === "insurance") {
