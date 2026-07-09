@@ -16,6 +16,9 @@ const LOAN_AMOUNT = 100;
 const LOAN_INTEREST = 25;
 const LOAN_INTEREST_RATE_PER_ROUND = .15;
 const LOAN_WINNING_PAYMENT_RATE = .1;
+const DEATH_WARP_MS = 1000;
+const DEATH_SILENCE_MS = 900;
+const DEATH_REVERSE_FADE_MS = 5200;
 
 const C = {
   bg: "#120e16",
@@ -79,6 +82,11 @@ let musicDistortion = null;
 let musicGain = null;
 let musicDeathMode = false;
 let musicDeathStarted = 0;
+let musicDeathLastHeartbeat = 0;
+let reverseMusicBuffer = null;
+let reverseMusicPromise = null;
+let deathReverseSource = null;
+let deathReverseGain = null;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -1463,6 +1471,7 @@ function startAudio() {
   }
   if (!audioCtx) audioCtx = new AudioContext();
   setupMusicChain();
+  ensureReverseMusicBuffer();
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   if (!musicStarted) {
     audio.play().then(() => musicStarted = true).catch(() => {});
@@ -1484,6 +1493,58 @@ function setupMusicChain() {
   audioSource.connect(musicFilter).connect(musicDistortion).connect(musicGain).connect(audioCtx.destination);
 }
 
+function ensureReverseMusicBuffer() {
+  if (!audioCtx || reverseMusicBuffer) return Promise.resolve(reverseMusicBuffer);
+  if (reverseMusicPromise) return reverseMusicPromise;
+  reverseMusicPromise = fetch("./assets/Velvet_Blackjack.ogg")
+    .then((res) => res.arrayBuffer())
+    .then((data) => audioCtx.decodeAudioData(data))
+    .then((buffer) => {
+      const reversed = audioCtx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+        const input = buffer.getChannelData(channel);
+        const output = reversed.getChannelData(channel);
+        for (let i = 0, j = input.length - 1; i < input.length; i++, j--) output[i] = input[j];
+      }
+      reverseMusicBuffer = reversed;
+      return reverseMusicBuffer;
+    })
+    .catch(() => null);
+  return reverseMusicPromise;
+}
+
+function startDeathReverseMusic() {
+  if (!audioCtx || !reverseMusicBuffer || deathReverseSource || audio?.muted || document.hidden) return;
+  const source = audioCtx.createBufferSource();
+  const gain = audioCtx.createGain();
+  source.buffer = reverseMusicBuffer;
+  source.loop = true;
+  source.playbackRate.value = .96;
+  gain.gain.value = 0;
+  source.connect(gain).connect(audioCtx.destination);
+  source.onended = () => {
+    if (deathReverseSource === source) {
+      deathReverseSource = null;
+      deathReverseGain = null;
+    }
+  };
+  deathReverseSource = source;
+  deathReverseGain = gain;
+  source.start();
+}
+
+function stopDeathReverseMusic() {
+  if (deathReverseGain) deathReverseGain.gain.setTargetAtTime(0, audioCtx.currentTime, .04);
+  if (deathReverseSource) {
+    try {
+      deathReverseSource.stop(audioCtx.currentTime + .08);
+    } catch {
+    }
+  }
+  deathReverseSource = null;
+  deathReverseGain = null;
+}
+
 function makeDistortionCurve(amount) {
   const samples = 44100;
   const curve = new Float32Array(samples);
@@ -1501,18 +1562,32 @@ function updateMusicMood(now = performance.now()) {
   if (death) {
     if (!musicDeathMode) {
       musicDeathStarted = now;
+      musicDeathLastHeartbeat = 0;
       if (musicDistortion) musicDistortion.curve = makeDistortionCurve(520);
       if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
     }
+    ensureReverseMusicBuffer();
     const elapsed = now - musicDeathStarted;
-    if (elapsed >= 1000) {
+    const reverseElapsed = elapsed - DEATH_WARP_MS - DEATH_SILENCE_MS;
+    if (elapsed >= DEATH_WARP_MS) {
       audio.pause();
       audio.volume = 0;
       if (musicGain) musicGain.gain.setTargetAtTime(0, audioCtx.currentTime, .04);
+      if (reverseElapsed >= 0) {
+        startDeathReverseMusic();
+        const reverseFade = clamp(reverseElapsed / DEATH_REVERSE_FADE_MS, 0, 1);
+        if (deathReverseGain) deathReverseGain.gain.setTargetAtTime(.34 * reverseFade, audioCtx.currentTime, .22);
+        const beatGap = lerp(980, 610, reverseFade);
+        if (reverseFade < 1 && now - musicDeathLastHeartbeat > beatGap && !audio.muted && !document.hidden) {
+          musicDeathLastHeartbeat = now;
+          sfx("heartbeat");
+        }
+      }
       musicDeathMode = true;
       return;
     }
-    const fade = clamp((1000 - elapsed) / 260, 0, 1);
+    stopDeathReverseMusic();
+    const fade = clamp((DEATH_WARP_MS - elapsed) / 260, 0, 1);
     const wobble = Math.sin(now / 180) * .045 + Math.sin(now / 71) * .018;
     audio.preservesPitch = false;
     audio.mozPreservesPitch = false;
@@ -1528,6 +1603,7 @@ function updateMusicMood(now = performance.now()) {
     return;
   }
   if (!musicDeathMode) return;
+  stopDeathReverseMusic();
   audio.playbackRate = 1;
   audio.preservesPitch = true;
   audio.mozPreservesPitch = true;
@@ -1541,16 +1617,19 @@ function updateMusicMood(now = performance.now()) {
   if (musicDistortion) musicDistortion.curve = makeDistortionCurve(0);
   musicDeathMode = false;
   musicDeathStarted = 0;
+  musicDeathLastHeartbeat = 0;
   if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
 }
 
 function toggleMusic() {
   if (!audio) return;
   audio.muted = !audio.muted;
+  if (audio.muted) stopDeathReverseMusic();
   flashMsg(audio.muted ? "Music muted" : "Music on");
 }
 
 function pauseMusicForFocus() {
+  stopDeathReverseMusic();
   if (!audio || audio.paused || audio.muted) return;
   musicPausedForFocus = true;
   audio.pause();
@@ -1606,6 +1685,12 @@ function sfx(kind) {
     blip(150, 0, .2, .24, "square", 52);
     blip(78, .025, .26, .18, "sawtooth", 38);
     blip(310, .02, .045, .11, "square", 180);
+    return;
+  }
+  if (kind === "heartbeat") {
+    blip(72, 0, .18, .27, "sine", 43);
+    blip(46, .16, .22, .21, "triangle", 34);
+    blip(96, .01, .05, .08, "square", 60);
     return;
   }
   const osc = audioCtx.createOscillator();
