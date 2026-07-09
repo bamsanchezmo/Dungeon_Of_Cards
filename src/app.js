@@ -912,8 +912,12 @@ function nextBattle() {
 }
 
 function resetRound() {
+  enterBettingRound({ chargeInterest: true });
+}
+
+function enterBettingRound({ chargeInterest = false } = {}) {
   game.phase = "betting";
-  applyLoanInterest();
+  if (chargeInterest) applyLoanInterest();
   if (sharedBankrupt()) {
     triggerBankruptcyDeath("You are out of gold", loanSigner());
     return;
@@ -1282,9 +1286,9 @@ function sharedBankrupt() {
 function canOfferBankruptcyLoan(seat = null) {
   if (!game) return false;
   if (isFreeForAll()) {
-    return !!seat && seatBankroll(seat) < MIN_BET && !seat.loanUsed && (Number(seat.debt) || 0) <= 0;
+    return !!seat && seatBankroll(seat) < MIN_BET && (Number(seat.debt) || 0) <= 0;
   }
-  return sharedBankrupt() && !game.loanUsed && (Number(game.loanDebt) || 0) <= 0;
+  return sharedBankrupt() && (Number(game.loanDebt) || 0) <= 0;
 }
 
 function triggerBankruptcyDeath(reason, seat = null) {
@@ -1330,11 +1334,7 @@ function signLoan(playerId) {
   }
   queueHpAnimation(0, reviveHp, game.maxHp);
   game.hp = reviveHp;
-  game.phase = "betting";
-  game.dealer = [];
-  game.roundDealCount = 0;
-  cardAnimations = [];
-  seenCardIds = new Set();
+  enterBettingRound({ chargeInterest: false });
   log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
   sfx("life");
 }
@@ -1391,6 +1391,12 @@ function debtForSeat(seat = mySeat()) {
   return isFreeForAll() ? Math.max(0, Number(seat?.debt) || 0) : Math.max(0, Number(game?.loanDebt) || 0);
 }
 
+function seatInDebt(seat) {
+  if (!seat) return false;
+  if (isFreeForAll()) return (Number(seat.debt) || 0) > 0;
+  return (Number(game?.loanDebt) || 0) > 0 && (!game.loanSeatId || seat.id === game.loanSeatId);
+}
+
 function goldLabel() {
   const seat = mySeat() || game.seats[0];
   const debt = debtForSeat(seat);
@@ -1422,6 +1428,7 @@ function addGold(seat, amount, winnings = amount) {
     const payment = loanPaymentForWinnings(debt, winnings);
     if (payment > 0) {
       game.loanDebt = debt - payment;
+      if (game.loanDebt <= 0) game.loanUsed = false;
       game.loanPaidThisRound = (Number(game.loanPaidThisRound) || 0) + payment;
     }
     const remainder = amount - payment;
@@ -1432,6 +1439,7 @@ function addGold(seat, amount, winnings = amount) {
   const payment = loanPaymentForWinnings(debt, winnings);
   if (payment > 0) {
     seat.debt = debt - payment;
+    if (seat.debt <= 0) seat.loanUsed = false;
     seat.loanPaidThisRound = (Number(seat.loanPaidThisRound) || 0) + payment;
   }
   const remainder = amount - payment;
@@ -1932,7 +1940,8 @@ function drawSeats(felt) {
     strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : isReady ? C.green : "rgba(238,231,215,.11)", isActive || isReady ? 3 : 1);
     const rank = playerRankIcon(seat);
     const displayName = `${rank}${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`;
-    text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, isActive ? C.gold : C.text);
+    const nameColor = seatInDebt(seat) ? C.red : isActive ? C.gold : C.text;
+    text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, nameColor);
     text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
     if (seat.hands.length) {
       const slotW = Math.max(24, (seatW - CARD_W - 22) / seat.hands.length);
@@ -2280,7 +2289,7 @@ function drawLoanOffer() {
     `Immediate fee: ${LOAN_INTEREST}g`,
     `Interest: +${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding after each completed round`,
     `${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay the debt before reaching your bank.`,
-    "This contract can only be signed once."
+    "Pay it off, and the table may lend again."
   ];
   const termX = x + 54;
   const termW = panelW - 108;
@@ -3085,7 +3094,7 @@ function drawStatsOverlay() {
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
   gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true);
   strokeRound(x, y, w, h, 18, C.goldDim, 2);
-  text(`${playerRankIcon(seat)}${seat.name}`, x + 34, y + 58, viewport.portrait ? 34 : 28, C.gold, "left", "serif");
+  text(`${playerRankIcon(seat)}${seat.name}`, x + 34, y + 58, viewport.portrait ? 34 : 28, seatInDebt(seat) ? C.red : C.gold, "left", "serif");
   const profit = Number(seat.profit) || 0;
   text(`Total ${profit >= 0 ? "+" : ""}${profit}g`, x + w - 34, y + 58, 23, profit >= 0 ? C.green : C.red, "right");
   const gx = x + 40, gy = y + 115, gw = w - 80, gh = h - 205;
