@@ -1789,7 +1789,7 @@ function drawSplash() {
   ctx.save();
   ctx.shadowColor = "rgba(220,180,70,.35)";
   ctx.shadowBlur = 20;
-  text("Wizard Stab Studio LLC", cx, cy - 46, viewport.portrait ? 40 : 48, C.gold, "center", "serif");
+  text("Wizard Stab Studio", cx, cy - 46, viewport.portrait ? 40 : 48, C.gold, "center", "serif");
   ctx.restore();
   text("presents", cx, cy + 12, viewport.portrait ? 27 : 28, C.parchment, "center", "serif");
   addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Continue", () => appScene = "menu", true);
