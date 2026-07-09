@@ -14,6 +14,7 @@ const MAX_PLAYERS = 4;
 const hostId = "host";
 const LOAN_AMOUNT = 100;
 const LOAN_INTEREST = 25;
+const LOAN_INTEREST_PER_ROUND = 10;
 
 const C = {
   bg: "#120e16",
@@ -288,6 +289,7 @@ function newGame(players, code = "", mode = modePreference) {
     gold: freeForAll ? 200 : 0,
     debt: 0,
     loanUsed: false,
+    bankrupt: false,
     bet: 25,
     ready: false,
     hands: [],
@@ -323,6 +325,11 @@ function newGame(players, code = "", mode = modePreference) {
     roundDealCount: 0,
     freePlay: mode !== "classic",
     relicVotes: {},
+    loanUsed: false,
+    loanDebt: 0,
+    loanSeatId: "",
+    loanReason: "",
+    loanSignedAt: 0,
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
   appScene = "game";
@@ -351,7 +358,7 @@ function addPlayerSeat(id, name = "") {
   if (game.seats.some((s) => s.id === id)) return true;
   if (game.seats.length >= MAX_PLAYERS) return false;
   const playerName = name || `Guest ${game.seats.length}`;
-  game.seats.push({ id, name: playerName, gold: isFreeForAll() ? 200 : 0, debt: 0, loanUsed: false, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
+  game.seats.push({ id, name: playerName, gold: isFreeForAll() ? 200 : 0, debt: 0, loanUsed: false, bankrupt: false, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
   if (!isFreeForAll()) game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
@@ -436,19 +443,18 @@ function applyAction(playerId, name) {
   const seat = game.seats[seatIndex];
   if (!seat) return;
 
+  if (game.phase === "loanOffer") {
+    if (name === "signLoan") signLoan(playerId);
+    if (name === "declineLoan") {
+      game.phase = "defeat";
+      log("The contract goes unsigned.");
+    }
+    return;
+  }
+
   if (game.phase === "betting") {
     const max = maxBetForSeat(seat);
     const min = max >= MIN_BET ? MIN_BET : 0;
-    if (name === "loan" && isFreeForAll()) {
-      if (!canTakeLoan(seat)) return flashMsg("Loan already used");
-      seat.gold = seatBankroll(seat) + LOAN_AMOUNT;
-      seat.debt = (Number(seat.debt) || 0) + LOAN_AMOUNT + LOAN_INTEREST;
-      seat.loanUsed = true;
-      seat.bet = Math.min(25, maxBetForSeat(seat));
-      log(`${seat.name} takes a ${LOAN_AMOUNT}g loan. Debt: ${seat.debt}g.`);
-      sfx("coin");
-      return;
-    }
     if (name === "betDown") seat.bet = clamp(seat.bet - 5, min, max);
     if (name === "betUp") seat.bet = clamp(seat.bet + 5, min, max);
     if (name === "minBet") seat.bet = min;
@@ -503,14 +509,14 @@ function dealRound() {
     }
     if (!game.seats.some((s) => s.bet > 0)) return;
   } else {
-    if (game.gold < totalBets) return;
+    if (game.gold < totalBets) {
+      if (game.gold <= 0) triggerBankruptcyDeath("You are out of gold", loanSigner());
+      return;
+    }
     game.gold -= totalBets;
   }
   if (!isFreeForAll() && (game.enemy.hitFee || 0) > game.gold) {
-    queueHpAnimation(game.hp, 0, game.maxHp);
-    game.hp = 0;
-    game.phase = "defeat";
-    log("You cannot pay the table toll. The house wins.");
+    triggerBankruptcyDeath("You cannot pay the table toll", loanSigner());
     sfx("lose");
     broadcast();
     return;
@@ -572,17 +578,12 @@ function hit(seatIndex) {
   if (fee) {
     if (!spendGold(seat, fee)) {
       if (isFreeForAll()) {
-        hand.status = "bust";
-        log(`${seat.name} cannot pay the hit toll.`);
-        sfx("bust");
-        advanceHand(seatIndex);
+        updateSeatBankruptcy(seat);
+        triggerBankruptcyDeath(`${seat.name} cannot pay the hit toll`, seat);
         broadcast();
         return;
       }
-      queueHpAnimation(game.hp, 0, game.maxHp);
-      game.hp = 0;
-      game.phase = "defeat";
-      log(isFreeForAll() ? `${seat.name} cannot pay the hit toll. The house wins.` : "You cannot pay the hit toll. The house wins.");
+      triggerBankruptcyDeath("You cannot pay the hit toll", seat);
       sfx("lose");
       broadcast();
       return;
@@ -769,6 +770,7 @@ function settleRound() {
     seat.profit = (Number(seat.profit) || 0) + seatNet;
     seat.profitHistory = [...(seat.profitHistory || [0]), seat.profit].slice(-40);
   }
+  const bankruptSeat = updateFreeForAllBankruptcy(results);
   if (net > 0) {
     const bonus = relicSum("damageBonus");
     game.enemy.hp = Math.max(0, game.enemy.hp - net - bonus);
@@ -786,8 +788,15 @@ function settleRound() {
   if ((isFreeForAll() ? localNet : net) !== 0) queueMoneyAnimation(isFreeForAll() ? localNet : net);
   game.roundNet = net;
   results.slice(0, 6).reverse().forEach(log);
-  game.phase = game.hp <= 0 || sharedBankrupt() ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
-  if (sharedBankrupt()) log("You are out of gold. The dungeon claims you.");
+  if (sharedBankrupt()) {
+    triggerBankruptcyDeath("You are out of gold", loanSigner());
+  } else if (bankruptSeat) {
+    triggerBankruptcyDeath(`${bankruptSeat.name} is bankrupt`, bankruptSeat);
+  } else if (freeForAllAllOut()) {
+    triggerBankruptcyDeath("Every bankroll is gone", loanSigner());
+  } else {
+    game.phase = game.hp <= 0 ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
+  }
   broadcast();
 }
 
@@ -885,9 +894,9 @@ function nextBattle() {
 
 function resetRound() {
   game.phase = "betting";
+  applyLoanInterest();
   if (sharedBankrupt()) {
-    game.phase = "defeat";
-    log("You are out of gold. The dungeon claims you.");
+    triggerBankruptcyDeath("You are out of gold", loanSigner());
     return;
   }
   game.dealer = [];
@@ -895,14 +904,37 @@ function resetRound() {
   cardAnimations = [];
   seenCardIds = new Set();
   game.seats.forEach((s) => {
+    updateSeatBankruptcy(s);
     s.ready = false;
     s.hands = [];
     s.finished = false;
     s.active = 0;
     const max = maxBetForSeat(s);
     const min = max >= MIN_BET ? MIN_BET : 0;
-    s.bet = clamp(s.bet, min, max);
+    s.bet = s.bankrupt ? 0 : clamp(s.bet, min, max);
+    if (s.bankrupt && !canTakeLoan(s)) s.ready = true;
   });
+  if (freeForAllAllOut()) {
+    game.phase = "defeat";
+    log("Every bankroll is gone. The table closes.");
+  }
+}
+
+function applyLoanInterest() {
+  if (!game) return;
+  if (isFreeForAll()) {
+    for (const seat of game.seats) {
+      if ((Number(seat.debt) || 0) > 0) {
+        seat.debt += LOAN_INTEREST_PER_ROUND;
+        log(`${seat.name}'s loan gains ${LOAN_INTEREST_PER_ROUND}g interest.`);
+      }
+    }
+    return;
+  }
+  if ((Number(game.loanDebt) || 0) > 0) {
+    game.loanDebt += LOAN_INTEREST_PER_ROUND;
+    log(`The loan gains ${LOAN_INTEREST_PER_ROUND}g interest.`);
+  }
 }
 
 function chooseRelics() {
@@ -1224,8 +1256,101 @@ function sharedBankrupt() {
   return !!game && !isFreeForAll() && (Number(game.gold) || 0) <= 0;
 }
 
+function canOfferBankruptcyLoan(seat = null) {
+  if (!game) return false;
+  if (isFreeForAll()) {
+    return !!seat && seatBankroll(seat) < MIN_BET && !seat.loanUsed && (Number(seat.debt) || 0) <= 0;
+  }
+  return sharedBankrupt() && !game.loanUsed && (Number(game.loanDebt) || 0) <= 0;
+}
+
+function triggerBankruptcyDeath(reason, seat = null) {
+  const signerSeat = seat || game.seats[game.activeSeat] || mySeat() || game.seats[0];
+  const hpBefore = Math.max(1, game.hp || game.maxHp || 1);
+  if (game.hp > 0) queueHpAnimation(game.hp, 0, game.maxHp);
+  game.hp = 0;
+  game.loanSeatId = signerSeat?.id || "";
+  game.loanReason = reason || "Bankruptcy";
+  if (canOfferBankruptcyLoan(signerSeat)) {
+    game.phase = "loanOffer";
+    log(`${reason}. A blood contract is offered.`);
+  } else {
+    game.phase = "defeat";
+    log(`${reason}. No contract remains.`);
+  }
+  return hpBefore;
+}
+
+function signLoan(playerId) {
+  if (game.phase !== "loanOffer") return;
+  if (game.loanSeatId && playerId !== game.loanSeatId) return flashMsg(`${loanSigner().name} must sign`);
+  const seat = game.seats.find((s) => s.id === (game.loanSeatId || playerId));
+  if (!canOfferBankruptcyLoan(seat)) {
+    game.phase = "defeat";
+    return;
+  }
+  const reviveHp = Math.max(1, Math.ceil(game.maxHp * .35));
+  game.loanSignedAt = performance.now();
+  if (isFreeForAll()) {
+    seat.gold = seatBankroll(seat) + LOAN_AMOUNT;
+    seat.debt = LOAN_AMOUNT + LOAN_INTEREST;
+    seat.loanUsed = true;
+    seat.bankrupt = false;
+    seat.spectating = false;
+    seat.ready = false;
+    seat.bet = Math.min(25, maxBetForSeat(seat));
+  } else {
+    game.gold += LOAN_AMOUNT;
+    game.loanDebt = LOAN_AMOUNT + LOAN_INTEREST;
+    game.loanUsed = true;
+    for (const s of game.seats) s.bet = Math.min(25, maxBetForSeat(s));
+  }
+  queueHpAnimation(0, reviveHp, game.maxHp);
+  game.hp = reviveHp;
+  game.phase = "betting";
+  game.dealer = [];
+  game.roundDealCount = 0;
+  cardAnimations = [];
+  seenCardIds = new Set();
+  log(`Signed in blood. Debt: ${LOAN_AMOUNT + LOAN_INTEREST}g, +${LOAN_INTEREST_PER_ROUND}g interest each round.`);
+  sfx("life");
+}
+
+function updateSeatBankruptcy(seat) {
+  if (!isFreeForAll() || !seat) return false;
+  const was = !!seat.bankrupt;
+  seat.bankrupt = seatBankroll(seat) < MIN_BET;
+  if (seat.bankrupt) {
+    seat.bet = 0;
+    seat.spectating = true;
+  } else {
+    seat.spectating = false;
+  }
+  return !was && seat.bankrupt;
+}
+
+function updateFreeForAllBankruptcy(results = []) {
+  if (!isFreeForAll()) return null;
+  let firstBankrupt = null;
+  for (const seat of game.seats) {
+    const newlyBankrupt = updateSeatBankruptcy(seat);
+    if (newlyBankrupt) {
+      results.push(`${seat.name}: bankrupt${canTakeLoan(seat) ? " - loan available" : " - out"}`);
+      if (!firstBankrupt) firstBankrupt = seat;
+      sfx("lose");
+    }
+  }
+  return firstBankrupt;
+}
+
+function freeForAllAllOut() {
+  return isFreeForAll()
+    && game.seats.length > 0
+    && game.seats.every((seat) => seatBankroll(seat) < MIN_BET && !canTakeLoan(seat));
+}
+
 function canTakeLoan(seat) {
-  return isFreeForAll() && !!seat && seatBankroll(seat) < MIN_BET && !seat.loanUsed && (Number(seat.debt) || 0) <= 0;
+  return canOfferBankruptcyLoan(seat);
 }
 
 function cycleModePreference() {
@@ -1261,7 +1386,14 @@ function spendGold(seat, amount) {
 function addGold(seat, amount) {
   if (amount <= 0) return;
   if (!isFreeForAll()) {
-    game.gold += amount;
+    const debt = Math.max(0, Number(game.loanDebt) || 0);
+    const payment = Math.min(amount, debt);
+    if (payment > 0) {
+      game.loanDebt = debt - payment;
+      game.loanPaidThisRound = (Number(game.loanPaidThisRound) || 0) + payment;
+    }
+    const remainder = amount - payment;
+    if (remainder > 0) game.gold += remainder;
     return;
   }
   const debt = Math.max(0, Number(seat?.debt) || 0);
@@ -1440,6 +1572,7 @@ function draw() {
     drawTable();
     drawFlyingCards();
     if (game.phase === "shop") drawShop();
+    if (game.phase === "loanOffer") drawLoanOffer();
     if (game.phase === "victory" || game.phase === "defeat") drawEnd();
     if (game.peekCard) drawPeekOverlay();
   }
@@ -1762,17 +1895,15 @@ function drawActionButtons(x, y) {
     const bh = 64;
     const full = bw * 2 + gap;
     if (game.phase === "betting") {
-      const loanReady = canTakeLoan(mySeat());
+      if (isFreeForAll() && mySeat()?.bankrupt) {
+        addButton(x, y, full, 72, "Bankrupt", () => {}, false, false);
+        return;
+      }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
       addButton(x, y + 76, bw, bh, "Min", () => action("minBet"));
       addButton(x + bw + gap, y + 76, bw, bh, "Max", () => action("maxBet"));
-      if (loanReady) {
-        addButton(x, y + 152, bw, 72, `Loan +${LOAN_AMOUNT}g`, () => action("loan"));
-        addButton(x + bw + gap, y + 152, bw, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
-      } else {
-        addButton(x, y + 152, full, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
-      }
+      addButton(x, y + 152, full, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
       return;
     }
     if (game.phase === "insurance") {
@@ -1803,17 +1934,15 @@ function drawActionButtons(x, y) {
     const bw = 100;
     const bh = 105;
     if (game.phase === "betting") {
-      const loanReady = canTakeLoan(mySeat());
+      if (isFreeForAll() && mySeat()?.bankrupt) {
+        addButton(x, y, 430, 110, "Bankrupt", () => {}, false, false);
+        return;
+      }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + 110, y, bw, bh, "+5", () => action("betUp"));
       addButton(x + 220, y, bw, bh, "Min", () => action("minBet"));
       addButton(x + 330, y, bw, bh, "Max", () => action("maxBet"));
-      if (loanReady) {
-        addButton(x, y + bh + gap, 210, 110, `Loan +${LOAN_AMOUNT}g`, () => action("loan"));
-        addButton(x + 220, y + bh + gap, 210, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
-      } else {
-        addButton(x, y + bh + gap, 430, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
-      }
+      addButton(x, y + bh + gap, 430, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
       return;
     }
     if (game.phase === "insurance") {
@@ -1837,17 +1966,15 @@ function drawActionButtons(x, y) {
     return;
   }
   if (game.phase === "betting") {
-    const loanReady = canTakeLoan(mySeat());
+    if (isFreeForAll() && mySeat()?.bankrupt) {
+      addButton(x, y, 228, 50, "Bankrupt", () => {}, false, false);
+      return;
+    }
     addButton(x, y, 110, 42, "-5", () => action("betDown"));
     addButton(x + 118, y, 110, 42, "+5", () => action("betUp"));
     addButton(x, y + 50, 110, 42, "Min", () => action("minBet"));
     addButton(x + 118, y + 50, 110, 42, "Max", () => action("maxBet"));
-    if (loanReady) {
-      addButton(x, y + 102, 110, 48, `Loan`, () => action("loan"));
-      addButton(x + 118, y + 102, 110, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
-    } else {
-      addButton(x, y + 102, 228, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
-    }
+    addButton(x, y + 102, 228, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
     return;
   }
   if (game.phase === "insurance") {
@@ -1945,6 +2072,36 @@ function drawEnd() {
   addButton(lw / 2 - 140, Math.min(layoutH() - 90, 490 + lines.length * 22), 280, 54, game.code ? "Play Again — Same Lobby" : "Return to Menu", () => action("continue"), true);
 }
 
+function drawLoanOffer() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const signer = loanSigner();
+  const panelW = Math.min(viewport.portrait ? 650 : 720, lw - 60);
+  const panelH = viewport.portrait ? 760 : 560;
+  const x = (lw - panelW) / 2;
+  const y = Math.max(40, (lh - panelH) / 2);
+  fill("rgba(0,0,0,.82)", 0, 0, lw, lh);
+  shadow(0, 24, 70, "rgba(0,0,0,.58)", () => gradientRound(x, y, panelW, panelH, 18, [[0, "#2b1720"], [.62, "#150b10"], [1, "#28121a"]], true));
+  strokeRound(x, y, panelW, panelH, 18, C.red, 3);
+  text("BANKRUPTCY", lw / 2, y + 64, viewport.portrait ? 42 : 46, C.red, "center", "serif");
+  text("The table offers one final contract.", lw / 2, y + 112, viewport.portrait ? 22 : 20, C.text, "center");
+  const terms = [
+    `Signer: ${signer.name}`,
+    `Advance: ${LOAN_AMOUNT}g`,
+    `Immediate fee: ${LOAN_INTEREST}g`,
+    `Interest: +${LOAN_INTEREST_PER_ROUND}g after each completed round until paid`,
+    "All winnings and refunds pay the debt before reaching your bank.",
+    "This contract can only be signed once."
+  ];
+  terms.forEach((line, i) => text(line, x + 54, y + 170 + i * (viewport.portrait ? 42 : 34), viewport.portrait ? 21 : 18, i === 0 ? C.gold : C.text));
+  fill("rgba(0,0,0,.34)", x + 50, y + panelH - 194, panelW - 100, 76, 12);
+  strokeRound(x + 50, y + panelH - 194, panelW - 100, 76, 12, "rgba(200,60,60,.58)", 2);
+  text("Signature required", x + 70, y + panelH - 162, 17, C.muted);
+  text(signer.name, lw / 2, y + panelH - 130, viewport.portrait ? 34 : 32, "#d83b3b", "center", "cursive");
+  addButton(x + 54, y + panelH - 88, panelW / 2 - 70, viewport.portrait ? 64 : 54, "Decline", () => action("declineLoan"));
+  addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, viewport.portrait ? 64 : 54, "Sign", () => action("signLoan"), true);
+}
+
 function drawFlash() {
   const w = Math.min(520, ctx.measureText(flash).width + 50);
   const cx = layoutW() / 2;
@@ -1956,6 +2113,7 @@ function drawFlash() {
 function queueHpAnimation(from, to, max) {
   if (from === to) return;
   if (from > to) sfx("life");
+  if (to > from) sfx("win");
   hpAnimation = { from, to, max: Math.max(1, max), start: performance.now(), duration: 1250 };
 }
 
@@ -1968,6 +2126,7 @@ function queueMoneyAnimation(delta) {
 function drawFeedbackAnimations() {
   drawHpAnimation();
   drawMoneyAnimations();
+  drawBloodSignature();
 }
 
 function drawHpAnimation() {
@@ -1984,7 +2143,8 @@ function drawHpAnimation() {
   fill("rgba(0,0,0,.58)", 0, 0, lw, layoutH());
   shadow(0, 18, 44, "rgba(0,0,0,.5)", () => gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true));
   strokeRound(x, y, w, h, 18, "rgba(220,180,70,.5)", 2);
-  text(`HP -${Math.max(0, hpAnimation.from - hpAnimation.to)}`, lw / 2, y + 42, 27, C.red, "center", "serif");
+  const hpDelta = Math.round(hpAnimation.to - hpAnimation.from);
+  text(`${hpDelta >= 0 ? "HP +" : "HP "}${hpDelta}`, lw / 2, y + 42, 27, hpDelta >= 0 ? C.green : C.red, "center", "serif");
   fill("#08070b", x + 38, y + 64, w - 76, 24, 12);
   const oldW = (w - 76) * clamp(hpAnimation.from / hpAnimation.max, 0, 1);
   const newW = (w - 76) * clamp(shown / hpAnimation.max, 0, 1);
@@ -2012,6 +2172,24 @@ function drawMoneyAnimations() {
     text(label, cx, y, viewport.portrait ? 28 : 24, color, "center", "serif");
     ctx.restore();
   });
+}
+
+function drawBloodSignature() {
+  if (!game?.loanSignedAt) return;
+  const t = clamp((performance.now() - game.loanSignedAt) / 1800, 0, 1);
+  if (t >= 1) return;
+  const signer = loanSigner();
+  const lw = layoutW();
+  const lh = layoutH();
+  const y = viewport.portrait ? lh * .42 : lh * .46;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, (1 - t) * 1.35);
+  fill("rgba(0,0,0,.40)", 0, 0, lw, lh);
+  text("SIGNED IN BLOOD", lw / 2, y - 56, viewport.portrait ? 30 : 34, C.red, "center", "serif");
+  const name = signer.name || "Player";
+  const shown = name.slice(0, Math.max(1, Math.ceil(name.length * clamp(t / .72, 0, 1))));
+  text(shown, lw / 2, y + 10, viewport.portrait ? 48 : 54, "#d83b3b", "center", "cursive");
+  ctx.restore();
 }
 
 function fillGradientBar(x, y, w, h, c1, c2) {
@@ -2324,6 +2502,7 @@ function phaseTitle() {
     player: game.freePlay ? "Free Play — Everyone Acts" : game.seats[game.activeSeat]?.id === localPlayerId ? "Your Turn" : `${game.seats[game.activeSeat]?.name}'s Turn`,
     dealer: "Dealer Turn",
     dealerReveal: "Dealer Blackjack",
+    loanOffer: "Blood Contract",
     roundOver: game.roundNet > 0 ? "Round Won" : game.roundNet < 0 ? "Round Lost" : "Push",
     shop: "Shop",
     victory: "Victory",
@@ -2332,6 +2511,7 @@ function phaseTitle() {
 }
 
 function seatStatus(seat) {
+  if (isFreeForAll() && seat.bankrupt) return canTakeLoan(seat) ? "Bankrupt" : "Out";
   if (game.phase === "betting") return seat.ready ? "Ready" : `${seat.bet}g`;
   if (seat.spectating) return "Spectating";
   if (seat.finished) return "Done";
@@ -2353,6 +2533,13 @@ function handColor(hand) {
 
 function mySeat() {
   return game?.seats.find((s) => s.id === localPlayerId);
+}
+
+function loanSigner() {
+  return game?.seats.find((s) => s.id === game.loanSeatId)
+    || mySeat()
+    || game?.seats?.[0]
+    || { id: localPlayerId, name: savedPlayerName("Player") };
 }
 
 function feltTheme() {
