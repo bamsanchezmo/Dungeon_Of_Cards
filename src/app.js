@@ -72,6 +72,11 @@ let musicStarted = false;
 let musicPausedForFocus = false;
 let audio = null;
 let audioCtx = null;
+let audioSource = null;
+let musicFilter = null;
+let musicDistortion = null;
+let musicGain = null;
+let musicDeathMode = false;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -272,6 +277,7 @@ function tick(now) {
     game.dealerTimer -= dt;
     if (game.dealerTimer <= 0) settleRound();
   }
+  updateMusicMood(now);
   draw();
   requestAnimationFrame(tick);
 }
@@ -1438,10 +1444,71 @@ function startAudio() {
     audio.webkitPreservesPitch = true;
   }
   if (!audioCtx) audioCtx = new AudioContext();
+  setupMusicChain();
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   if (!musicStarted) {
     audio.play().then(() => musicStarted = true).catch(() => {});
   }
+}
+
+function setupMusicChain() {
+  if (!audioCtx || !audio || audioSource) return;
+  audioSource = audioCtx.createMediaElementSource(audio);
+  musicFilter = audioCtx.createBiquadFilter();
+  musicFilter.type = "lowpass";
+  musicFilter.frequency.value = 18000;
+  musicFilter.Q.value = .5;
+  musicDistortion = audioCtx.createWaveShaper();
+  musicDistortion.curve = makeDistortionCurve(0);
+  musicDistortion.oversample = "4x";
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = 1;
+  audioSource.connect(musicFilter).connect(musicDistortion).connect(musicGain).connect(audioCtx.destination);
+}
+
+function makeDistortionCurve(amount) {
+  const samples = 44100;
+  const curve = new Float32Array(samples);
+  const k = Math.max(0, amount);
+  for (let i = 0; i < samples; i++) {
+    const x = i * 2 / samples - 1;
+    curve[i] = k ? (Math.PI + k) * x / (Math.PI + k * Math.abs(x)) : x;
+  }
+  return curve;
+}
+
+function updateMusicMood(now = performance.now()) {
+  if (!audio) return;
+  const death = game?.phase === "loanOffer" || game?.phase === "defeat";
+  if (death) {
+    const wobble = Math.sin(now / 180) * .045 + Math.sin(now / 71) * .018;
+    audio.preservesPitch = false;
+    audio.mozPreservesPitch = false;
+    audio.webkitPreservesPitch = false;
+    audio.playbackRate = clamp(.58 + wobble, .48, .68);
+    audio.volume = .42;
+    if (musicFilter) {
+      musicFilter.frequency.setTargetAtTime(540 + Math.sin(now / 230) * 120, audioCtx.currentTime, .08);
+      musicFilter.Q.setTargetAtTime(12, audioCtx.currentTime, .08);
+    }
+    if (musicGain) musicGain.gain.setTargetAtTime(.92, audioCtx.currentTime, .08);
+    if (musicDistortion && !musicDeathMode) musicDistortion.curve = makeDistortionCurve(520);
+    musicDeathMode = true;
+    return;
+  }
+  if (!musicDeathMode) return;
+  audio.playbackRate = 1;
+  audio.preservesPitch = true;
+  audio.mozPreservesPitch = true;
+  audio.webkitPreservesPitch = true;
+  audio.volume = .35;
+  if (musicFilter) {
+    musicFilter.frequency.setTargetAtTime(18000, audioCtx.currentTime, .18);
+    musicFilter.Q.setTargetAtTime(.5, audioCtx.currentTime, .18);
+  }
+  if (musicGain) musicGain.gain.setTargetAtTime(1, audioCtx.currentTime, .18);
+  if (musicDistortion) musicDistortion.curve = makeDistortionCurve(0);
+  musicDeathMode = false;
 }
 
 function toggleMusic() {
@@ -2076,15 +2143,16 @@ function drawLoanOffer() {
   const lw = layoutW();
   const lh = layoutH();
   const signer = loanSigner();
-  const panelW = Math.min(viewport.portrait ? 650 : 720, lw - 60);
-  const panelH = viewport.portrait ? 760 : 560;
+  const portrait = viewport.portrait;
+  const panelW = Math.min(portrait ? 650 : 740, lw - 60);
+  const panelH = portrait ? 820 : 610;
   const x = (lw - panelW) / 2;
   const y = Math.max(40, (lh - panelH) / 2);
   fill("rgba(0,0,0,.82)", 0, 0, lw, lh);
   shadow(0, 24, 70, "rgba(0,0,0,.58)", () => gradientRound(x, y, panelW, panelH, 18, [[0, "#2b1720"], [.62, "#150b10"], [1, "#28121a"]], true));
   strokeRound(x, y, panelW, panelH, 18, C.red, 3);
-  text("BANKRUPTCY", lw / 2, y + 64, viewport.portrait ? 42 : 46, C.red, "center", "serif");
-  text("The table offers one final contract.", lw / 2, y + 112, viewport.portrait ? 22 : 20, C.text, "center");
+  text("BANKRUPTCY", lw / 2, y + 60, portrait ? 40 : 44, C.red, "center", "serif");
+  text("The table offers one final contract.", lw / 2, y + 104, portrait ? 21 : 19, C.text, "center");
   const terms = [
     `Signer: ${signer.name}`,
     `Advance: ${LOAN_AMOUNT}g`,
@@ -2093,13 +2161,34 @@ function drawLoanOffer() {
     "All winnings and refunds pay the debt before reaching your bank.",
     "This contract can only be signed once."
   ];
-  terms.forEach((line, i) => text(line, x + 54, y + 170 + i * (viewport.portrait ? 42 : 34), viewport.portrait ? 21 : 18, i === 0 ? C.gold : C.text));
-  fill("rgba(0,0,0,.34)", x + 50, y + panelH - 194, panelW - 100, 76, 12);
-  strokeRound(x + 50, y + panelH - 194, panelW - 100, 76, 12, "rgba(200,60,60,.58)", 2);
-  text("Signature required", x + 70, y + panelH - 162, 17, C.muted);
-  text(signer.name, lw / 2, y + panelH - 130, viewport.portrait ? 34 : 32, "#d83b3b", "center", "cursive");
-  addButton(x + 54, y + panelH - 88, panelW / 2 - 70, viewport.portrait ? 64 : 54, "Decline", () => action("declineLoan"));
-  addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, viewport.portrait ? 64 : 54, "Sign", () => action("signLoan"), true);
+  const termX = x + 54;
+  const termW = panelW - 108;
+  let ty = y + 146;
+  terms.forEach((line, i) => {
+    const size = portrait ? 19 : 17;
+    const color = i === 0 ? C.gold : C.text;
+    ctx.font = `700 ${size}px sans-serif`;
+    const wrapped = wrapLines(line, termW, size);
+    wrapped.forEach((part) => {
+      text(part, termX, ty, size, color);
+      ty += portrait ? 28 : 24;
+    });
+    ty += portrait ? 9 : 7;
+  });
+  const sigY = y + panelH - (portrait ? 240 : 214);
+  fill("rgba(0,0,0,.34)", x + 50, sigY, panelW - 100, portrait ? 104 : 92, 12);
+  strokeRound(x + 50, sigY, panelW - 100, portrait ? 104 : 92, 12, "rgba(200,60,60,.58)", 2);
+  text("Signature required", x + 70, sigY + 31, 17, C.muted);
+  ctx.save();
+  ctx.strokeStyle = "rgba(216,59,59,.58)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 86, sigY + (portrait ? 76 : 68));
+  ctx.lineTo(x + panelW - 86, sigY + (portrait ? 76 : 68));
+  ctx.stroke();
+  ctx.restore();
+  addButton(x + 54, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, "Decline", () => action("declineLoan"));
+  addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, "Sign", () => action("signLoan"), true);
 }
 
 function drawFlash() {
@@ -2176,19 +2265,60 @@ function drawMoneyAnimations() {
 
 function drawBloodSignature() {
   if (!game?.loanSignedAt) return;
-  const t = clamp((performance.now() - game.loanSignedAt) / 1800, 0, 1);
+  const t = clamp((performance.now() - game.loanSignedAt) / 2300, 0, 1);
   if (t >= 1) return;
   const signer = loanSigner();
   const lw = layoutW();
   const lh = layoutH();
   const y = viewport.portrait ? lh * .42 : lh * .46;
+  const name = signer.name || "Player";
+  const size = viewport.portrait ? 54 : 62;
+  ctx.font = `700 ${size}px cursive`;
+  const width = Math.min(lw - 120, Math.max(220, ctx.measureText(name).width + 56));
+  const x = lw / 2 - width / 2;
+  const reveal = clamp(t / .72, 0, 1);
   ctx.save();
   ctx.globalAlpha = Math.min(1, (1 - t) * 1.35);
   fill("rgba(0,0,0,.40)", 0, 0, lw, lh);
-  text("SIGNED IN BLOOD", lw / 2, y - 56, viewport.portrait ? 30 : 34, C.red, "center", "serif");
-  const name = signer.name || "Player";
-  const shown = name.slice(0, Math.max(1, Math.ceil(name.length * clamp(t / .72, 0, 1))));
-  text(shown, lw / 2, y + 10, viewport.portrait ? 48 : 54, "#d83b3b", "center", "cursive");
+  text("SIGNED IN BLOOD", lw / 2, y - 86, viewport.portrait ? 30 : 34, C.red, "center", "serif");
+  fill("rgba(12,4,7,.76)", x - 22, y - 54, width + 44, 124, 14);
+  strokeRound(x - 22, y - 54, width + 44, 124, 14, "rgba(216,59,59,.55)", 2);
+  ctx.strokeStyle = "rgba(216,59,59,.45)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y + 34);
+  ctx.lineTo(x + width, y + 34);
+  ctx.stroke();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x - 8, y - 48, (width + 16) * reveal, 96);
+  ctx.clip();
+  ctx.shadowColor = "rgba(216,59,59,.6)";
+  ctx.shadowBlur = 10;
+  text(name, lw / 2, y + 16, size, "#d83b3b", "center", "cursive");
+  ctx.restore();
+  const penX = x + width * reveal;
+  if (reveal < 1) {
+    fill("#e15353", penX - 5, y + 20 + Math.sin(reveal * Math.PI * 5) * 5, 10, 10, 5);
+  }
+  const drops = [
+    [.18, 8, .16],
+    [.37, 18, .28],
+    [.58, 12, .42],
+    [.78, 24, .56],
+    [.91, 15, .68]
+  ];
+  drops.forEach(([pos, len, start], i) => {
+    if (reveal < pos || t < start) return;
+    const drip = clamp((t - start) / .42, 0, 1);
+    const dx = x + width * pos;
+    const top = y + 26 + Math.sin(i * 1.7) * 6;
+    ctx.fillStyle = "#b51f2a";
+    ctx.beginPath();
+    ctx.ellipse(dx, top + len * drip, 3 + i % 2, 4 + drip * 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    fill("rgba(181,31,42,.75)", dx - 1.5, top, 3, len * drip, 2);
+  });
   ctx.restore();
 }
 
