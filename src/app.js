@@ -14,7 +14,8 @@ const MAX_PLAYERS = 4;
 const hostId = "host";
 const LOAN_AMOUNT = 100;
 const LOAN_INTEREST = 25;
-const LOAN_INTEREST_PER_ROUND = 10;
+const LOAN_INTEREST_RATE_PER_ROUND = .15;
+const LOAN_WINNING_PAYMENT_RATE = .1;
 
 const C = {
   bg: "#120e16",
@@ -813,23 +814,26 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
   const pushWins = has("pushWins");
   const cappedRefund = (amount) => Math.max(0, Math.min(amount, h.bet - 1));
   if (h.insurance) {
-    if (dealerBj) addGold(seat, h.insurance * (has("insurance3") ? 4 : 3));
+    if (dealerBj) {
+      const insurancePayout = h.insurance * (has("insurance3") ? 4 : 3);
+      addGold(seat, insurancePayout, insurancePayout);
+    }
   }
   if (h.status === "surrender") {
     const refund = has("freeSurrender") ? h.bet : Math.floor(h.bet / 2);
-    addGold(seat, refund);
+    addGold(seat, refund, 0);
     return { net: -(h.bet - refund), grossLoss: has("freeSurrender") ? 0 : Math.floor(h.bet / 2), msg: has("freeSurrender") ? "Surrender refunded" : `Surrender -${h.bet - refund}g` };
   }
   if (isBust(h)) {
     const refund = cappedRefund(Math.floor(h.bet * (relicSum("refund") + relicSum("bustRefund"))));
-    addGold(seat, refund);
+    addGold(seat, refund, 0);
     return { net: -(h.bet - refund), grossLoss: h.bet, msg: `Bust -${h.bet - refund}g` };
   }
   if (isBlackjack(h)) {
     if (dealerBj) {
       if (pushWins) return winResult(seat, h, Math.floor(h.bet * bjMult) + chipBonus, "BJ push wins");
       if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "BJ tie loses" };
-      addGold(seat, h.bet);
+      addGold(seat, h.bet, 0);
       return { net: 0, grossLoss: 0, msg: "BJ push" };
     }
     return winResult(seat, h, Math.floor(h.bet * bjMult) + chipBonus, "BLACKJACK");
@@ -842,18 +846,18 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
   if (total < dealerTotal) return loseResult(seat, h, `${total} loses to ${dealerTotal}`);
   if (pushWins) return winResult(seat, h, h.bet + chipBonus, "Push wins");
   if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "Tie loses" };
-  addGold(seat, h.bet);
+  addGold(seat, h.bet, 0);
   return { net: 0, grossLoss: 0, msg: `Push ${total}` };
 }
 
 function winResult(seat, h, amount, msg) {
-  addGold(seat, h.bet + amount);
+  addGold(seat, h.bet + amount, amount);
   return { net: amount, grossLoss: 0, msg: `${msg} +${amount}g` };
 }
 
 function loseResult(seat, h, msg) {
   const refund = Math.max(0, Math.min(Math.floor(h.bet * relicSum("refund")), h.bet - 1));
-  addGold(seat, refund);
+  addGold(seat, refund, 0);
   return { net: -(h.bet - refund), grossLoss: h.bet, msg: `${msg} -${h.bet - refund}g` };
 }
 
@@ -931,16 +935,20 @@ function applyLoanInterest() {
   if (!game) return;
   if (isFreeForAll()) {
     for (const seat of game.seats) {
-      if ((Number(seat.debt) || 0) > 0) {
-        seat.debt += LOAN_INTEREST_PER_ROUND;
-        log(`${seat.name}'s loan gains ${LOAN_INTEREST_PER_ROUND}g interest.`);
+      const debt = Math.max(0, Number(seat.debt) || 0);
+      if (debt > 0) {
+        const interest = Math.max(1, Math.ceil(debt * LOAN_INTEREST_RATE_PER_ROUND));
+        seat.debt += interest;
+        log(`${seat.name}'s loan gains ${interest}g interest.`);
       }
     }
     return;
   }
-  if ((Number(game.loanDebt) || 0) > 0) {
-    game.loanDebt += LOAN_INTEREST_PER_ROUND;
-    log(`The loan gains ${LOAN_INTEREST_PER_ROUND}g interest.`);
+  const debt = Math.max(0, Number(game.loanDebt) || 0);
+  if (debt > 0) {
+    const interest = Math.max(1, Math.ceil(debt * LOAN_INTEREST_RATE_PER_ROUND));
+    game.loanDebt += interest;
+    log(`The loan gains ${interest}g interest.`);
   }
 }
 
@@ -1319,7 +1327,7 @@ function signLoan(playerId) {
   game.roundDealCount = 0;
   cardAnimations = [];
   seenCardIds = new Set();
-  log(`Signed in blood. Debt: ${LOAN_AMOUNT + LOAN_INTEREST}g, +${LOAN_INTEREST_PER_ROUND}g interest each round.`);
+  log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
   sfx("life");
 }
 
@@ -1394,11 +1402,16 @@ function spendGold(seat, amount) {
   return true;
 }
 
-function addGold(seat, amount) {
+function loanPaymentForWinnings(debt, winnings) {
+  if (debt <= 0 || winnings <= 0) return 0;
+  return Math.min(debt, Math.ceil(winnings * LOAN_WINNING_PAYMENT_RATE));
+}
+
+function addGold(seat, amount, winnings = amount) {
   if (amount <= 0) return;
   if (!isFreeForAll()) {
     const debt = Math.max(0, Number(game.loanDebt) || 0);
-    const payment = Math.min(amount, debt);
+    const payment = loanPaymentForWinnings(debt, winnings);
     if (payment > 0) {
       game.loanDebt = debt - payment;
       game.loanPaidThisRound = (Number(game.loanPaidThisRound) || 0) + payment;
@@ -1408,7 +1421,7 @@ function addGold(seat, amount) {
     return;
   }
   const debt = Math.max(0, Number(seat?.debt) || 0);
-  const payment = Math.min(amount, debt);
+  const payment = loanPaymentForWinnings(debt, winnings);
   if (payment > 0) {
     seat.debt = debt - payment;
     seat.loanPaidThisRound = (Number(seat.loanPaidThisRound) || 0) + payment;
@@ -2180,8 +2193,8 @@ function drawLoanOffer() {
     `Signer: ${signer.name}`,
     `Advance: ${LOAN_AMOUNT}g`,
     `Immediate fee: ${LOAN_INTEREST}g`,
-    `Interest: +${LOAN_INTEREST_PER_ROUND}g after each completed round until paid`,
-    "All winnings and refunds pay the debt before reaching your bank.",
+    `Interest: +${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding after each completed round`,
+    `${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay the debt before reaching your bank.`,
     "This contract can only be signed once."
   ];
   const termX = x + 54;
