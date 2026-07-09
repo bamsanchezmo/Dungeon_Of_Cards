@@ -57,7 +57,7 @@ const viewport = {
   portrait: false
 };
 
-let appScene = "menu";
+let appScene = "splash";
 let role = "solo";
 let localPlayerId = hostId;
 let peer = null;
@@ -69,6 +69,7 @@ let musicStarted = false;
 let musicPausedForFocus = false;
 let audio = null;
 let audioCtx = null;
+let sfxCounter = 0;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -81,7 +82,13 @@ let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
 let signalKind = "";
-let freePlayPreference = localStorage.getItem("dungeon-free-play") === "true";
+const modeLabels = {
+  classic: "Classic Turns",
+  freePlay: "Free Play",
+  freeForAll: "Free For All"
+};
+const savedMode = localStorage.getItem("dungeon-mode");
+let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
 let hpAnimation = null;
 let moneyAnimations = [];
 
@@ -207,6 +214,10 @@ canvas.addEventListener("mousemove", (ev) => {
 canvas.addEventListener("pointerdown", (ev) => {
   const p = eventPoint(ev);
   startAudio();
+  if (hpAnimation) {
+    hpAnimation = null;
+    return;
+  }
   const hit = [...buttons].reverse().find((b) => b.enabled !== false && inRect(p, b));
   if (hit) {
     sfx("click");
@@ -263,15 +274,18 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 
-function newGame(players, code = "") {
+function newGame(players, code = "", mode = modePreference) {
   enemyTemplates = buildCampaign();
   lastRelicName = "";
   menuOpen = false;
   cardAnimations = [];
   seenCardIds = new Set();
+  const freeForAll = mode === "freeForAll";
   const seats = players.map((p) => ({
     id: p.id,
     name: p.name,
+    gold: freeForAll ? 200 : 0,
+    debt: 0,
     bet: 25,
     ready: false,
     hands: [],
@@ -283,6 +297,7 @@ function newGame(players, code = "") {
   }));
   game = {
     code,
+    mode,
     phase: "betting",
     floor: 0,
     gold: 200 + Math.max(0, seats.length - 1) * 100,
@@ -304,7 +319,7 @@ function newGame(players, code = "") {
     roundNet: 0,
     dealSeq: 0,
     roundDealCount: 0,
-    freePlay: freePlayPreference,
+    freePlay: mode !== "classic",
     relicVotes: {},
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
@@ -334,8 +349,8 @@ function addPlayerSeat(id, name = "") {
   if (game.seats.some((s) => s.id === id)) return true;
   if (game.seats.length >= MAX_PLAYERS) return false;
   const playerName = name || `Guest ${game.seats.length}`;
-  game.seats.push({ id, name: playerName, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
-  game.gold += 100;
+  game.seats.push({ id, name: playerName, gold: isFreeForAll() ? 200 : 0, debt: 0, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
+  if (!isFreeForAll()) game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
   rescaleEnemyForPlayers();
@@ -421,11 +436,21 @@ function applyAction(playerId, name) {
 
   if (game.phase === "betting") {
     const max = maxBetForSeat(seat);
-    if (name === "betDown") seat.bet = clamp(seat.bet - 5, MIN_BET, max);
-    if (name === "betUp") seat.bet = clamp(seat.bet + 5, MIN_BET, max);
-    if (name === "minBet") seat.bet = MIN_BET;
+    const min = max >= MIN_BET ? MIN_BET : 0;
+    if (name === "loan" && isFreeForAll()) {
+      seat.gold = seatBankroll(seat) + 100;
+      seat.debt = (Number(seat.debt) || 0) + 100;
+      seat.bet = Math.min(25, maxBetForSeat(seat));
+      log(`${seat.name} takes a 100g loan.`);
+      sfx("coin");
+      return;
+    }
+    if (name === "betDown") seat.bet = clamp(seat.bet - 5, min, max);
+    if (name === "betUp") seat.bet = clamp(seat.bet + 5, min, max);
+    if (name === "minBet") seat.bet = min;
     if (name === "maxBet") seat.bet = max;
     if (name === "ready") {
+      if (isFreeForAll() && seatBankroll(seat) < MIN_BET) return flashMsg("Take a loan to keep playing");
       seat.ready = !seat.ready;
       sfx(seat.ready ? "ready" : "click");
       log(`${seat.name} ${seat.ready ? "is ready" : "is adjusting their bet"}.`);
@@ -438,10 +463,7 @@ function applyAction(playerId, name) {
     const h = seat.hands[0];
     if (name === "insuranceYes" && h && !seat.insuranceAnswered) {
       const cost = Math.floor(seat.bet / 2);
-      if (game.gold >= cost) {
-        game.gold -= cost;
-        h.insurance = cost;
-      }
+      if (spendGold(seat, cost)) h.insurance = cost;
       seat.insuranceAnswered = true;
     }
     if (name === "insuranceNo") seat.insuranceAnswered = true;
@@ -470,9 +492,18 @@ function applyAction(playerId, name) {
 
 function dealRound() {
   const totalBets = game.seats.reduce((sum, s) => sum + s.bet, 0);
-  if (game.gold < totalBets || totalBets <= 0) return;
-  game.gold -= totalBets;
-  if ((game.enemy.hitFee || 0) > game.gold) {
+  if (totalBets <= 0) return;
+  if (isFreeForAll()) {
+    for (const s of game.seats) {
+      if (s.bet > seatBankroll(s)) s.bet = Math.max(0, seatBankroll(s));
+      if (s.bet > 0) spendGold(s, s.bet);
+    }
+    if (!game.seats.some((s) => s.bet > 0)) return;
+  } else {
+    if (game.gold < totalBets) return;
+    game.gold -= totalBets;
+  }
+  if (!isFreeForAll() && (game.enemy.hitFee || 0) > game.gold) {
     queueHpAnimation(game.hp, 0, game.maxHp);
     game.hp = 0;
     game.phase = "defeat";
@@ -536,16 +567,23 @@ function hit(seatIndex) {
   const hand = activeHand(seat);
   const fee = game.enemy.hitFee || 0;
   if (fee) {
-    if (game.gold < fee) {
+    if (!spendGold(seat, fee)) {
+      if (isFreeForAll()) {
+        hand.status = "bust";
+        log(`${seat.name} cannot pay the hit toll.`);
+        sfx("bust");
+        advanceHand(seatIndex);
+        broadcast();
+        return;
+      }
       queueHpAnimation(game.hp, 0, game.maxHp);
       game.hp = 0;
       game.phase = "defeat";
-      log("You cannot pay the hit toll. The house wins.");
+      log(isFreeForAll() ? `${seat.name} cannot pay the hit toll. The house wins.` : "You cannot pay the hit toll. The house wins.");
       sfx("lose");
       broadcast();
       return;
     }
-    game.gold -= fee;
   }
   addToHand(hand, "player");
   sfx("deal");
@@ -568,8 +606,7 @@ function stand(seatIndex) {
 function doubleDown(seatIndex) {
   const seat = game.seats[seatIndex];
   const h = activeHand(seat);
-  if (!h || h.cards.length !== 2 || game.enemy.noDouble || game.gold < h.bet) return flashMsg("Double unavailable");
-  game.gold -= h.bet;
+  if (!h || h.cards.length !== 2 || game.enemy.noDouble || !spendGold(seat, h.bet)) return flashMsg("Double unavailable");
   h.bet *= 2;
   h.doubled = true;
   addToHand(h, "player");
@@ -581,11 +618,11 @@ function doubleDown(seatIndex) {
 function split(seatIndex) {
   const seat = game.seats[seatIndex];
   const h = activeHand(seat);
-  if (!h || h.cards.length !== 2 || cardValue(h.cards[0]) !== cardValue(h.cards[1]) || game.gold < h.bet || seat.hands.length >= 4) {
+  if (!h || h.cards.length !== 2 || cardValue(h.cards[0]) !== cardValue(h.cards[1]) || seatBankroll(seat) < h.bet || seat.hands.length >= 4) {
     return flashMsg("Split unavailable");
   }
   if (h.splitAces && h.cards[0].rank === "A" && !has("extraSplit")) return flashMsg("Aces cannot be re-split");
-  game.gold -= h.bet;
+  spendGold(seat, h.bet);
   const moved = h.cards.pop();
   const h2 = newHand(h.bet);
   h2.cards = [moved];
@@ -709,19 +746,21 @@ function settleRound() {
   const dealerBj = isBlackjackCards(game.dealer);
   const hpBefore = game.hp;
   let net = 0;
+  let localNet = 0;
   let winHands = 0;
   let grossLoss = 0;
   const results = [];
   for (const seat of game.seats) {
     let seatNet = 0;
     for (const h of seat.hands) {
-      const result = settleHand(h, dealerTotal, dealerBj);
+      const result = settleHand(seat, h, dealerTotal, dealerBj);
       net += result.net;
       seatNet += result.net;
       grossLoss += result.grossLoss || 0;
       if (result.net > 0) winHands++;
       results.push(`${seat.name}: ${result.msg}`);
     }
+    if (seat.id === localPlayerId) localNet = seatNet;
     seat.profit = (Number(seat.profit) || 0) + seatNet;
     seat.profitHistory = [...(seat.profitHistory || [0]), seat.profit].slice(-40);
   }
@@ -739,60 +778,60 @@ function settleRound() {
     sfx("push");
   }
   if (hpBefore > game.hp) queueHpAnimation(hpBefore, game.hp, game.maxHp);
-  if (net !== 0) queueMoneyAnimation(net);
+  if ((isFreeForAll() ? localNet : net) !== 0) queueMoneyAnimation(isFreeForAll() ? localNet : net);
   game.roundNet = net;
   results.slice(0, 6).reverse().forEach(log);
   game.phase = game.hp <= 0 ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
   broadcast();
 }
 
-function settleHand(h, dealerTotal, dealerBj) {
+function settleHand(seat, h, dealerTotal, dealerBj) {
   const bjMult = has("bjPays2") ? 2 : (game.enemy.bjPays65 ? 1.2 : 1.5);
   const chipBonus = relicSum("chipBonus");
   const pushWins = has("pushWins");
   const cappedRefund = (amount) => Math.max(0, Math.min(amount, h.bet - 1));
   if (h.insurance) {
-    if (dealerBj) game.gold += h.insurance * (has("insurance3") ? 4 : 3);
+    if (dealerBj) addGold(seat, h.insurance * (has("insurance3") ? 4 : 3));
   }
   if (h.status === "surrender") {
     const refund = has("freeSurrender") ? h.bet : Math.floor(h.bet / 2);
-    game.gold += refund;
+    addGold(seat, refund);
     return { net: -(h.bet - refund), grossLoss: has("freeSurrender") ? 0 : Math.floor(h.bet / 2), msg: has("freeSurrender") ? "Surrender refunded" : `Surrender -${h.bet - refund}g` };
   }
   if (isBust(h)) {
     const refund = cappedRefund(Math.floor(h.bet * (relicSum("refund") + relicSum("bustRefund"))));
-    game.gold += refund;
+    addGold(seat, refund);
     return { net: -(h.bet - refund), grossLoss: h.bet, msg: `Bust -${h.bet - refund}g` };
   }
   if (isBlackjack(h)) {
     if (dealerBj) {
-      if (pushWins) return winResult(h, Math.floor(h.bet * bjMult) + chipBonus, "BJ push wins");
+      if (pushWins) return winResult(seat, h, Math.floor(h.bet * bjMult) + chipBonus, "BJ push wins");
       if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "BJ tie loses" };
-      game.gold += h.bet;
+      addGold(seat, h.bet);
       return { net: 0, grossLoss: 0, msg: "BJ push" };
     }
-    return winResult(h, Math.floor(h.bet * bjMult) + chipBonus, "BLACKJACK");
+    return winResult(seat, h, Math.floor(h.bet * bjMult) + chipBonus, "BLACKJACK");
   }
-  if (dealerBj) return loseResult(h, "Dealer blackjack");
-  if (has("fiveCard") && h.cards.length >= 5 && !isBust(h)) return winResult(h, h.bet + chipBonus, "5-Card Charlie");
+  if (dealerBj) return loseResult(seat, h, "Dealer blackjack");
+  if (has("fiveCard") && h.cards.length >= 5 && !isBust(h)) return winResult(seat, h, h.bet + chipBonus, "5-Card Charlie");
   const total = handTotal(h);
-  if (dealerTotal > 21) return winResult(h, h.bet + chipBonus, "Dealer bust");
-  if (total > dealerTotal) return winResult(h, h.bet + chipBonus, `${total} beats ${dealerTotal}`);
-  if (total < dealerTotal) return loseResult(h, `${total} loses to ${dealerTotal}`);
-  if (pushWins) return winResult(h, h.bet + chipBonus, "Push wins");
+  if (dealerTotal > 21) return winResult(seat, h, h.bet + chipBonus, "Dealer bust");
+  if (total > dealerTotal) return winResult(seat, h, h.bet + chipBonus, `${total} beats ${dealerTotal}`);
+  if (total < dealerTotal) return loseResult(seat, h, `${total} loses to ${dealerTotal}`);
+  if (pushWins) return winResult(seat, h, h.bet + chipBonus, "Push wins");
   if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "Tie loses" };
-  game.gold += h.bet;
+  addGold(seat, h.bet);
   return { net: 0, grossLoss: 0, msg: `Push ${total}` };
 }
 
-function winResult(h, amount, msg) {
-  game.gold += h.bet + amount;
+function winResult(seat, h, amount, msg) {
+  addGold(seat, h.bet + amount);
   return { net: amount, grossLoss: 0, msg: `${msg} +${amount}g` };
 }
 
-function loseResult(h, msg) {
+function loseResult(seat, h, msg) {
   const refund = Math.max(0, Math.min(Math.floor(h.bet * relicSum("refund")), h.bet - 1));
-  game.gold += refund;
+  addGold(seat, refund);
   return { net: -(h.bet - refund), grossLoss: h.bet, msg: `${msg} -${h.bet - refund}g` };
 }
 
@@ -817,8 +856,12 @@ function buyRelic(index) {
   const relic = game.shop[index];
   if (!relic) return;
   const cost = 45 + game.floor * 15;
-  if (game.gold < cost) return flashMsg("Not enough gold");
-  game.gold -= cost;
+  const buyer = mySeat() || game.seats[0];
+  if (!game.code) {
+    if (!spendGold(buyer, cost)) return flashMsg("Not enough gold");
+  } else if (!isFreeForAll() && !spendGold(buyer, cost)) {
+    return flashMsg("Not enough gold");
+  }
   sfx("coinDown");
   game.relics.push(relic);
   game.foresightUsesLeft += relic.foresightUses || 0;
@@ -845,7 +888,9 @@ function resetRound() {
     s.hands = [];
     s.finished = false;
     s.active = 0;
-    s.bet = clamp(s.bet, MIN_BET, Math.max(MIN_BET, Math.min(MAX_BET, game.gold)));
+    const max = maxBetForSeat(s);
+    const min = max >= MIN_BET ? MIN_BET : 0;
+    s.bet = clamp(s.bet, min, max);
   });
 }
 
@@ -937,7 +982,7 @@ async function hostLobby() {
   role = "host";
   localPlayerId = hostId;
   const code = createLobbyCode();
-  newGame([{ id: hostId, name: savedPlayerName("Host") }], code);
+  newGame([{ id: hostId, name: savedPlayerName("Host") }], code, modePreference);
   hostOffer.value = "Creating lobby link...";
   showSignal("host", `Lobby ${code}`, "Share this link. Up to 3 guests can join from it.");
   peer = new HostPeer({
@@ -1155,13 +1200,53 @@ function formatPeerError(err) {
 function restartLobbyRun() {
   const players = game.seats.map((s) => ({ id: s.id, name: s.name }));
   const code = game.code;
-  const mode = game.freePlay;
-  newGame(players, code);
-  game.freePlay = mode;
+  const mode = game.mode || (game.freePlay ? "freePlay" : "classic");
+  newGame(players, code, mode);
   log("The lobby deals a fresh dungeon run.");
 }
 
+function isFreeForAll() {
+  return game?.mode === "freeForAll";
+}
+
+function cycleModePreference() {
+  const modes = ["classic", "freePlay", "freeForAll"];
+  modePreference = modes[(modes.indexOf(modePreference) + 1) % modes.length];
+  localStorage.setItem("dungeon-mode", modePreference);
+  localStorage.setItem("dungeon-free-play", String(modePreference !== "classic"));
+}
+
+function seatBankroll(seat) {
+  return isFreeForAll() ? Math.max(0, Number(seat?.gold) || 0) : Math.max(0, Number(game?.gold) || 0);
+}
+
+function goldLabel() {
+  if (!isFreeForAll()) return `Gold ${game.gold}g`;
+  const seat = mySeat() || game.seats[0];
+  const debt = Number(seat?.debt) || 0;
+  return `Bank ${seatBankroll(seat)}g${debt ? ` / Loan ${debt}g` : ""}`;
+}
+
+function spendGold(seat, amount) {
+  if (amount <= 0) return true;
+  if (isFreeForAll()) {
+    if (seatBankroll(seat) < amount) return false;
+    seat.gold -= amount;
+    return true;
+  }
+  if ((game.gold || 0) < amount) return false;
+  game.gold -= amount;
+  return true;
+}
+
+function addGold(seat, amount) {
+  if (amount <= 0) return;
+  if (isFreeForAll()) seat.gold = seatBankroll(seat) + amount;
+  else game.gold += amount;
+}
+
 function maxBetForSeat(seat) {
+  if (isFreeForAll()) return Math.max(0, Math.min(MAX_BET, seatBankroll(seat)));
   const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
   return Math.max(MIN_BET, Math.min(MAX_BET, game.gold - committedByOthers));
 }
@@ -1188,6 +1273,7 @@ function startAudio() {
     audio.volume = .35;
   }
   if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   if (!musicStarted) {
     audio.play().then(() => musicStarted = true).catch(() => {});
   }
@@ -1213,11 +1299,15 @@ function resumeMusicForFocus() {
 
 function sfx(kind) {
   if (!audioCtx) return;
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   const now = audioCtx.currentTime;
+  const pitchShift = kind === "click" || kind === "ready" ? [0.94, 0.98, 1, 1.04, 1.08][sfxCounter++ % 5] : 1;
   const blip = (freq, start, duration, volume = .14, type = "square", endFreq = freq) => {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = type;
+    freq *= pitchShift;
+    endFreq *= pitchShift;
     osc.frequency.setValueAtTime(freq, now + start);
     if (endFreq !== freq) osc.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), now + start + duration);
     gain.gain.setValueAtTime(.0001, now + start);
@@ -1312,7 +1402,9 @@ function draw() {
   ctx.scale(viewport.scale, viewport.scale);
   drawBackdrop();
   ctx.translate(viewport.contentX, viewport.contentY);
-  if (!game || appScene === "menu") {
+  if (appScene === "splash") {
+    drawSplash();
+  } else if (!game || appScene === "menu") {
     drawMenu();
   } else {
     drawTable();
@@ -1331,6 +1423,20 @@ function draw() {
   }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
+}
+
+function drawSplash() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const cx = lw / 2;
+  const cy = lh / 2;
+  ctx.save();
+  ctx.shadowColor = "rgba(220,180,70,.35)";
+  ctx.shadowBlur = 20;
+  text("Wizard Stab Studio LLC", cx, cy - 46, viewport.portrait ? 40 : 48, C.gold, "center", "serif");
+  ctx.restore();
+  text("presents", cx, cy + 12, viewport.portrait ? 27 : 28, C.parchment, "center", "serif");
+  addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Continue", () => appScene = "menu", true);
 }
 
 function drawMenu() {
@@ -1379,9 +1485,8 @@ function drawMenu() {
   }, true);
   addButton(buttonX, buttonY + (portrait ? 102 : 60), buttonW, portrait ? 78 : 52, "Host Game", hostLobby);
   addButton(buttonX, buttonY + (portrait ? 204 : 120), buttonW, portrait ? 78 : 52, "Join Game", joinLobby);
-  addButton(buttonX, buttonY + (portrait ? 306 : 180), buttonW, portrait ? 72 : 44, `Mode: ${freePlayPreference ? "Free Play" : "Classic Turns"}`, () => {
-    freePlayPreference = !freePlayPreference;
-    localStorage.setItem("dungeon-free-play", String(freePlayPreference));
+  addButton(buttonX, buttonY + (portrait ? 306 : 180), buttonW, portrait ? 72 : 44, `Mode: ${modeLabels[modePreference]}`, () => {
+    cycleModePreference();
   });
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
 }
@@ -1491,6 +1596,7 @@ function drawSeats(felt) {
     } else {
       drawChips(x + 38, y + 50, seat.bet);
       badge(x + 110, y + 70, `Bet ${seat.bet}g`, C.gold);
+      if (isFreeForAll()) text(`${seatBankroll(seat)}g`, x + seatW - 42, y + 72, portrait ? 18 : 15, C.gold, "right");
     }
     buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 150, onClick: () => statsPlayerId = seat.id });
   });
@@ -1521,7 +1627,7 @@ function drawSidePanel() {
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 100, 230, 1);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
-  text(`Gold ${game.gold}g`, x + 22, 140, 18, C.gold);
+  text(goldLabel(), x + 22, 140, 18, C.gold);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
   if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
@@ -1554,7 +1660,7 @@ function drawBottomPanel() {
   const leftX = x + 24;
   const rightStatX = x + w - 250;
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, leftX, y + 98, 24, C.text);
-  text(`Gold ${game.gold}g`, leftX, y + 134, 24, C.gold);
+  text(goldLabel(), leftX, y + 134, 24, C.gold);
   meter(rightStatX, y + 96, 220, 18, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
   if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
@@ -1596,7 +1702,7 @@ function drawTouchLandscapePanel() {
   text("DUNGEON OF CARDS", x + 190, 82, 25, C.gold, "center", "serif");
   addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 24, 142, 27, C.text);
-  text(`Gold ${game.gold}g`, x + 245, 142, 27, C.gold);
+  text(goldLabel(), x + 245, 142, 27, C.gold);
   meter(x + 24, 174, w - 48, 20, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
   text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
@@ -1626,6 +1732,10 @@ function drawActionButtons(x, y) {
     const bh = 64;
     const full = bw * 2 + gap;
     if (game.phase === "betting") {
+      if (isFreeForAll() && seatBankroll(mySeat()) < MIN_BET) {
+        addButton(x, y, full, 72, "Loan +100g", () => action("loan"), true);
+        return;
+      }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
       addButton(x, y + 76, bw, bh, "Min", () => action("minBet"));
@@ -1643,7 +1753,7 @@ function drawActionButtons(x, y) {
       const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
       addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
       addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
-      addButton(x, y + 76, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
+      addButton(x, y + 76, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
       addButton(x + bw + gap, y + 76, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
       addButton(x, y + 152, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
       if (game.foresightUsesLeft > 0) {
@@ -1661,6 +1771,10 @@ function drawActionButtons(x, y) {
     const bw = 100;
     const bh = 105;
     if (game.phase === "betting") {
+      if (isFreeForAll() && seatBankroll(mySeat()) < MIN_BET) {
+        addButton(x, y, 430, 110, "Loan +100g", () => action("loan"), true);
+        return;
+      }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + 110, y, bw, bh, "+5", () => action("betUp"));
       addButton(x + 220, y, bw, bh, "Min", () => action("minBet"));
@@ -1678,7 +1792,7 @@ function drawActionButtons(x, y) {
       const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
       addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
       addButton(x + 110, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
-      addButton(x + 220, y, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
+      addButton(x + 220, y, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
       addButton(x + 330, y, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
       addButton(x, y + bh + gap, 430, 105, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
       return;
@@ -1689,6 +1803,10 @@ function drawActionButtons(x, y) {
     return;
   }
   if (game.phase === "betting") {
+    if (isFreeForAll() && seatBankroll(mySeat()) < MIN_BET) {
+      addButton(x, y, 228, 50, "Loan +100g", () => action("loan"), true);
+      return;
+    }
     addButton(x, y, 110, 42, "-5", () => action("betDown"));
     addButton(x + 118, y, 110, 42, "+5", () => action("betUp"));
     addButton(x, y + 50, 110, 42, "Min", () => action("minBet"));
@@ -1706,7 +1824,7 @@ function drawActionButtons(x, y) {
     const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
     addButton(x, y, 110, 44, "Hit", () => action("hit"), true, myTurn);
     addButton(x + 118, y, 110, 44, "Stand", () => action("stand"), false, myTurn);
-    addButton(x, y + 52, 110, 44, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && game.gold >= (mine?.bet || 0));
+    addButton(x, y + 52, 110, 44, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
     addButton(x + 118, y + 52, 110, 44, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
     addButton(x, y + 104, 228, 44, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
     if (game.foresightUsesLeft > 0) {
@@ -1741,7 +1859,7 @@ function drawShop() {
 
 function drawShopRelicCard(relic, index, x, y) {
   const cost = 45 + game.floor * 15;
-  const canBuy = game.gold >= cost;
+  const canBuy = game.code && isFreeForAll() ? true : seatBankroll(mySeat() || game.seats[0]) >= cost;
   const portrait = viewport.portrait;
   const cardW = portrait ? layoutW() - 160 : 280;
   const cardH = portrait ? 318 : 320;
@@ -1783,7 +1901,7 @@ function drawEnd() {
   const victory = game.phase === "victory";
   text(victory ? "VICTORY" : "DEFEAT", lw / 2, 235, viewport.portrait ? 54 : 68, victory ? C.gold : C.red, "center", "serif");
   text(victory ? "The dungeon folds its hand." : "The house collects.", lw / 2, 305, viewport.portrait ? 21 : 26, C.text, "center");
-  text(`Final gold: ${game.gold}g`, lw / 2, 365, 22, C.gold, "center");
+  text(isFreeForAll() ? `Your bankroll: ${seatBankroll(mySeat() || game.seats[0])}g` : `Final gold: ${game.gold}g`, lw / 2, 365, 22, C.gold, "center");
   const relicText = game.relics.length ? game.relics.map((r) => r.name).join(", ") : "None";
   text("Relics:", lw / 2, 420, 20, C.gold, "center");
   const lines = wrapLines(relicText, Math.min(820, lw - 80), 16);
@@ -2163,6 +2281,7 @@ function meter(x, y, w, h, value, c1, c2) {
 }
 
 function phaseTitle() {
+  if (game.phase === "player" && isFreeForAll()) return "Free For All";
   return {
     betting: "Betting",
     insurance: "Insurance",
@@ -2241,7 +2360,7 @@ function fitLabel(value, maxWidth, size) {
 }
 
 function canSplitLocal(hand) {
-  return hand?.cards.length === 2 && cardValue(hand.cards[0]) === cardValue(hand.cards[1]) && game.gold >= hand.bet;
+  return hand?.cards.length === 2 && cardValue(hand.cards[0]) === cardValue(hand.cards[1]) && seatBankroll(mySeat()) >= hand.bet;
 }
 
 function flashMsg(msg) {
