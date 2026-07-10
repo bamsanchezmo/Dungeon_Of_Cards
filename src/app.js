@@ -3308,7 +3308,7 @@ function drawDeveloperPanel() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   const panelW = Math.min(portrait ? 680 : 760, lw - 56);
-  const panelH = portrait ? 760 : 610;
+  const panelH = portrait ? 880 : 720;
   const x = lw / 2 - panelW / 2;
   const y = Math.max(34, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
@@ -3331,14 +3331,9 @@ function drawDeveloperPanel() {
   };
 
   let i = 0;
-  addDevButton(i++, `Split Carousel (${developerSplitLimit})`, () => devScenarioSplitCarousel(), true);
-  addDevButton(i++, "Cycle Split Cap", () => cycleDeveloperSplitLimit());
-  addDevButton(i++, "Hit Animation", () => devScenarioHitAnimation());
-  addDevButton(i++, "Hit Toll Bankruptcy", () => devScenarioHitFeeBankruptcy());
-  addDevButton(i++, "Dealer Blackjack", () => devScenarioDealerBlackjack());
-  addDevButton(i++, "Relic Shop Variety", () => devScenarioRelicShop());
-  addDevButton(i++, "Loan Contract", () => devScenarioLoanContract());
-  addDevButton(i++, "HP + Money Animations", () => devScenarioFeedbackAnimations());
+  for (const scenario of developerScenarios()) {
+    addDevButton(i++, scenario.label, scenario.run, !!scenario.primary);
+  }
 
   const infoY = startY + Math.ceil(i / cols) * (bh + rowGap) + 20;
   text(`Active run: ${game?.developerTest ? "Developer Test" : game ? "Normal Game" : "None"}`, x + 40, infoY, portrait ? 18 : 15, C.text);
@@ -3350,6 +3345,26 @@ function drawDeveloperPanel() {
     developerPanelOpen = false;
   });
   addButton(x + panelW / 2 + 12, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
+}
+
+function developerScenarios() {
+  // Feature work should add a scenario here so developer mode stays current.
+  return [
+    { label: `Split Carousel (${developerSplitLimit})`, run: devScenarioSplitCarousel, primary: true },
+    { label: "Cycle Split Cap", run: cycleDeveloperSplitLimit },
+    { label: "Hit Animation", run: devScenarioHitAnimation },
+    { label: "Hit Fee Warning", run: devScenarioHitFeeWarning },
+    { label: "Hit Toll Bankruptcy", run: devScenarioHitFeeBankruptcy },
+    { label: "Dealer Blackjack", run: devScenarioDealerBlackjack },
+    { label: "Relic Shop Variety", run: devScenarioRelicShop },
+    { label: "Loan Contract", run: devScenarioLoanContract },
+    { label: "Shared Loan Vote", run: devScenarioSharedLoanVote },
+    { label: "FFA Dead Spectator", run: devScenarioFreeForAllSpectator },
+    { label: "Debt Payment Display", run: devScenarioDebtPayment },
+    { label: "Ready / Kick Lobby", run: devScenarioReadyKickLobby },
+    { label: "Death Audio Flow", run: devScenarioDeathAudio },
+    { label: "HP + Money Animations", run: devScenarioFeedbackAnimations }
+  ];
 }
 
 function goHome() {
@@ -3377,7 +3392,7 @@ function cycleDeveloperSplitLimit() {
   notify(`Test split cap set to ${developerSplitLimit}.`);
 }
 
-function beginDeveloperTest(title, mode = "classic") {
+function beginDeveloperTest(title, mode = "classic", players = [{ id: hostId, name: savedPlayerName("You") }], code = "") {
   stopDeathAudioClips();
   peer?.peer?.destroy?.();
   peer = null;
@@ -3388,7 +3403,7 @@ function beginDeveloperTest(title, mode = "classic") {
   handCarousel = {};
   handCarouselAnim = {};
   handCarouselActiveIndex = {};
-  newGame([{ id: hostId, name: savedPlayerName("You") }], "", mode);
+  newGame(players, code, mode);
   game.developerTest = true;
   game.log = [`Developer test: ${title}.`];
   game.gold = 300;
@@ -3444,6 +3459,16 @@ function devScenarioHitAnimation() {
   finishDeveloperSetup(seat);
 }
 
+function devScenarioHitFeeWarning() {
+  const seat = beginDeveloperTest("hit-fee max-bet warning", "classic");
+  game.enemy = { ...cloneEnemy(3), name: "Developer Toll Dealer", rule: "Each hit costs 25 gold.", hitFee: 25, dealerPeek: true };
+  game.gold = 50;
+  seat.bet = 50;
+  seat.ready = false;
+  game.phase = "betting";
+  game.log.push("Press Ready. The game should warn that max betting leaves no hit-fee reserve.");
+}
+
 function devScenarioHitFeeBankruptcy() {
   const seat = beginDeveloperTest("hit toll bankruptcy", "classic");
   game.enemy = { ...cloneEnemy(3), name: "Developer Toll Dealer", rule: "Each hit costs 20 gold.", hitFee: 20, dealerPeek: true };
@@ -3481,6 +3506,92 @@ function devScenarioLoanContract() {
   triggerBankruptcyDeath("Developer bankruptcy test", seat, MIN_BET);
   game.developerTest = true;
   game.log.push("Sign or decline to test the bankruptcy loan contract.");
+}
+
+function devScenarioSharedLoanVote() {
+  const players = [
+    { id: hostId, name: savedPlayerName("Host") },
+    { id: "guest-a", name: "Guest A" },
+    { id: "guest-b", name: "Guest B" }
+  ];
+  const seat = beginDeveloperTest("shared wallet loan vote", "classic", players, "TEST");
+  role = "host";
+  localPlayerId = hostId;
+  game.gold = 0;
+  triggerBankruptcyDeath("Shared wallet bankruptcy test", seat, MIN_BET);
+  game.developerTest = true;
+  game.log.push("Shared-wallet lobbies should require every visible player to sign.");
+}
+
+function devScenarioFreeForAllSpectator() {
+  const players = [
+    { id: hostId, name: savedPlayerName("You") },
+    { id: "guest-a", name: "Red Name" },
+    { id: "guest-b", name: "Still Alive" },
+    { id: "guest-c", name: "Big Stack" }
+  ];
+  const seat = beginDeveloperTest("free-for-all dead spectator", "freeForAll", players, "FFA1");
+  role = "host";
+  localPlayerId = hostId;
+  game.gold = 0;
+  game.seats.forEach((s, index) => {
+    s.gold = [80, 0, 135, 260][index] || 25;
+    s.bet = index === 1 ? 0 : 25;
+    s.ready = index !== 0;
+  });
+  const dead = game.seats[1];
+  dead.debt = 140;
+  dead.loanUsed = true;
+  eliminateSeat(dead, "Testing dead spectator state.");
+  game.phase = "betting";
+  game.log.push("Dead player should stay listed as dead/spectating while others continue.");
+  return seat;
+}
+
+function devScenarioDebtPayment() {
+  const seat = beginDeveloperTest("debt display and payment", "classic");
+  game.gold = 185;
+  game.loanDebt = 160;
+  game.loanUsed = true;
+  game.loanPaidThisRound = 18;
+  game.relics = [{ ...relicPool.find((r) => r.name === "Golden Tongue") }];
+  seat.hands = [devHand([devCard("K", "S"), devCard("Q", "H")], 50, "stand")];
+  game.dealer = [devCard("9", "D"), devCard("8", "C", true)];
+  finishDeveloperSetup(seat, "roundOver");
+  queueMoneyAnimation(90);
+  game.log.push("Debt should appear beside gold; winnings should show loan payment context.");
+}
+
+function devScenarioReadyKickLobby() {
+  const players = [
+    { id: hostId, name: savedPlayerName("Host") },
+    { id: "guest-a", name: "Ready Guest" },
+    { id: "guest-b", name: "Kick Test" }
+  ];
+  const seat = beginDeveloperTest("ready borders and kick controls", "classic", players, "KICK");
+  role = "host";
+  localPlayerId = hostId;
+  game.seats[0].ready = false;
+  game.seats[1].ready = true;
+  game.seats[2].ready = false;
+  game.seats[0].bet = 25;
+  game.seats[1].bet = 35;
+  game.seats[2].bet = 45;
+  game.phase = "betting";
+  statsPlayerId = "guest-b";
+  game.log.push("Ready border should be visible; host stats overlay should show Kick.");
+  return seat;
+}
+
+function devScenarioDeathAudio() {
+  const seat = beginDeveloperTest("death audio and defeat overlay", "classic");
+  game.gold = 0;
+  game.loanDebt = 125;
+  game.loanUsed = true;
+  game.hp = 8;
+  triggerBankruptcyDeath("Developer final bankruptcy test", seat, MIN_BET);
+  game.developerTest = true;
+  game.log.push("No loan remains. Death audio should warp, stop, then reverse-fade cleanly.");
 }
 
 function devScenarioFeedbackAnimations() {
