@@ -1,4 +1,4 @@
-import { GuestPeer, HostPeer, createLobbyCode, normalizeLobbyCode } from "./webrtc.js";
+import { GuestPeer, HostPeer, createLobbyCode, createSupabaseClient, normalizeLobbyCode } from "./webrtc.js";
 
 const W = 1280;
 const H = 800;
@@ -112,6 +112,9 @@ const modeLabels = {
 };
 const savedMode = localStorage.getItem("dungeon-mode");
 let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
+const LEADERBOARD_KEY = "dungeon-leaderboard-v1";
+const LEADERBOARD_MAX = 50;
+const LEADERBOARD_REFRESH_MS = 15000;
 const artPreference = "handdrawn";
 const handdrawnAssetFiles = {
   frame: "frame.png",
@@ -186,6 +189,11 @@ const tintedHanddrawnCache = new Map();
 loadHanddrawnAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
+let leaderboardClient = null;
+let leaderboardOnline = [];
+let leaderboardStatus = "Loading global top 5...";
+let leaderboardRefreshAt = 0;
+let leaderboardRefreshInFlight = false;
 
 let enemyTemplates = [];
 
@@ -368,12 +376,13 @@ window.addEventListener("focus", resumeMusicForFocus);
 requestAnimationFrame(tick);
 joinFromSharedLink();
 resizeCanvas();
+void refreshLeaderboard();
 
 function tick(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   if (flashTimer > 0) flashTimer -= dt;
-  cardAnimations = cardAnimations.filter((a) => now < a.start + a.duration + 120);
+  cardAnimations = cardAnimations.filter((a) => now < a.start + a.duration + 850);
   moneyAnimations = moneyAnimations.filter((a) => now < a.start + a.duration + 180);
   if (hpAnimation && now > hpAnimation.start + hpAnimation.duration + 250) hpAnimation = null;
   if (game?.peekTimer > 0) {
@@ -392,6 +401,10 @@ function tick(now) {
     if (game.dealerTimer <= 0) settleRound();
   }
   updateMusicMood(now);
+  recordLeaderboardIfNeeded();
+  if ((!game || appScene === "menu") && Date.now() - leaderboardRefreshAt > LEADERBOARD_REFRESH_MS) {
+    void refreshLeaderboard();
+  }
   draw();
   requestAnimationFrame(tick);
 }
@@ -441,6 +454,7 @@ function newGame(players, code = "", mode = modePreference) {
     log: [`${seats.length > 1 ? seats.length + " players enter" : "You enter"} the Dungeon of Cards.`],
     dealerTimer: .6,
     roundNet: 0,
+    completedRounds: 0,
     dealSeq: 0,
     roundDealCount: 0,
     freePlay: mode !== "classic",
@@ -918,6 +932,7 @@ function settleRound() {
     seat.profit = (Number(seat.profit) || 0) + seatNet;
     seat.profitHistory = [...(seat.profitHistory || [0]), seat.profit].slice(-40);
   }
+  game.completedRounds = (Number(game.completedRounds) || 0) + 1;
   const bankruptSeat = updateFreeForAllBankruptcy(results);
   if (net > 0) {
     const bonus = relicSum("damageBonus");
@@ -1359,6 +1374,143 @@ function savePlayerName() {
   if (role === "host") broadcast();
   hideSignal();
   notify(`Playing as ${name}`);
+}
+
+function loadLeaderboard() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
+    return sortLeaderboard(Array.isArray(raw) ? raw.filter((entry) => entry && entry.runKey) : []);
+  } catch {
+    return [];
+  }
+}
+
+function saveLeaderboard(entries) {
+  try {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(sortLeaderboard(entries).slice(0, LEADERBOARD_MAX)));
+  } catch {
+    notify("Leaderboard could not be saved on this device.");
+  }
+}
+
+function displayLeaderboard() {
+  return (leaderboardOnline.length ? leaderboardOnline : loadLeaderboard()).slice(0, 5);
+}
+
+function leaderboardDbRow(entry) {
+  return {
+    run_key: entry.runKey,
+    name: entry.name,
+    score: entry.score,
+    result: entry.result,
+    mode: entry.mode,
+    floor: entry.floor,
+    total_floors: entry.totalFloors,
+    gold: entry.gold,
+    debt: entry.debt,
+    profit: entry.profit,
+    rounds: entry.rounds,
+    played_at: new Date(entry.date || Date.now()).toISOString()
+  };
+}
+
+function leaderboardEntryFromDb(row) {
+  return {
+    runKey: row.run_key,
+    name: row.name,
+    score: Number(row.score) || 0,
+    result: row.result,
+    mode: row.mode,
+    floor: Number(row.floor) || 1,
+    totalFloors: Number(row.total_floors) || 1,
+    gold: Number(row.gold) || 0,
+    debt: Number(row.debt) || 0,
+    profit: Number(row.profit) || 0,
+    rounds: Number(row.rounds) || 0,
+    date: Date.parse(row.played_at || row.created_at) || Date.now()
+  };
+}
+
+function leaderboardService() {
+  leaderboardClient ||= createSupabaseClient();
+  return leaderboardClient;
+}
+
+async function refreshLeaderboard(force = false) {
+  if (leaderboardRefreshInFlight) return;
+  if (!force && Date.now() - leaderboardRefreshAt < 1000) return;
+  leaderboardRefreshInFlight = true;
+  leaderboardRefreshAt = Date.now();
+  try {
+    const { data, error } = await leaderboardService()
+      .from("leaderboard")
+      .select("run_key,name,score,result,mode,floor,total_floors,gold,debt,profit,rounds,played_at,created_at")
+      .order("score", { ascending: false })
+      .order("played_at", { ascending: false })
+      .limit(5);
+    if (error) throw error;
+    leaderboardOnline = sortLeaderboard((data || []).map(leaderboardEntryFromDb)).slice(0, 5);
+    leaderboardStatus = "Global top 5";
+  } catch {
+    leaderboardStatus = loadLeaderboard().length ? "Local top 5 - global unavailable" : "Global leaderboard unavailable";
+  } finally {
+    leaderboardRefreshInFlight = false;
+  }
+}
+
+async function syncLeaderboardEntry(entry) {
+  try {
+    const { error } = await leaderboardService()
+      .from("leaderboard")
+      .upsert(leaderboardDbRow(entry), { onConflict: "run_key" });
+    if (error) throw error;
+    await refreshLeaderboard(true);
+  } catch {
+    leaderboardStatus = "Saved locally - global unavailable";
+  }
+}
+
+function sortLeaderboard(entries) {
+  return [...entries].sort((a, b) =>
+    (Number(b.score) || 0) - (Number(a.score) || 0)
+    || (Number(b.floor) || 0) - (Number(a.floor) || 0)
+    || (Number(b.gold) || 0) - (Number(a.gold) || 0)
+    || (Number(b.profit) || 0) - (Number(a.profit) || 0)
+    || (Number(b.date) || 0) - (Number(a.date) || 0)
+  );
+}
+
+function recordLeaderboardIfNeeded() {
+  if (!game || !["victory", "defeat"].includes(game.phase)) return;
+  const seat = mySeat() || game.seats?.[0];
+  if (!seat) return;
+  const runKey = `${game.session || "run"}:${localPlayerId || seat.id || localDeviceId}`;
+  const entries = loadLeaderboard();
+  if (entries.some((entry) => entry.runKey === runKey)) return;
+  const totalFloors = Math.max(1, enemyTemplates.length || 1);
+  const floor = clamp((Number(game.floor) || 0) + 1, 1, totalFloors);
+  const gold = Math.max(0, Math.round(isFreeForAll() ? seatBankroll(seat) : (Number(game.gold) || 0)));
+  const debt = Math.max(0, Math.round(debtForSeat(seat)));
+  const profit = Math.round(Number(seat.profit) || 0);
+  const victory = game.phase === "victory";
+  const score = floor * 100000 + (victory ? 50000 : 0) + gold * 10 + profit - debt * 5;
+  const entry = {
+    runKey,
+    name: cleanPlayerName(seat.name) || savedPlayerName("Player"),
+    result: victory ? "Win" : "Loss",
+    mode: modeLabels[game.mode] || "Classic Turns",
+    floor,
+    totalFloors,
+    gold,
+    debt,
+    profit,
+    rounds: Number(game.completedRounds) || Math.max(0, (seat.profitHistory?.length || 1) - 1),
+    score,
+    date: Date.now()
+  };
+  entries.push(entry);
+  saveLeaderboard(entries);
+  void syncLeaderboardEntry(entry);
 }
 
 function hideSignal() {
@@ -2103,7 +2255,43 @@ function drawMenu() {
   addButton(buttonX, buttonY + buttonGap * 3, buttonW, portrait ? 72 : 44, `Mode: ${modeLabels[modePreference]}`, () => {
     cycleModePreference();
   });
+  if (portrait) {
+    drawLeaderboardPanel(table.x + 44, buttonY + buttonGap * 4 + 40, table.w - 88, 285);
+  } else {
+    drawLeaderboardPanel(table.x + 62, table.y + table.h - 138, table.w - 124, 112);
+  }
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
+}
+
+function drawLeaderboardPanel(x, y, w, h) {
+  const portrait = viewport.portrait;
+  const entries = displayLeaderboard();
+  gradientRound(x, y, w, h, 14, [[0, "rgba(12,9,16,.82)"], [1, "rgba(34,25,44,.78)"]], true);
+  strokeRound(x, y, w, h, 14, "rgba(220,180,70,.34)", 1.5);
+  text("LEADERBOARD", x + 22, y + (portrait ? 39 : 29), portrait ? 25 : 16, C.gold, "left", "serif");
+  text(leaderboardStatus, x + w - 22, y + (portrait ? 38 : 29), portrait ? 17 : 12, C.muted, "right");
+  if (!entries.length) {
+    text("No completed runs yet.", x + w / 2, y + h / 2 + 18, portrait ? 22 : 15, C.muted, "center");
+    return;
+  }
+  const rowTop = y + (portrait ? 68 : 45);
+  const rowH = portrait ? 40 : 13;
+  entries.forEach((entry, i) => {
+    const ry = rowTop + i * rowH;
+    if (portrait) fill(i % 2 ? "rgba(238,231,215,.035)" : "rgba(220,180,70,.055)", x + 14, ry - 23, w - 28, 34, 8);
+    const rankX = x + (portrait ? 28 : 18);
+    const nameX = x + (portrait ? 76 : 54);
+    const statsX = x + w - (portrait ? 24 : 18);
+    const nameSize = portrait ? 22 : 13;
+    const statSize = portrait ? 17 : 12;
+    const name = fitLabel(entry.name || "Player", w * (portrait ? .33 : .30), nameSize);
+    const profit = Number(entry.profit) || 0;
+    const debt = Number(entry.debt) || 0;
+    const stat = `${entry.result} F${entry.floor}/${entry.totalFloors} ${entry.gold}g ${profit >= 0 ? "+" : ""}${profit}${debt ? ` D${debt}` : ""}`;
+    text(`#${i + 1}`, rankX, ry, nameSize, i === 0 ? C.gold : C.muted);
+    text(name, nameX, ry, nameSize, C.text);
+    text(fitLabel(stat, Math.max(120, statsX - nameX - w * .34), statSize), statsX, ry, statSize, entry.result === "Win" ? C.green : C.muted, "right");
+  });
 }
 
 function drawTable() {
@@ -2244,16 +2432,16 @@ function drawSeats(felt) {
           ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
           ctx.rotate(offset * -.09);
           ctx.scale(scale, scale);
-          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72), false);
+          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72), true, { x: handX, y: handY });
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
-        badge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor);
+        handStatusBadge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
         buttons.push({ x: x - 18, y: y - 4, w: seatW, h: 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
       } else {
         const hand = seat.hands[0];
         drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 40));
-        badge(x + 45, y + 148, handLabel(hand), handColor(hand));
+        handStatusBadge(x + 45, y + 148, handLabel(hand), handColor(hand), hand);
       }
     } else {
       drawChips(x + 38, y + 50, seat.bet);
@@ -2903,22 +3091,54 @@ function drawCardOutlineGlow(x = 0, y = 0) {
   ctx.restore();
 }
 
-function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true) {
+function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true, animationBase = null) {
   const step = cards.length < 2 ? 0 : Math.max(10, Math.min(62, (maxWidth - CARD_W) / Math.max(1, cards.length - 1)));
   const handW = cards.length < 2 ? CARD_W : CARD_W + step * (cards.length - 1);
   const scale = Number.isFinite(maxWidth) && handW > maxWidth ? clamp(maxWidth / handW, .62, 1) : 1;
   cards.forEach((card, i) => {
     const cx = x + i * step;
     const cy = y + Math.sin(i * .6) * 2;
-    const anim = animate ? prepareCardAnimation(card, cx, cy) : null;
+    const targetX = animationBase ? animationBase.x + i * step : cx;
+    const targetY = animationBase ? animationBase.y + Math.sin(i * .6) * 2 : cy;
+    const anim = animate ? prepareCardAnimation(card, targetX, targetY) : null;
     if (anim && animationProgress(anim) < .92) return;
+    const pulse = cardLandingPulse(card);
+    const grow = 1 + pulse * .105;
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.scale(scale, scale);
-    if (highlight) drawCardOutlineGlow(0, 0);
-    drawCardFace(card, 0, 0, false);
+    ctx.translate(cx + (CARD_W * scale) / 2, cy + (CARD_H * scale) / 2);
+    ctx.scale(scale * grow, scale * grow);
+    if (highlight) drawCardOutlineGlow(-CARD_W / 2, -CARD_H / 2);
+    drawCardFace(card, -CARD_W / 2, -CARD_H / 2, false);
     ctx.restore();
   });
+}
+
+function cardLandingPulse(card) {
+  const anim = card?._dealId ? cardAnimations.find((a) => a.id === card._dealId) : null;
+  if (!anim) return 0;
+  const p = (performance.now() - anim.start) / anim.duration;
+  if (p < .9 || p > 2.25) return 0;
+  const t = clamp((p - .9) / 1.35, 0, 1);
+  return Math.sin(t * Math.PI);
+}
+
+function handLandingPulse(hand) {
+  return Math.max(0, ...(hand?.cards || []).map(cardLandingPulse));
+}
+
+function handStatusBadge(x, y, label, color, hand) {
+  const pulse = handLandingPulse(hand);
+  if (!pulse) {
+    badge(x, y, label, color);
+    return;
+  }
+  const now = performance.now();
+  ctx.save();
+  ctx.translate(x + Math.sin(now * .08) * pulse * 4, y + Math.cos(now * .11) * pulse * 2);
+  ctx.rotate(Math.sin(now * .07) * pulse * .035);
+  ctx.scale(1 + pulse * .09, 1 + pulse * .09);
+  badge(0, 0, label, pulse > .28 ? C.gold : color);
+  ctx.restore();
 }
 
 function prepareCardAnimation(card, x, y) {

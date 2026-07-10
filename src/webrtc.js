@@ -39,15 +39,24 @@ function requireSupabase() {
   if (!globalThis.supabase?.createClient) {
     throw new Error("Multiplayer service did not load. Check your connection and refresh.");
   }
+  return createSupabaseClient({
+    realtime: {
+      params: { eventsPerSecond: 20 }
+    }
+  });
+}
+
+export function createSupabaseClient(options = {}) {
+  if (!globalThis.supabase?.createClient) {
+    throw new Error("Supabase service did not load. Check your connection and refresh.");
+  }
   return globalThis.supabase.createClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false
     },
-    realtime: {
-      params: { eventsPerSecond: 20 }
-    }
+    ...options
   });
 }
 
