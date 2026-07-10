@@ -2304,12 +2304,15 @@ function drawMenu() {
     "Lose chips and the dungeon takes blood.",
     "Collect relics, bend the rules, beat the final boss."
   ];
-  lines.forEach((line, i) => text(line, cx, (portrait ? 382 : 372) + i * (portrait ? 40 : 34), portrait ? 22 : 21, C.text, "center"));
+  const copyY = portrait ? 382 : 344;
+  const copyGap = portrait ? 40 : 28;
+  lines.forEach((line, i) => text(line, cx, copyY + i * copyGap, portrait ? 22 : 19, C.text, "center"));
   const buttonW = portrait ? 480 : 300;
   const buttonX = cx - buttonW / 2;
-  const buttonY = portrait ? 620 : 452;
-  const buttonGap = portrait ? 92 : 56;
-  addButton(buttonX, portrait ? 520 : 396, buttonW, portrait ? 72 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
+  const playerButtonY = portrait ? 520 : 420;
+  const buttonY = portrait ? 620 : 474;
+  const buttonGap = portrait ? 92 : 54;
+  addButton(buttonX, playerButtonY, buttonW, portrait ? 72 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
   addButton(buttonX, buttonY, buttonW, portrait ? 78 : 52, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
