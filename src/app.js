@@ -244,6 +244,22 @@ const relicPool = [
   { name: "Cracked Scrying Lens", icon: "?", description: "Once per run: peek the next card pulled.", foresightUses: 1 }
 ];
 
+const relicEffectFamilies = [
+  ["push", "pushWins"],
+  ["blackjack", "bjPays2"],
+  ["surrender", "freeSurrender"],
+  ["charlie", "fiveCard"],
+  ["insurance", "insurance3"],
+  ["split", "extraSplit"],
+  ["healing", "heal"],
+  ["lossRefund", "refund"],
+  ["damage", "damageBonus"],
+  ["winGold", "chipBonus"],
+  ["bustRefund", "bustRefund"],
+  ["luck", "luck"],
+  ["foresight", "foresightUses"]
+];
+
 function buildCampaign() {
   const campaign = [enemy("Apprentice Croupier", "Floor 1 - Dealer-in-training", 80, C.blue, "C", "Standard rules. A gentle introduction.", { hitsSoft17: false })];
   const tiers = [
@@ -1162,9 +1178,39 @@ function chooseRelics() {
   const offered = new Set(game.offeredRelicNames || []);
   let pool = relicPool.filter((r) => !owned.has(r.name) && !offered.has(r.name));
   if (!pool.length) pool = relicPool.filter((r) => !owned.has(r.name));
-  const picks = shuffle(pool.map((r) => ({ ...r }))).slice(0, 3);
+  const picks = chooseHeterogeneousRelics(pool, 3);
   game.offeredRelicNames = [...new Set([...(game.offeredRelicNames || []), ...picks.map((r) => r.name)])];
   return picks;
+}
+
+function chooseHeterogeneousRelics(pool, count) {
+  const candidates = shuffle(pool.map((r) => ({ ...r })));
+  const picks = [];
+  const usedFamilies = new Set();
+  for (const relic of candidates) {
+    const families = relicFamilies(relic);
+    if (families.some((family) => usedFamilies.has(family))) continue;
+    picks.push(relic);
+    families.forEach((family) => usedFamilies.add(family));
+    if (picks.length >= count) return picks;
+  }
+
+  const remaining = candidates.filter((r) => !picks.some((pick) => pick.name === r.name));
+  while (picks.length < count && remaining.length) {
+    remaining.sort((a, b) => relicFamilyOverlap(a, usedFamilies) - relicFamilyOverlap(b, usedFamilies));
+    const relic = remaining.shift();
+    picks.push(relic);
+    relicFamilies(relic).forEach((family) => usedFamilies.add(family));
+  }
+  return picks;
+}
+
+function relicFamilies(relic) {
+  return relicEffectFamilies.filter(([, prop]) => Boolean(relic[prop])).map(([family]) => family);
+}
+
+function relicFamilyOverlap(relic, usedFamilies) {
+  return relicFamilies(relic).filter((family) => usedFamilies.has(family)).length;
 }
 
 function ensureShopRelics() {
