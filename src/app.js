@@ -141,6 +141,45 @@ const handdrawnAssetFiles = {
   glyphQuestion: "glyph_question.png"
 };
 for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `glyph_${ch}.png`;
+const relicAssetFiles = {
+  "Lucky Coin": "lucky_coin.png",
+  "Double Crown": "double_crown.png",
+  "White Flag": "white_flag.png",
+  "Charlie's Hand": "charlies_hand.png",
+  "Insurance Policy": "insurance_policy.png",
+  "Split Mastery": "split_mastery.png",
+  "Vampire's Bargain": "vampires_bargain.png",
+  "Pawnbroker's Note": "pawnbrokers_note.png",
+  "Phoenix Feather": "phoenix_feather.png",
+  "Merchant's Ledger": "merchants_ledger.png",
+  "Executioner's Mark": "executioners_mark.png",
+  "Dragon's Tooth": "dragons_tooth.png",
+  "Gambler's Tip": "gamblers_tip.png",
+  "Golden Tongue": "golden_tongue.png",
+  "Featherfall Charm": "featherfall_charm.png",
+  "Quicksilver Glove": "quicksilver_glove.png",
+  "Heart of the Deck": "heart_of_the_deck.png",
+  "Usurer's Seal": "usurers_seal.png",
+  "Tinker's Thimble": "tinkers_thimble.png",
+  "Bone Talisman": "bone_talisman.png",
+  "Apprentice's Coin": "apprentices_coin.png",
+  "Iron Filing": "iron_filing.png",
+  "Magistrate's Writ": "magistrates_writ.png",
+  "Duelist's Sigil": "duelists_sigil.png",
+  "Dealer's Bane": "dealers_bane.png",
+  "Cracked Scrying Lens": "cracked_scrying_lens.png",
+  "Croesus' Purse": "croesus_purse.png",
+  "Sovereign's Chalice": "sovereigns_chalice.png",
+  "Auditor's Quill": "phoenix_feather.png",
+  "Bone-Hand Charm": "charlies_hand.png",
+  "Notary's Crown": "double_crown.png",
+  "Crown of Ten Kings": "hollow_crown.png",
+  "Soulforged Fang": "dragons_tooth.png",
+  "Coin of the Fates": "lucky_coin.png"
+};
+for (const [name, file] of Object.entries(relicAssetFiles)) {
+  handdrawnAssetFiles[`relic:${name}`] = `relics/${file}`;
+}
 const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
 loadHanddrawnAssets();
@@ -2266,7 +2305,7 @@ function drawRelicRow(relic, x, y, w, highlight = false) {
   const rowH = portrait ? 74 : 54;
   gradientRound(x, y - 14, w, rowH, 8, highlight ? [[0, "#3a2c45"], [1, "#211827"]] : [[0, "#1d1624"], [1, "#100d15"]]);
   strokeRound(x, y - 14, w, rowH, 8, highlight ? C.gold : "rgba(238,231,215,.12)", 1);
-  badge(x + (portrait ? 28 : 22), y + (portrait ? 20 : 12), relic.icon, C.gold);
+  drawRelicIcon(relic, x + (portrait ? 29 : 23), y + (portrait ? 22 : 13), portrait ? 44 : 34, C.gold);
   text(relic.name, x + (portrait ? 62 : 50), y + (portrait ? 8 : 4), portrait ? 18 : 14, C.gold);
   wrapTextSized(relic.description, x + (portrait ? 62 : 50), y + (portrait ? 34 : 24), w - (portrait ? 74 : 58), portrait ? 18 : 14, portrait ? 15 : 12, C.muted, 2);
 }
@@ -2416,9 +2455,8 @@ function drawShopRelicCard(relic, index, x, y) {
   });
   strokeRound(x, y, cardW, cardH, 14, canBuy ? C.gold : C.goldDim, canBuy ? 3 : 2);
   fill("rgba(220,180,70,.08)", x + 14, y + 14, cardW - 28, portrait ? 88 : 76, 12);
-  fill("#120e16", x + 20, y + 20, portrait ? 78 : 64, portrait ? 78 : 64, 14);
-  strokeRound(x + 20, y + 20, portrait ? 78 : 64, portrait ? 78 : 64, 14, C.goldDim, 2);
-  text(relic.icon, x + (portrait ? 59 : 52), y + (portrait ? 70 : 62), relic.icon.length > 1 ? (portrait ? 24 : 19) : (portrait ? 34 : 28), C.gold, "center", "serif");
+  const iconSize = portrait ? 78 : 64;
+  drawRelicIcon(relic, x + 20 + iconSize / 2, y + 20 + iconSize / 2, iconSize, C.gold);
   text(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), portrait ? 27 : 20, C.gold);
   wrapTextSized(relic.description, x + (portrait ? 116 : 100), y + (portrait ? 82 : 72), cardW - (portrait ? 150 : 130), portrait ? 22 : 17, portrait ? 18 : 14, C.text, 2);
   fill("rgba(7,5,10,.46)", x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10);
@@ -2908,23 +2946,44 @@ function suitAssetKey(suit) {
   return { S: "suitS", H: "suitH", D: "suitD", C: "suitC" }[suit] || "suitS";
 }
 
+function relicAssetKey(relic) {
+  return relicAssetFiles[relic.name] ? `relic:${relic.name}` : "";
+}
+
+function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
+  const key = relicAssetKey(relic);
+  if (!isHanddrawnArt() || !key || !handAssetReady(key)) {
+    badge(cx, cy, relic.icon, color);
+    return false;
+  }
+  if (bg) {
+    fill("#0e0a12", cx - size / 2, cy - size / 2, size, size, Math.max(8, size * .18));
+    strokeRound(cx - size / 2, cy - size / 2, size, size, Math.max(8, size * .18), "rgba(220,180,70,.3)", 1.5);
+  }
+  drawHandAssetFit(key, cx, cy, size * .78, color, "center", .96);
+  return true;
+}
+
 function drawHanddrawnCardFace(card, x, y, highlight = false) {
-  if (highlight) shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 13));
+  if (highlight) {
+    fill("rgba(220,180,70,.34)", x - 6, y - 6, CARD_W + 12, CARD_H + 12, 13);
+    drawHandAsset("frame", x - 7, y - 7, CARD_W + 14, CARD_H + 14, C.gold, .8);
+  }
   if (card.up === false) {
-    shadow(0, 7, 13, "rgba(0,0,0,.36)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#4a2f66"], [1, "#23133a"]], true));
-    gradientRound(x + 7, y + 7, CARD_W - 14, CARD_H - 14, 7, [[0, "#654482"], [1, "#38244e"]], true);
+    fill("#312045", x, y, CARD_W, CARD_H, 9);
+    fill("#4a2f66", x + 7, y + 7, CARD_W - 14, CARD_H - 14, 7);
     for (let col = 0; col < 4; col++) {
       for (let row = 0; row < 6; row++) {
         const dx = x + 13 + col * 18 + ((row % 2) ? 3 : -1);
         const dy = y + 15 + row * 17;
-        drawHandAsset("backDiamond", dx, dy, 13, 17, "#8b67a8", .78);
+        drawHandAsset("backDiamond", dx, dy, 13, 17, "#d4b35e", .55);
       }
     }
-    drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, C.goldDim, .92);
+    drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, C.gold, .96);
     return;
   }
-  shadow(0, 7, 12, "rgba(0,0,0,.28)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#fff2cb"], [.55, C.parchment], [1, "#cdbb8f"]], true));
-  fill("rgba(255,255,255,.18)", x + 8, y + 9, CARD_W - 16, CARD_H - 18, 7);
+  fill("#eadbb7", x, y, CARD_W, CARD_H, 9);
+  fill("rgba(255,248,225,.42)", x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7);
   drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, "#312821", .96);
   const red = card.suit === "H" || card.suit === "D";
   const color = red ? "#9e1f24" : "#12121b";
@@ -2946,16 +3005,8 @@ function drawHanddrawnChips(x, y, amount) {
   for (const [value, color] of denoms) {
     while (rest >= value && n < 12) {
       const cy = y - n * 5;
-      ctx.save();
-      ctx.globalAlpha = .94;
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.ellipse(x + 21, cy + 8, 21, 8, -.08, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = shade(color, -48);
-      ctx.fillRect(x + 1, cy + 8, 40, 7);
-      ctx.restore();
-      drawHandAsset("chip", x - 4 + (n % 2), cy - 9, 50, 33, "#0a0a0f", .98);
+      drawHandAsset("chip", x - 5 + (n % 2), cy - 10, 54, 36, color, .95);
+      drawHandAsset("chip", x - 5 + (n % 2), cy - 10, 54, 36, "#09070a", .62);
       rest -= value;
       n++;
     }
@@ -3117,6 +3168,20 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   buttons.push(b);
   const hot = inRect(hover, b) && enabled;
   const portrait = viewport.portrait;
+  if (isHanddrawnArt() && handAssetReady("frame")) {
+    const bg = !enabled
+      ? "#1a1720"
+      : primary
+        ? (hot ? "#e4bd55" : "#d2ad48")
+        : (hot ? "#33293f" : "#211a2b");
+    fill(bg, x, y, w, h, 9);
+    if (primary) fill("rgba(255,247,199,.18)", x + 8, y + 8, w - 16, Math.max(6, h * .24), 6);
+    drawHandAsset("frame", x - 4, y - 5, w + 8, h + 10, enabled ? (primary ? "#171015" : "rgba(238,231,215,.86)") : "#5d5664", enabled ? .95 : .62);
+    if (hot) drawHandAsset("frame", x - 7, y - 8, w + 14, h + 16, primary ? "#fff0a6" : C.gold, .42);
+    const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
+    text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? C.black : enabled ? C.text : C.muted, "center");
+    return;
+  }
   const stops = !enabled
     ? [[0, "#282631"], [1, "#1a1820"]]
     : primary
@@ -3139,6 +3204,12 @@ function badge(x, y, label, color) {
   ctx.font = `700 ${size}px sans-serif`;
   const width = Math.max(portrait ? 58 : 42, ctx.measureText(label).width + (portrait ? 32 : 24));
   const height = portrait ? 40 : 32;
+  if (isHanddrawnArt() && handAssetReady("token")) {
+    fill("#0d0a10", x - width / 2, y - height / 2, width, height, height / 2);
+    drawHandAsset("token", x - width / 2 - 5, y - height / 2 - 6, width + 10, height + 12, color, .72);
+    text(label, x, y + (portrait ? 7 : 6), size, color, "center");
+    return;
+  }
   gradientRound(x - width / 2, y - height / 2, width, height, height / 2, [[0, "#1b1621"], [1, "#08070b"]], true);
   strokeRound(x - width / 2, y - height / 2, width, height, height / 2, color, 1.5);
   if (isHanddrawnArt() && handAssetReady("token")) {
