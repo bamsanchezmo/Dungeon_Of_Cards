@@ -105,7 +105,7 @@ let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
 let signalKind = "";
-let developerModeUnlocked = localStorage.getItem("dungeon-dev-mode") === "true";
+let developerModeUnlocked = false;
 let developerPanelOpen = false;
 let developerTapTimes = [];
 let developerSplitLimit = clamp(Number(localStorage.getItem("dungeon-dev-split-limit")) || 8, 4, 12);
@@ -1463,8 +1463,27 @@ function savePlayerName() {
   if (seat) seat.name = name;
   if (role === "guest") peer?.send({ type: "rename", playerId: localPlayerId, name });
   if (role === "host") broadcast();
+  updateLeaderboardName(name);
   hideSignal();
   notify(`Playing as ${name}`);
+}
+
+function updateLeaderboardName(name) {
+  const entries = loadLeaderboard();
+  if (!entries.length) return;
+  const playerKeys = new Set([localPlayerId, hostId, localDeviceId].filter(Boolean));
+  let changed = false;
+  const renamed = entries.map((entry) => {
+    const ownerId = String(entry.runKey || "").split(":").pop();
+    if (!playerKeys.has(ownerId)) return entry;
+    changed = true;
+    return { ...entry, name };
+  });
+  if (!changed) return;
+  saveLeaderboard(renamed);
+  void syncLocalLeaderboardEntries().then(() => refreshLeaderboard(true)).catch(() => {
+    leaderboardStatus = "Name saved locally - global unavailable";
+  });
 }
 
 function loadLeaderboard() {
@@ -1589,6 +1608,7 @@ function sortLeaderboard(entries) {
 
 function recordLeaderboardIfNeeded() {
   if (!game || !["victory", "defeat"].includes(game.phase)) return;
+  if (game.developerTest) return;
   const seat = mySeat() || game.seats?.[0];
   if (!seat) return;
   const runKey = `${game.session || "run"}:${localPlayerId || seat.id || localDeviceId}`;
@@ -1878,7 +1898,7 @@ function isHanddrawnArt() {
 }
 
 function maxSplitHands() {
-  return developerModeUnlocked ? developerSplitLimit : 4;
+  return developerModeUnlocked && game?.developerTest ? developerSplitLimit : 4;
 }
 
 function handleDeveloperSplashTap() {
@@ -1887,7 +1907,6 @@ function handleDeveloperSplashTap() {
   if (!developerModeUnlocked && developerTapTimes.length >= 7) {
     developerModeUnlocked = true;
     developerPanelOpen = true;
-    localStorage.setItem("dungeon-dev-mode", "true");
     developerTapTimes = [];
     notify("Developer mode unlocked.");
     sfx("win");
@@ -3274,7 +3293,7 @@ function drawDeveloperPanel() {
   shadow(0, 26, 70, "rgba(0,0,0,.55)", () => gradientRound(x, y, panelW, panelH, 18, [[0, "#302640"], [1, "#111018"]], true));
   strokeRound(x, y, panelW, panelH, 18, C.goldDim, 2);
   text("DEVELOPER MODE", lw / 2, y + 56, portrait ? 34 : 30, C.gold, "center", "serif");
-  text(`Local testing only - split cap ${maxSplitHands()} hands`, lw / 2, y + 90, portrait ? 19 : 16, C.muted, "center");
+  text("Launch fake test situations. These runs never post scores.", lw / 2, y + 90, portrait ? 19 : 16, C.muted, "center");
 
   const colGap = 18;
   const cols = panelW > 560 ? 2 : 1;
@@ -3290,28 +3309,23 @@ function drawDeveloperPanel() {
   };
 
   let i = 0;
-  addDevButton(i++, `Split Limit ${developerSplitLimit}`, () => cycleDeveloperSplitLimit(), true);
-  addDevButton(i++, "Force Split Pair", () => devForceSplitPair(), false, !!activeHand(mySeat() || game?.seats?.[0]));
-  addDevButton(i++, "+100 Gold", () => devAddGold(100), true, !!game);
-  addDevButton(i++, "Full HP", () => devSetHp(game?.maxHp || 100), false, !!game);
-  addDevButton(i++, "HP to 1", () => devSetHp(1), false, !!game);
-  addDevButton(i++, "Next Floor", () => devJumpFloor(1), false, !!game);
-  addDevButton(i++, "Previous Floor", () => devJumpFloor(-1), false, !!game);
-  addDevButton(i++, "Add Random Relic", () => devAddRelic(), false, !!game);
-  addDevButton(i++, "Clear Debt", () => devClearDebt(), false, !!game);
-  addDevButton(i++, "Trigger Loan", () => devTriggerLoan(), false, !!game);
-  addDevButton(i++, "Test HP Loss", () => queueHpAnimation(game?.hp || 100, Math.max(0, (game?.hp || 100) - 25), game?.maxHp || 100), false, !!game);
-  addDevButton(i++, "Test Money +50", () => queueMoneyAnimation(50), false);
+  addDevButton(i++, `Split Carousel (${developerSplitLimit})`, () => devScenarioSplitCarousel(), true);
+  addDevButton(i++, "Cycle Split Cap", () => cycleDeveloperSplitLimit());
+  addDevButton(i++, "Hit Animation", () => devScenarioHitAnimation());
+  addDevButton(i++, "Hit Toll Bankruptcy", () => devScenarioHitFeeBankruptcy());
+  addDevButton(i++, "Dealer Blackjack", () => devScenarioDealerBlackjack());
+  addDevButton(i++, "Relic Shop Variety", () => devScenarioRelicShop());
+  addDevButton(i++, "Loan Contract", () => devScenarioLoanContract());
+  addDevButton(i++, "HP + Money Animations", () => devScenarioFeedbackAnimations());
 
   const infoY = startY + Math.ceil(i / cols) * (bh + rowGap) + 20;
-  text(`Mode: ${game ? modeLabels[game.mode] || game.mode : "No active run"}`, x + 40, infoY, portrait ? 18 : 15, C.text);
-  text(`Role: ${role}   Player: ${localPlayerId || "none"}   Device: ${localDeviceId.slice(0, 8)}`, x + 40, infoY + 28, portrait ? 16 : 13, C.muted);
-  if (game?.code) text(`Lobby: ${game.code}`, x + 40, infoY + 54, portrait ? 16 : 13, C.gold);
+  text(`Active run: ${game?.developerTest ? "Developer Test" : game ? "Normal Game" : "None"}`, x + 40, infoY, portrait ? 18 : 15, C.text);
+  text(`Split cap applies only inside test games. Current cap: ${developerSplitLimit}.`, x + 40, infoY + 28, portrait ? 16 : 13, C.muted);
+  text(`Device: ${localDeviceId.slice(0, 8)}`, x + 40, infoY + 54, portrait ? 16 : 13, C.muted);
 
   addButton(x + 36, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Lock Dev Mode", () => {
     developerModeUnlocked = false;
     developerPanelOpen = false;
-    localStorage.removeItem("dungeon-dev-mode");
   });
   addButton(x + panelW / 2 + 12, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
 }
@@ -3335,99 +3349,126 @@ function goHome() {
   if (location.search) history.replaceState(null, "", location.pathname);
 }
 
-function devChanged(message = "Developer change applied.") {
-  notify(message);
-  if (role === "host") broadcast();
-}
-
 function cycleDeveloperSplitLimit() {
   developerSplitLimit = developerSplitLimit >= 12 ? 4 : developerSplitLimit + 1;
   localStorage.setItem("dungeon-dev-split-limit", String(developerSplitLimit));
-  devChanged(`Split limit set to ${developerSplitLimit}.`);
+  notify(`Test split cap set to ${developerSplitLimit}.`);
 }
 
-function devSeat() {
-  return mySeat() || game?.seats?.[0] || null;
+function beginDeveloperTest(title, mode = "classic") {
+  stopDeathAudioClips();
+  peer?.peer?.destroy?.();
+  peer = null;
+  role = "solo";
+  localPlayerId = hostId;
+  menuOpen = false;
+  developerPanelOpen = false;
+  handCarousel = {};
+  handCarouselAnim = {};
+  handCarouselPending = {};
+  newGame([{ id: hostId, name: savedPlayerName("You") }], "", mode);
+  game.developerTest = true;
+  game.log = [`Developer test: ${title}.`];
+  game.gold = 300;
+  game.hp = game.maxHp = 100;
+  game.completedRounds = 0;
+  notify(`Developer test: ${title}`);
+  return game.seats[0];
 }
 
-function devAddGold(amount) {
-  if (!game) return;
-  const seat = devSeat();
-  if (isFreeForAll()) seat.gold = seatBankroll(seat) + amount;
-  else game.gold += amount;
-  queueMoneyAnimation(amount);
-  devChanged(`Added ${amount}g.`);
+function devCard(rank, suit, up = true, dealKind = "deal") {
+  game.dealSeq = (game.dealSeq || 0) + 1;
+  return { rank, suit, up, _dealId: `${game.session}:dev-${game.dealSeq}`, _dealDelay: 0, _dealKind: dealKind };
 }
 
-function devSetHp(value) {
-  if (!game) return;
-  const from = game.hp;
-  game.hp = clamp(value, 0, game.maxHp);
-  queueHpAnimation(from, game.hp, game.maxHp);
-  devChanged(`HP set to ${game.hp}.`);
+function devHand(cards, bet = 25, status = "playing") {
+  return { ...newHand(bet, currentRiskBankroll(game.seats[0], bet)), cards, status, split: true };
 }
 
-function devJumpFloor(delta) {
-  if (!game) return;
-  game.floor = clamp((Number(game.floor) || 0) + delta, 0, enemyTemplates.length - 1);
-  game.enemy = cloneEnemy(game.floor);
-  enterBettingRound({ chargeInterest: false });
-  devChanged(`Jumped to floor ${game.floor + 1}.`);
-}
-
-function devAddRelic() {
-  if (!game) return;
-  const owned = new Set(game.relics.map((r) => r.name));
-  const pool = relicPool.filter((r) => !owned.has(r.name));
-  const relic = { ...(pool[Math.floor(Math.random() * pool.length)] || relicPool[0]) };
-  game.relics.push(relic);
-  game.foresightUsesLeft += relic.foresightUses || 0;
-  devChanged(`Added relic: ${relic.name}.`);
-}
-
-function devClearDebt() {
-  if (!game) return;
-  if (isFreeForAll()) {
-    for (const seat of game.seats) {
-      seat.debt = 0;
-      seat.loanUsed = false;
-    }
-  } else {
-    game.loanDebt = 0;
-    game.loanUsed = false;
-  }
-  devChanged("Debt cleared.");
-}
-
-function devTriggerLoan() {
-  if (!game) return;
-  const seat = devSeat();
-  if (isFreeForAll() && seat) seat.gold = 0;
-  else game.gold = 0;
-  triggerBankruptcyDeath("Developer triggered bankruptcy", seat, MIN_BET);
-  devChanged("Loan flow triggered.");
-}
-
-function devForceSplitPair() {
-  if (!game) return;
-  const seat = devSeat();
-  const hand = activeHand(seat) || seat?.hands?.[0];
-  if (!hand) return;
-  const suitA = "S";
-  const suitB = "H";
-  hand.cards = [
-    { rank: "8", suit: suitA, up: true, _dealId: `${game.session}:dev-pair-a-${Date.now()}`, _dealDelay: 0, _dealKind: "deal" },
-    { rank: "8", suit: suitB, up: true, _dealId: `${game.session}:dev-pair-b-${Date.now()}`, _dealDelay: 0, _dealKind: "deal" }
-  ];
-  hand.status = "playing";
-  hand.split = false;
-  seat.active = Math.max(0, seat.hands.indexOf(hand));
+function finishDeveloperSetup(seat, phase = "player") {
+  seat.ready = false;
   seat.finished = false;
-  game.phase = "player";
-  game.activeSeat = Math.max(0, game.seats.indexOf(seat));
-  seenCardIds.add(hand.cards[0]._dealId);
-  seenCardIds.add(hand.cards[1]._dealId);
-  devChanged("Forced split pair.");
+  seat.spectating = false;
+  game.activeSeat = 0;
+  game.phase = phase;
+  appScene = "game";
+  seenCardIds = new Set(game.seats.flatMap((s) => s.hands).flatMap((h) => h.cards).concat(game.dealer).map((c) => c._dealId).filter(Boolean));
+}
+
+function devScenarioSplitCarousel() {
+  const seat = beginDeveloperTest("Split carousel", "classic");
+  const hands = [
+    devHand([devCard("8", "S"), devCard("3", "H")]),
+    devHand([devCard("8", "D"), devCard("2", "C")]),
+    devHand([devCard("8", "H"), devCard("A", "S")]),
+    devHand([devCard("8", "C"), devCard("6", "D")]),
+    devHand([devCard("8", "S"), devCard("9", "C")])
+  ].slice(0, Math.max(3, Math.min(developerSplitLimit, 8)));
+  seat.hands = hands;
+  seat.active = Math.min(2, hands.length - 1);
+  game.dealer = [devCard("10", "C"), devCard("6", "S", false)];
+  handCarousel[seat.id] = seat.active;
+  game.log.push("Swipe or stand to rotate the split-hand carousel.");
+  finishDeveloperSetup(seat);
+}
+
+function devScenarioHitAnimation() {
+  const seat = beginDeveloperTest("hit animation", "classic");
+  seat.hands = [devHand([devCard("7", "S"), devCard("4", "H")], 25, "playing")];
+  seat.active = 0;
+  game.dealer = [devCard("9", "D"), devCard("7", "C", false)];
+  game.deck.push({ rank: "5", suit: "C" });
+  game.log.push("Press Hit to test card travel, hand growth, and total emphasis.");
+  finishDeveloperSetup(seat);
+}
+
+function devScenarioHitFeeBankruptcy() {
+  const seat = beginDeveloperTest("hit toll bankruptcy", "classic");
+  game.enemy = { ...cloneEnemy(3), name: "Developer Toll Dealer", rule: "Each hit costs 20 gold.", hitFee: 20, dealerPeek: true };
+  game.gold = 0;
+  seat.hands = [devHand([devCard("10", "S"), devCard("6", "H")], 25, "playing")];
+  game.dealer = [devCard("5", "D"), devCard("9", "C", false)];
+  game.log.push("Press Hit with no gold to test bankruptcy, loan, and death flow.");
+  finishDeveloperSetup(seat);
+}
+
+function devScenarioDealerBlackjack() {
+  const seat = beginDeveloperTest("dealer blackjack reveal", "classic");
+  seat.hands = [devHand([devCard("10", "H"), devCard("9", "S")], 25, "stand")];
+  seat.finished = true;
+  game.dealer = [devCard("A", "S"), devCard("K", "D", true)];
+  game.phase = "dealerReveal";
+  game.dealerTimer = 1.4;
+  game.log.push("Dealer reveals blackjack with a fully dealt table.");
+  finishDeveloperSetup(seat, "dealerReveal");
+}
+
+function devScenarioRelicShop() {
+  const seat = beginDeveloperTest("relic shop variety", "classic");
+  game.floor = 1;
+  game.enemy = cloneEnemy(game.floor);
+  game.shop = chooseRelics();
+  game.relicVotes = {};
+  game.log.push("Relic offers should avoid similar or strictly stronger variants.");
+  finishDeveloperSetup(seat, "shop");
+}
+
+function devScenarioLoanContract() {
+  const seat = beginDeveloperTest("loan contract", "classic");
+  game.gold = 0;
+  triggerBankruptcyDeath("Developer bankruptcy test", seat, MIN_BET);
+  game.developerTest = true;
+  game.log.push("Sign or decline to test the bankruptcy loan contract.");
+}
+
+function devScenarioFeedbackAnimations() {
+  const seat = beginDeveloperTest("HP and money animations", "classic");
+  seat.hands = [devHand([devCard("K", "S"), devCard("Q", "H")], 50, "stand")];
+  game.dealer = [devCard("9", "D"), devCard("8", "C", true)];
+  finishDeveloperSetup(seat, "roundOver");
+  queueHpAnimation(100, 62, 100);
+  queueMoneyAnimation(75);
+  game.log.push("Large HP loss and money gain animations are queued.");
 }
 
 function setHandCarousel(seatId, next, count = Infinity) {
