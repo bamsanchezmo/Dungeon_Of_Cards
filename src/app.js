@@ -2369,14 +2369,31 @@ function drawMenuAmbience(table, portrait) {
   ctx.fillRect(sweep - 75, table.y, 150, table.h);
   ctx.globalAlpha = 1;
 
+  drawMenuChipRain(table, portrait, now);
   const chipY = table.y + table.h - (portrait ? 170 : 205) + Math.sin(now * .0023) * 7;
-  drawChips(table.x + 78, chipY, 135);
-  drawChips(table.x + table.w - 120, chipY + Math.cos(now * .002) * 9, 80);
+  drawChips(table.x + 78, chipY, 135, .88);
+  drawChips(table.x + table.w - 120, chipY + Math.cos(now * .002) * 9, 80, .88);
   if (portrait) {
     drawMenuShowCard({ up: false }, table.x + table.w - 136, table.y + 98 + Math.sin(now * .0017) * 8, .1, .82);
     drawMenuShowCard({ rank: "Q", suit: "D", up: true }, table.x + 72, table.y + 118 + Math.cos(now * .0015) * 7, -.1, .82);
   }
   ctx.restore();
+}
+
+function drawMenuChipRain(table, portrait, now) {
+  const denoms = chipDenoms();
+  const count = portrait ? 18 : 22;
+  for (let i = 0; i < count; i++) {
+    const denom = denoms[(i * 7 + 3) % denoms.length];
+    const speed = portrait ? .000085 : .000075;
+    const u = (now * speed * (1 + (i % 5) * .09) + i * .137) % 1;
+    const drift = Math.sin(now * .0011 + i * 1.73) * (portrait ? 18 : 26);
+    const x = table.x + 34 + ((i * 91) % Math.max(1, table.w - 68)) + drift;
+    const y = table.y - 54 + u * (table.h + 116);
+    const scale = (portrait ? .48 : .42) + (i % 4) * .07;
+    const rot = now * .0016 * (i % 2 ? 1 : -1) + i * .82;
+    drawChipToken(x, y, denom, scale, rot, .34);
+  }
 }
 
 function drawMenuShowCard(card, x, y, rotation = 0, scale = 1) {
@@ -2540,24 +2557,26 @@ function drawSeats(felt) {
       const selected = clamp(handCarousel[seat.id] ?? activeIndex, 0, seat.hands.length - 1);
       handCarousel[seat.id] = selected;
       if (seat.hands.length > 1) {
-        const centerX = x + seatW / 2 - CARD_W / 2 - 18;
         const visualIndex = carouselVisualIndex(seat.id, selected);
-        const handOrder = seat.hands
-          .map((hand, hidx) => ({ hand, hidx, distance: Math.abs(hidx - visualIndex) }))
-          .filter((item) => item.distance < 2.05)
-          .sort((a, b) => b.distance - a.distance);
+        const carouselCenter = clamp(Math.round(visualIndex), 0, seat.hands.length - 1);
+        const visibleHands = new Set([carouselCenter - 1, carouselCenter, carouselCenter + 1].filter((n) => n >= 0 && n < seat.hands.length));
+        const centerX = x + seatW / 2 - CARD_W / 2 - 18;
+        const handOrder = [...visibleHands]
+          .map((hidx) => ({ hand: seat.hands[hidx], hidx, distance: Math.abs(hidx - visualIndex) }))
+          .sort((a, b) => b.distance - a.distance || a.hidx - b.hidx);
         handOrder.forEach(({ hand, hidx }) => {
           const offset = hidx - visualIndex;
           const distance = Math.abs(offset);
           const isFocused = hidx === selected;
-          const isPlayingHand = hidx === activeIndex && isActive;
+          const isPlayingHand = isFocused && (hidx === activeIndex || !isActive);
+          const depth = clamp(distance, 0, 1.35);
           ctx.save();
-          ctx.globalAlpha = isFocused ? 1 : clamp(.3 + (1 - distance) * .28, .24, .58);
-          const scale = isFocused ? 1 : clamp(1 - distance * .18, .66, .82);
-          const handX = centerX + offset * 104;
-          const handY = y + 8 + distance * 18;
+          ctx.globalAlpha = isFocused ? 1 : clamp(.72 - depth * .18, .42, .68);
+          const scale = isFocused ? 1 : clamp(.86 - depth * .12, .68, .82);
+          const handX = centerX + offset * (portrait ? 94 : 108);
+          const handY = y + 8 + depth * 24;
           ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
-          ctx.rotate(offset * -.09);
+          ctx.rotate(offset * -.11);
           ctx.scale(scale, scale);
           drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72), true, { x: handX, y: handY });
           ctx.restore();
@@ -3602,50 +3621,100 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
   text(suit, x + CARD_W - 18, y + CARD_H - 32, 14, color, "center", "serif");
 };
 
-drawChips = function drawChips(x, y, amount) {
-  const denoms = [[500, "#d2af3c"], [100, "#242432"], [25, "#3c8c50"], [10, "#3c64b4"], [5, "#b43c3c"], [1, "#e6e6dc"]];
+drawChips = function drawChips(x, y, amount, scale = 1) {
+  const denoms = chipDenoms();
   let rest = amount;
   let n = 0;
   if (amount <= 0) {
     ctx.strokeStyle = "rgba(238,231,215,.22)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(x + 20, y + 6, 20, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 20 * scale, y + 6 * scale, 20 * scale, 6 * scale, 0, 0, Math.PI * 2);
     ctx.stroke();
     return;
   }
-  for (const [value, color] of denoms) {
+  for (const denom of denoms) {
+    const { value } = denom;
     while (rest >= value && n < 12) {
-      const cy = y + 6 - n * 5;
-      ctx.fillStyle = shade(color, -55);
-      ctx.fillRect(x, cy, 40, 7);
-      ctx.strokeStyle = "#0a0a0f";
-      ctx.beginPath();
-      ctx.moveTo(x, cy + 7);
-      ctx.lineTo(x + 40, cy + 7);
-      ctx.stroke();
-      drawChipTop(x + 20, cy, color, "#f0d878");
+      const cy = y + 6 * scale - n * 5 * scale;
+      drawChipToken(x + 20 * scale, cy, denom, scale, 0, 1);
       rest -= value;
       n++;
     }
   }
 };
 
-function drawChipTop(cx, cy, face, stripe) {
-  ctx.fillStyle = face;
+function chipDenoms() {
+  return [
+    { value: 500, color: "#d2af3c", edge: "#fff0a2", label: "500" },
+    { value: 100, color: "#292737", edge: "#d9d7ec", label: "100" },
+    { value: 25, color: "#31935a", edge: "#e7ffe8", label: "25" },
+    { value: 10, color: "#315fb8", edge: "#e5ecff", label: "10" },
+    { value: 5, color: "#b63b3b", edge: "#ffe2dc", label: "5" },
+    { value: 1, color: "#e8e2cf", edge: "#27232b", label: "1" }
+  ];
+}
+
+function drawChipToken(cx, cy, denom, scale = 1, rotation = 0, alpha = 1) {
+  const rx = 20 * scale;
+  const ry = 7 * scale;
+  const depth = 7 * scale;
+  const labelSize = Math.max(7, 9 * scale);
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  shadow(0, 4 * scale, 9 * scale, "rgba(0,0,0,.32)", () => {
+    ctx.fillStyle = shade(denom.color, -62);
+    ctx.fillRect(-rx, 0, rx * 2, depth);
+    ctx.beginPath();
+    ctx.ellipse(0, depth, rx, ry, 0, 0, Math.PI);
+    ctx.fill();
+    const top = ctx.createLinearGradient(-rx, -ry, rx, ry);
+    top.addColorStop(0, shade(denom.color, 35));
+    top.addColorStop(.48, denom.color);
+    top.addColorStop(1, shade(denom.color, -40));
+    ctx.fillStyle = top;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.strokeStyle = "#07060a";
+  ctx.lineWidth = Math.max(1, 1.4 * scale);
   ctx.beginPath();
-  ctx.ellipse(cx, cy, 20, 7, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#0a0a0f";
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.fillStyle = stripe;
-  ctx.fillRect(cx - 19, cy - 2, 8, 4);
-  ctx.fillRect(cx + 11, cy - 2, 8, 4);
+
+  ctx.save();
   ctx.beginPath();
-  ctx.ellipse(cx, cy, 10, 3.5, 0, 0, Math.PI * 2);
-  ctx.fillStyle = face;
-  ctx.fill();
+  ctx.ellipse(0, 0, rx * .96, ry * .96, 0, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = denom.edge;
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4;
+    ctx.save();
+    ctx.rotate(a);
+    fill(denom.edge, rx * .58, -ry * .34, rx * .26, ry * .68, 1.5 * scale);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255,255,255,.62)";
+  ctx.lineWidth = Math.max(.8, 1.3 * scale);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx * .62, ry * .55, 0, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.fillStyle = "rgba(0,0,0,.22)";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx * .42, ry * .34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = denom.edge;
+  ctx.lineWidth = Math.max(.8, 1 * scale);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx * .38, ry * .3, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  text(denom.label, 0, labelSize * .33, labelSize, denom.value === 1 ? "#15131a" : "#fff8d2", "center");
+  ctx.restore();
 }
 
 function shade(hex, amount) {
