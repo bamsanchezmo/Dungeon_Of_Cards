@@ -1886,6 +1886,7 @@ function handleDeveloperSplashTap() {
   developerTapTimes = [...developerTapTimes.filter((t) => now - t < 4000), now];
   if (!developerModeUnlocked && developerTapTimes.length >= 7) {
     developerModeUnlocked = true;
+    developerPanelOpen = true;
     localStorage.setItem("dungeon-dev-mode", "true");
     developerTapTimes = [];
     notify("Developer mode unlocked.");
@@ -2340,6 +2341,9 @@ function drawSplash() {
   text("presents", cx, cy + 12, viewport.portrait ? 27 : 28, C.parchment, "center", "serif");
   buttons.push({ x: cx - 280, y: cy - 112, w: 560, h: 86, onClick: handleDeveloperSplashTap });
   addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Continue", () => appScene = "menu", true);
+  if (developerModeUnlocked) {
+    addButton(cx - 150, cy + (viewport.portrait ? 178 : 156), 300, viewport.portrait ? 72 : 54, "Developer", () => developerPanelOpen = true);
+  }
 }
 
 function drawMenu() {
