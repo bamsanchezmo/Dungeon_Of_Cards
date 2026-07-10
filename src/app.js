@@ -539,7 +539,7 @@ function shuffle(deck) {
   return deck;
 }
 
-function drawCard(faceUp = true, currentTotal = 0, target = "player") {
+function drawCard(faceUp = true, currentTotal = 0, target = "player", dealKind = "deal") {
   if (game.deck.length < 30) {
     game.deck = makeDeck();
     log("The shoe is reshuffled.");
@@ -550,7 +550,7 @@ function drawCard(faceUp = true, currentTotal = 0, target = "player") {
     game.dealSeq = (game.dealSeq || 0) + 1;
     game.roundDealCount = game.roundDealCount || 0;
     const delay = game.phase === "betting" ? Math.min(420, game.roundDealCount * 70) : 0;
-    const dealt = { ...card, up: faceUp, _dealId: `${game.session}:${game.dealSeq}`, _dealDelay: delay };
+    const dealt = { ...card, up: faceUp, _dealId: `${game.session}:${game.dealSeq}`, _dealDelay: delay, _dealKind: dealKind };
     game.roundDealCount++;
     return dealt;
   };
@@ -711,8 +711,8 @@ function newHand(bet) {
   return { cards: [], bet, status: "playing", doubled: false, split: false, splitAces: false, insurance: 0 };
 }
 
-function addToHand(hand, target) {
-  hand.cards.push(drawCard(true, handTotal(hand), target));
+function addToHand(hand, target, dealKind = "deal") {
+  hand.cards.push(drawCard(true, handTotal(hand), target, dealKind));
 }
 
 function peekCheck() {
@@ -751,7 +751,7 @@ function hit(seatIndex) {
       return;
     }
   }
-  addToHand(hand, "player");
+  addToHand(hand, "player", "hit");
   sfx("deal");
   if (isBust(hand)) {
     hand.status = "bust";
@@ -2210,7 +2210,7 @@ function drawMenu() {
   const lh = layoutH();
   const cx = lw / 2;
   const portrait = viewport.portrait;
-  const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1210, lh - 108) } : { x: cx - 422, y: 70, w: 844, h: 660 };
+  const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1325, lh - 108) } : { x: cx - 422, y: 70, w: 844, h: 660 };
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
       [0, "#1d3028"],
@@ -2220,16 +2220,18 @@ function drawMenu() {
   });
   strokeRound(table.x, table.y, table.w, table.h, 24, "rgba(220,180,70,.4)", 3);
   strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
+  drawMenuAmbience(table, portrait);
 
   if (!portrait) {
-    drawCardFace({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, false);
-    drawCardFace({ rank: "K", suit: "H", up: true }, table.x + table.w - 180, table.y + 92, false);
-    drawCardFace({ up: false }, table.x + table.w - 118, table.y + 250, false);
+    drawMenuShowCard({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, -.08, 1);
+    drawMenuShowCard({ rank: "K", suit: "H", up: true }, table.x + table.w - 180, table.y + 92, .07, 1);
+    drawMenuShowCard({ up: false }, table.x + table.w - 118, table.y + 250, .12, .96);
   }
 
+  const shimmer = .5 + .5 * Math.sin(performance.now() * .0021);
   ctx.save();
-  ctx.shadowColor = "rgba(220,180,70,.35)";
-  ctx.shadowBlur = 18;
+  ctx.shadowColor = `rgba(220,180,70,${.34 + shimmer * .22})`;
+  ctx.shadowBlur = 18 + shimmer * 10;
   text("DUNGEON", cx, portrait ? 168 : 188, portrait ? 58 : 76, C.gold, "center", "serif");
   ctx.restore();
   text("of CARDS", cx, portrait ? 234 : 264, portrait ? 56 : 72, C.parchment, "center", "serif");
@@ -2256,11 +2258,60 @@ function drawMenu() {
     cycleModePreference();
   });
   if (portrait) {
-    drawLeaderboardPanel(table.x + 44, buttonY + buttonGap * 4 + 40, table.w - 88, 285);
+    const boardY = buttonY + buttonGap * 4 + 28;
+    const boardH = Math.max(220, Math.min(275, table.y + table.h - boardY - 34));
+    drawLeaderboardPanel(table.x + 44, boardY, table.w - 88, boardH);
   } else {
     drawLeaderboardPanel(table.x + 62, table.y + table.h - 138, table.w - 124, 112);
   }
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
+}
+
+function drawMenuAmbience(table, portrait) {
+  const now = performance.now();
+  ctx.save();
+  ctx.beginPath();
+  pathRound(table.x + 14, table.y + 14, table.w - 28, table.h - 28, 18);
+  ctx.clip();
+
+  for (let i = 0; i < 7; i++) {
+    const u = (now * .00005 + i / 7) % 1;
+    const x = table.x + 35 + ((i * 137 + now * .018) % Math.max(1, table.w - 70));
+    const y = table.y + table.h - 42 - u * (table.h + 75);
+    const size = portrait ? 28 : 20;
+    const suit = ["S", "H", "D", "C"][i % 4];
+    const color = suit === "H" || suit === "D" ? "rgba(200,60,60,.18)" : "rgba(238,231,215,.14)";
+    ctx.globalAlpha = .55;
+    text({ S: "\u2660", H: "\u2665", D: "\u2666", C: "\u2663" }[suit], x, y, size, color, "center", "serif");
+  }
+
+  ctx.globalAlpha = .14;
+  const sweep = table.x - table.w * .28 + ((now * .045) % (table.w * 1.56));
+  const glint = ctx.createLinearGradient(sweep - 60, table.y, sweep + 60, table.y + table.h);
+  glint.addColorStop(0, "rgba(255,255,255,0)");
+  glint.addColorStop(.5, "rgba(255,232,150,.42)");
+  glint.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = glint;
+  ctx.fillRect(sweep - 75, table.y, 150, table.h);
+  ctx.globalAlpha = 1;
+
+  const chipY = table.y + table.h - (portrait ? 170 : 205) + Math.sin(now * .0023) * 7;
+  drawChips(table.x + 78, chipY, 135);
+  drawChips(table.x + table.w - 120, chipY + Math.cos(now * .002) * 9, 80);
+  if (portrait) {
+    drawMenuShowCard({ up: false }, table.x + table.w - 136, table.y + 98 + Math.sin(now * .0017) * 8, .1, .82);
+    drawMenuShowCard({ rank: "Q", suit: "D", up: true }, table.x + 72, table.y + 118 + Math.cos(now * .0015) * 7, -.1, .82);
+  }
+  ctx.restore();
+}
+
+function drawMenuShowCard(card, x, y, rotation = 0, scale = 1) {
+  ctx.save();
+  ctx.translate(x + CARD_W / 2, y + CARD_H / 2);
+  ctx.rotate(rotation + Math.sin(performance.now() * .0016 + x * .01) * .025);
+  ctx.scale(scale, scale);
+  drawCardFace(card, -CARD_W / 2, -CARD_H / 2, false);
+  ctx.restore();
 }
 
 function drawLeaderboardPanel(x, y, w, h) {
@@ -3123,7 +3174,7 @@ function cardLandingPulse(card) {
 }
 
 function handLandingPulse(hand) {
-  return Math.max(0, ...(hand?.cards || []).map(cardLandingPulse));
+  return Math.max(0, ...(hand?.cards || []).filter((card) => card._dealKind === "hit").map(cardLandingPulse));
 }
 
 function handStatusBadge(x, y, label, color, hand) {
