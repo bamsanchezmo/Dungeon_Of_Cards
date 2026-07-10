@@ -108,6 +108,42 @@ const modeLabels = {
 };
 const savedMode = localStorage.getItem("dungeon-mode");
 let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
+let artPreference = localStorage.getItem("dungeon-art-style") === "handdrawn" ? "handdrawn" : "classic";
+const artLabels = {
+  classic: "Classic Art",
+  handdrawn: "Hand-Drawn Art"
+};
+const handdrawnAssetFiles = {
+  frame: "frame.png",
+  divider: "divider.png",
+  token: "token.png",
+  chip: "chip.png",
+  goldMark: "gold_mark.png",
+  debtMark: "debt_mark.png",
+  backDiamond: "back_diamond.png",
+  bloodDrop: "blood_drop.png",
+  bloodSmear: "blood_smear.png",
+  signatureFlourish: "signature_flourish.png",
+  heartbeat: "heartbeat.png",
+  doodle: "doodle.png",
+  texture: "texture.png",
+  suitS: "suit_S.png",
+  suitH: "suit_H.png",
+  suitD: "suit_D.png",
+  suitC: "suit_C.png",
+  glyphPlus: "glyph_plus.png",
+  glyphMinus: "glyph_minus.png",
+  glyphX: "glyph_x.png",
+  glyphSlash: "glyph_slash.png",
+  glyphPercent: "glyph_percent.png",
+  glyphDollar: "glyph_dollar.png",
+  glyphBang: "glyph_bang.png",
+  glyphQuestion: "glyph_question.png"
+};
+for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `glyph_${ch}.png`;
+const handdrawnImages = {};
+const tintedHanddrawnCache = new Map();
+loadHanddrawnAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
 
@@ -1497,6 +1533,16 @@ function cycleModePreference() {
   localStorage.setItem("dungeon-free-play", String(modePreference !== "classic"));
 }
 
+function cycleArtPreference() {
+  artPreference = artPreference === "handdrawn" ? "classic" : "handdrawn";
+  localStorage.setItem("dungeon-art-style", artPreference);
+  if (artPreference === "handdrawn") loadHanddrawnAssets();
+}
+
+function isHanddrawnArt() {
+  return artPreference === "handdrawn";
+}
+
 function seatBankroll(seat) {
   return isFreeForAll() ? Math.max(0, Number(seat?.gold) || 0) : Math.max(0, Number(game?.gold) || 0);
 }
@@ -1946,18 +1992,20 @@ function drawMenu() {
   lines.forEach((line, i) => text(line, cx, (portrait ? 382 : 372) + i * (portrait ? 40 : 34), portrait ? 22 : 21, C.text, "center"));
   const buttonW = portrait ? 480 : 300;
   const buttonX = cx - buttonW / 2;
-  const buttonY = portrait ? 650 : 475;
-  addButton(buttonX, portrait ? 548 : 414, buttonW, portrait ? 72 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
+  const buttonY = portrait ? 620 : 452;
+  const buttonGap = portrait ? 92 : 56;
+  addButton(buttonX, portrait ? 520 : 396, buttonW, portrait ? 72 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
   addButton(buttonX, buttonY, buttonW, portrait ? 78 : 52, "Single Player", () => {
     role = "solo";
     localPlayerId = hostId;
     newGame([{ id: hostId, name: savedPlayerName("You") }]);
   }, true);
-  addButton(buttonX, buttonY + (portrait ? 102 : 60), buttonW, portrait ? 78 : 52, "Host Game", hostLobby);
-  addButton(buttonX, buttonY + (portrait ? 204 : 120), buttonW, portrait ? 78 : 52, "Join Game", joinLobby);
-  addButton(buttonX, buttonY + (portrait ? 306 : 180), buttonW, portrait ? 72 : 44, `Mode: ${modeLabels[modePreference]}`, () => {
+  addButton(buttonX, buttonY + buttonGap, buttonW, portrait ? 78 : 52, "Host Game", hostLobby);
+  addButton(buttonX, buttonY + buttonGap * 2, buttonW, portrait ? 78 : 52, "Join Game", joinLobby);
+  addButton(buttonX, buttonY + buttonGap * 3, buttonW, portrait ? 72 : 44, `Mode: ${modeLabels[modePreference]}`, () => {
     cycleModePreference();
   });
+  addButton(buttonX, buttonY + buttonGap * 4, buttonW, portrait ? 72 : 44, `Art: ${artLabels[artPreference]}`, cycleArtPreference);
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
 }
 
@@ -1985,6 +2033,11 @@ function drawTable() {
     ctx.stroke();
   }
   ctx.restore();
+  if (isHanddrawnArt() && handAssetReady("texture")) {
+    for (let i = 0; i < 3; i++) {
+      drawHandAsset("texture", felt.x + 58 + i * 34, felt.y + 120 + i * 145, Math.min(520, felt.w - 116), 120, "rgba(238,231,215,.12)", .32);
+    }
+  }
   ctx.save();
   ctx.strokeStyle = "rgba(220,180,70,.10)";
   ctx.lineWidth = 2;
@@ -2620,6 +2673,15 @@ function drawSignatureName(name, x, y, size) {
 
 function drawSignatureFlourish(x, y, w, progress) {
   if (progress <= 0) return;
+  if (isHanddrawnArt() && handAssetReady("signatureFlourish")) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x - 8, y - 34, (w + 16) * progress, 74);
+    ctx.clip();
+    drawHandAsset("signatureFlourish", x, y - 30, w, 60, "#b51f2a", .95);
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.strokeStyle = "#b51f2a";
   ctx.lineWidth = 3;
@@ -2756,6 +2818,150 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+function loadHanddrawnAssets() {
+  for (const [key, file] of Object.entries(handdrawnAssetFiles)) {
+    if (handdrawnImages[key]) continue;
+    const img = new Image();
+    img.src = `./assets/handdrawn/${file}`;
+    img.onload = () => {
+      tintedHanddrawnCache.clear();
+      draw();
+    };
+    handdrawnImages[key] = img;
+  }
+}
+
+function handAssetReady(key) {
+  const img = handdrawnImages[key];
+  return !!img && img.complete && img.naturalWidth > 0;
+}
+
+function handCardAssetsReady() {
+  const ranks = "0123456789AJQK".split("").map((ch) => `glyph${ch}`);
+  return ["frame", "backDiamond", "suitS", "suitH", "suitD", "suitC", ...ranks].every(handAssetReady);
+}
+
+function tintedHandAsset(key, color) {
+  const img = handdrawnImages[key];
+  if (!img || !img.naturalWidth) return null;
+  const cacheKey = `${key}|${color}|${img.naturalWidth}x${img.naturalHeight}`;
+  if (tintedHanddrawnCache.has(cacheKey)) return tintedHanddrawnCache.get(cacheKey);
+  const off = document.createElement("canvas");
+  off.width = img.naturalWidth;
+  off.height = img.naturalHeight;
+  const octx = off.getContext("2d");
+  octx.drawImage(img, 0, 0);
+  octx.globalCompositeOperation = "source-in";
+  octx.fillStyle = color;
+  octx.fillRect(0, 0, off.width, off.height);
+  tintedHanddrawnCache.set(cacheKey, off);
+  return off;
+}
+
+function drawHandAsset(key, x, y, w, h, color = "#000", alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const asset = tintedHandAsset(key, color);
+  if (!asset) return false;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(asset, x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function handAssetSize(key) {
+  const img = handdrawnImages[key];
+  return img?.naturalWidth ? { w: img.naturalWidth, h: img.naturalHeight } : { w: 1, h: 1 };
+}
+
+function drawHandAssetFit(key, cx, cy, targetH, color, align = "center", alpha = 1) {
+  if (!handAssetReady(key)) return 0;
+  const size = handAssetSize(key);
+  const w = targetH * size.w / Math.max(1, size.h);
+  const x = align === "right" ? cx - w : align === "left" ? cx : cx - w / 2;
+  drawHandAsset(key, x, cy - targetH / 2, w, targetH, color, alpha);
+  return w;
+}
+
+function rankGlyphKeys(rank) {
+  return String(rank).split("").map((ch) => `glyph${ch}`);
+}
+
+function drawHandRank(rank, x, y, h, color, align = "left") {
+  const keys = rankGlyphKeys(rank);
+  const gap = Math.max(1, h * .08);
+  const widths = keys.map((key) => {
+    const size = handAssetSize(key);
+    return h * size.w / Math.max(1, size.h);
+  });
+  const total = widths.reduce((sum, w) => sum + w, 0) + gap * Math.max(0, keys.length - 1);
+  let cursor = align === "right" ? x - total : align === "center" ? x - total / 2 : x;
+  keys.forEach((key, i) => {
+    drawHandAsset(key, cursor, y, widths[i], h, color);
+    cursor += widths[i] + gap;
+  });
+  return total;
+}
+
+function suitAssetKey(suit) {
+  return { S: "suitS", H: "suitH", D: "suitD", C: "suitC" }[suit] || "suitS";
+}
+
+function drawHanddrawnCardFace(card, x, y, highlight = false) {
+  if (highlight) shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 13));
+  if (card.up === false) {
+    shadow(0, 7, 13, "rgba(0,0,0,.36)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#4a2f66"], [1, "#23133a"]], true));
+    gradientRound(x + 7, y + 7, CARD_W - 14, CARD_H - 14, 7, [[0, "#654482"], [1, "#38244e"]], true);
+    for (let col = 0; col < 4; col++) {
+      for (let row = 0; row < 6; row++) {
+        const dx = x + 13 + col * 18 + ((row % 2) ? 3 : -1);
+        const dy = y + 15 + row * 17;
+        drawHandAsset("backDiamond", dx, dy, 13, 17, "#8b67a8", .78);
+      }
+    }
+    drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, C.goldDim, .92);
+    return;
+  }
+  shadow(0, 7, 12, "rgba(0,0,0,.28)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#fff2cb"], [.55, C.parchment], [1, "#cdbb8f"]], true));
+  fill("rgba(255,255,255,.18)", x + 8, y + 9, CARD_W - 16, CARD_H - 18, 7);
+  drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, "#312821", .96);
+  const red = card.suit === "H" || card.suit === "D";
+  const color = red ? "#9e1f24" : "#12121b";
+  drawHandRank(card.rank, x + 9, y + 13, card.rank === "10" ? 20 : 24, color, "left");
+  drawHandAssetFit(suitAssetKey(card.suit), x + 21, y + 45, 17, color, "center");
+  drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W / 2, y + CARD_H / 2 + 12, 46, color, "center");
+  drawHandRank(card.rank, x + CARD_W - 8, y + CARD_H - 34, card.rank === "10" ? 17 : 20, color, "right");
+  drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W - 18, y + CARD_H - 24, 15, color, "center");
+}
+
+function drawHanddrawnChips(x, y, amount) {
+  const denoms = [[500, "#d2af3c"], [100, "#2f2e3a"], [25, "#3c8c50"], [10, "#3c64b4"], [5, "#b43c3c"], [1, "#e6e6dc"]];
+  let rest = amount;
+  let n = 0;
+  if (amount <= 0) {
+    drawHandAsset("chip", x - 2, y - 8, 44, 28, "rgba(238,231,215,.32)", .55);
+    return;
+  }
+  for (const [value, color] of denoms) {
+    while (rest >= value && n < 12) {
+      const cy = y - n * 5;
+      ctx.save();
+      ctx.globalAlpha = .94;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(x + 21, cy + 8, 21, 8, -.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = shade(color, -48);
+      ctx.fillRect(x + 1, cy + 8, 40, 7);
+      ctx.restore();
+      drawHandAsset("chip", x - 4 + (n % 2), cy - 9, 50, 33, "#0a0a0f", .98);
+      rest -= value;
+      n++;
+    }
+  }
+}
+
 function drawCardFace(card, x, y, highlight = false) {
   if (highlight) fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12);
   if (card.up === false) {
@@ -2808,6 +3014,10 @@ function drawChips(x, y, amount) {
 }
 
 drawCardFace = function drawCardFace(card, x, y, highlight = false) {
+  if (isHanddrawnArt() && handCardAssetsReady()) {
+    drawHanddrawnCardFace(card, x, y, highlight);
+    return;
+  }
   if (highlight) {
     shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
   }
@@ -2845,6 +3055,10 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
 };
 
 drawChips = function drawChips(x, y, amount) {
+  if (isHanddrawnArt() && handAssetReady("chip")) {
+    drawHanddrawnChips(x, y, amount);
+    return;
+  }
   const denoms = [[500, "#d2af3c"], [100, "#242432"], [25, "#3c8c50"], [10, "#3c64b4"], [5, "#b43c3c"], [1, "#e6e6dc"]];
   let rest = amount;
   let n = 0;
@@ -2912,6 +3126,9 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
+  if (isHanddrawnArt() && handAssetReady("frame")) {
+    drawHandAsset("frame", x + 3, y + 3, w - 6, h - 6, primary ? "#1b1519" : "rgba(238,231,215,.86)", primary ? .28 : .22);
+  }
   const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
   text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? C.black : enabled ? C.text : C.muted, "center");
 }
@@ -2924,6 +3141,9 @@ function badge(x, y, label, color) {
   const height = portrait ? 40 : 32;
   gradientRound(x - width / 2, y - height / 2, width, height, height / 2, [[0, "#1b1621"], [1, "#08070b"]], true);
   strokeRound(x - width / 2, y - height / 2, width, height, height / 2, color, 1.5);
+  if (isHanddrawnArt() && handAssetReady("token")) {
+    drawHandAsset("token", x - width / 2 - 3, y - height / 2 - 4, width + 6, height + 8, color, .24);
+  }
   text(label, x, y + (portrait ? 7 : 6), size, color, "center");
 }
 
