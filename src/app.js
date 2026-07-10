@@ -664,9 +664,11 @@ function applyAction(playerId, name) {
 function dealRound() {
   const totalBets = game.seats.reduce((sum, s) => sum + s.bet, 0);
   if (totalBets <= 0) return;
+  const sharedRiskBankroll = Math.max(1, Number(game.gold) || 0);
   if (isFreeForAll()) {
     for (const s of game.seats) {
       if (s.bet > seatBankroll(s)) s.bet = Math.max(0, seatBankroll(s));
+      s.roundRiskBankroll = Math.max(1, seatBankroll(s));
       if (s.bet > 0) spendGold(s, s.bet);
     }
     if (!game.seats.some((s) => s.bet > 0)) return;
@@ -687,7 +689,7 @@ function dealRound() {
   game.dealer = [];
   game.roundDealCount = 0;
   for (const s of game.seats) {
-    s.hands = s.bet > 0 ? [newHand(s.bet)] : [];
+    s.hands = s.bet > 0 ? [newHand(s.bet, isFreeForAll() ? s.roundRiskBankroll : sharedRiskBankroll)] : [];
     s.active = 0;
     s.finished = s.bet <= 0;
     s.spectating = s.bet <= 0;
@@ -707,8 +709,13 @@ function dealRound() {
   }
 }
 
-function newHand(bet) {
-  return { cards: [], bet, status: "playing", doubled: false, split: false, splitAces: false, insurance: 0 };
+function newHand(bet, riskBankroll = 0) {
+  return { cards: [], bet, riskBankroll, status: "playing", doubled: false, split: false, splitAces: false, insurance: 0 };
+}
+
+function currentRiskBankroll(seat, totalBet = 0) {
+  const wallet = isFreeForAll() ? seatBankroll(seat) : Number(game.gold) || 0;
+  return Math.max(1, wallet + Math.max(0, totalBet));
 }
 
 function addToHand(hand, target, dealKind = "deal") {
@@ -774,6 +781,7 @@ function doubleDown(seatIndex) {
   const h = activeHand(seat);
   if (!h || h.cards.length !== 2 || game.enemy.noDouble || !spendGold(seat, h.bet)) return flashMsg("Double unavailable");
   h.bet *= 2;
+  h.riskBankroll = Math.max(Number(h.riskBankroll) || 0, currentRiskBankroll(seat, h.bet));
   h.doubled = true;
   addToHand(h, "player");
   h.status = isBust(h) ? "bust" : "stand";
@@ -790,7 +798,9 @@ function split(seatIndex) {
   if (h.splitAces && h.cards[0].rank === "A" && !has("extraSplit")) return flashMsg("Aces cannot be re-split");
   spendGold(seat, h.bet);
   const moved = h.cards.pop();
-  const h2 = newHand(h.bet);
+  const splitRiskBankroll = Math.max(Number(h.riskBankroll) || 0, currentRiskBankroll(seat, h.bet * 2));
+  h.riskBankroll = splitRiskBankroll;
+  const h2 = newHand(h.bet, splitRiskBankroll);
   h2.cards = [moved];
   h2.split = true;
   h2.splitAces = moved.rank === "A";
@@ -915,6 +925,7 @@ function settleRound() {
   let localNet = 0;
   let winHands = 0;
   let grossLoss = 0;
+  let lifeLoss = 0;
   const results = [];
   for (const seat of game.seats) {
     let seatNet = 0;
@@ -924,6 +935,7 @@ function settleRound() {
       net += result.net;
       seatNet += result.net;
       grossLoss += result.grossLoss || 0;
+      lifeLoss += result.lifeLoss || 0;
       if (result.net > 0) winHands++;
       results.push(`${seat.name}: ${result.msg}`);
     }
@@ -940,11 +952,13 @@ function settleRound() {
     const heal = relicSum("heal") * Math.max(1, winHands);
     if (heal) game.hp = Math.min(game.maxHp, game.hp + heal);
     sfx("win");
-  } else if (grossLoss > 0) {
-    const dmg = Math.min(game.hp, Math.max(1, Math.floor(grossLoss / 4)));
+  }
+  if (grossLoss > 0) {
+    const dmg = Math.min(game.hp, Math.max(1, Math.round(lifeLoss)));
     game.hp -= dmg;
-    sfx("lose");
-  } else {
+    results.push(`Blood toll: -${dmg} HP`);
+    if (net <= 0) sfx("lose");
+  } else if (net <= 0) {
     sfx("push");
   }
   if (hpBefore > game.hp) queueHpAnimation(hpBefore, game.hp, game.maxHp);
@@ -977,17 +991,18 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
   if (h.status === "surrender") {
     const refund = has("freeSurrender") ? h.bet : Math.floor(h.bet / 2);
     addGold(seat, refund, 0);
-    return { net: -(h.bet - refund), grossLoss: has("freeSurrender") ? 0 : Math.floor(h.bet / 2), msg: has("freeSurrender") ? "Surrender refunded" : `Surrender -${h.bet - refund}g` };
+    const lost = has("freeSurrender") ? 0 : h.bet - refund;
+    return lossResultPayload(seat, h, lost, has("freeSurrender") ? "Surrender refunded" : `Surrender -${lost}g`, lost);
   }
   if (isBust(h)) {
     const refund = cappedRefund(Math.floor(h.bet * (relicSum("refund") + relicSum("bustRefund"))));
     addGold(seat, refund, 0);
-    return { net: -(h.bet - refund), grossLoss: h.bet, msg: `Bust -${h.bet - refund}g` };
+    return lossResultPayload(seat, h, h.bet - refund, `Bust -${h.bet - refund}g`, h.bet);
   }
   if (isBlackjack(h)) {
     if (dealerBj) {
       if (pushWins) return winResult(seat, h, Math.floor(h.bet * bjMult) + chipBonus, "BJ push wins");
-      if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "BJ tie loses" };
+      if (game.enemy.tiesLose) return lossResultPayload(seat, h, h.bet, "BJ tie loses", h.bet);
       addGold(seat, h.bet, 0);
       return { net: 0, grossLoss: 0, msg: "BJ push" };
     }
@@ -1000,7 +1015,7 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
   if (total > dealerTotal) return winResult(seat, h, h.bet + chipBonus, `${total} beats ${dealerTotal}`);
   if (total < dealerTotal) return loseResult(seat, h, `${total} loses to ${dealerTotal}`);
   if (pushWins) return winResult(seat, h, h.bet + chipBonus, "Push wins");
-  if (game.enemy.tiesLose) return { net: -h.bet, grossLoss: h.bet, msg: "Tie loses" };
+  if (game.enemy.tiesLose) return lossResultPayload(seat, h, h.bet, "Tie loses", h.bet);
   addGold(seat, h.bet, 0);
   return { net: 0, grossLoss: 0, msg: `Push ${total}` };
 }
@@ -1010,10 +1025,33 @@ function winResult(seat, h, amount, msg) {
   return { net: amount, grossLoss: 0, msg: `${msg} +${amount}g` };
 }
 
+function lossResultPayload(seat, h, lostAmount, msg, grossLoss = lostAmount) {
+  return {
+    net: -lostAmount,
+    grossLoss,
+    lifeLoss: lifeLossForBetLoss(seat, h, Math.max(lostAmount, grossLoss)),
+    msg
+  };
+}
+
+function lifeLossForBetLoss(seat, hand, betAtRisk) {
+  if (betAtRisk <= 0) return 0;
+  const bankroll = Math.max(1, Number(hand.riskBankroll) || currentRiskBankroll(seat, betAtRisk));
+  const wager = clamp(betAtRisk, 0, bankroll);
+  const floors = Math.max(1, enemyTemplates.length || 1);
+  const floorProgress = floors <= 1 ? 0 : clamp((Number(game.floor) || 0) / (floors - 1), 0, 1);
+  const remaining = Math.max(0, bankroll - wager);
+  const floorRate = .45 + floorProgress * .7;
+  const pressure = ((3 * bankroll - 2 * remaining) * floorRate) / (3 * bankroll);
+  let damageRate = Math.pow(Math.max(0, pressure), 2.2);
+  if (floorProgress > .82 && wager >= bankroll * .98) damageRate = 1.2;
+  return Math.max(1, Math.ceil(game.maxHp * clamp(damageRate, .01, 1.25)));
+}
+
 function loseResult(seat, h, msg) {
   const refund = Math.max(0, Math.min(Math.floor(h.bet * relicSum("refund")), h.bet - 1));
   addGold(seat, refund, 0);
-  return { net: -(h.bet - refund), grossLoss: h.bet, msg: `${msg} -${h.bet - refund}g` };
+  return lossResultPayload(seat, h, h.bet - refund, `${msg} -${h.bet - refund}g`, h.bet);
 }
 
 function continueAfterRound() {
@@ -2208,9 +2246,10 @@ function drawSplash() {
 function drawMenu() {
   const lw = layoutW();
   const lh = layoutH();
-  const cx = lw / 2;
   const portrait = viewport.portrait;
-  const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1325, lh - 108) } : { x: cx - 422, y: 70, w: 844, h: 660 };
+  const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1325, lh - 108) } : { x: 40, y: 70, w: Math.min(844, lw - 390), h: 660 };
+  const cx = table.x + table.w / 2;
+  const side = portrait ? null : { x: table.x + table.w + 28, y: table.y, w: Math.max(280, lw - (table.x + table.w + 68)), h: table.h };
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
       [0, "#1d3028"],
@@ -2221,6 +2260,7 @@ function drawMenu() {
   strokeRound(table.x, table.y, table.w, table.h, 24, "rgba(220,180,70,.4)", 3);
   strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
   drawMenuAmbience(table, portrait);
+  if (side) drawMenuSidePanel(side);
 
   if (!portrait) {
     drawMenuShowCard({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, -.08, 1);
@@ -2262,9 +2302,17 @@ function drawMenu() {
     const boardH = Math.max(220, Math.min(275, table.y + table.h - boardY - 34));
     drawLeaderboardPanel(table.x + 44, boardY, table.w - 88, boardH);
   } else {
-    drawLeaderboardPanel(table.x + 62, table.y + table.h - 138, table.w - 124, 112);
+    drawLeaderboardPanel(side.x + 18, side.y + 24, side.w - 36, side.h - 48);
   }
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
+}
+
+function drawMenuSidePanel(side) {
+  shadow(0, 22, 55, "rgba(0,0,0,.42)", () => {
+    gradientRound(side.x, side.y, side.w, side.h, 18, [[0, "#1a1421"], [.55, "#100d16"], [1, "#22172b"]], true);
+  });
+  strokeRound(side.x, side.y, side.w, side.h, 18, "rgba(220,180,70,.32)", 2);
+  strokeRound(side.x + 10, side.y + 10, side.w - 20, side.h - 20, 13, "rgba(238,231,215,.06)", 1);
 }
 
 function drawMenuAmbience(table, portrait) {
@@ -2316,32 +2364,34 @@ function drawMenuShowCard(card, x, y, rotation = 0, scale = 1) {
 
 function drawLeaderboardPanel(x, y, w, h) {
   const portrait = viewport.portrait;
+  const roomy = !portrait && h > 240;
   const entries = displayLeaderboard();
   gradientRound(x, y, w, h, 14, [[0, "rgba(12,9,16,.82)"], [1, "rgba(34,25,44,.78)"]], true);
   strokeRound(x, y, w, h, 14, "rgba(220,180,70,.34)", 1.5);
-  text("LEADERBOARD", x + 22, y + (portrait ? 39 : 29), portrait ? 25 : 16, C.gold, "left", "serif");
-  text(leaderboardStatus, x + w - 22, y + (portrait ? 38 : 29), portrait ? 17 : 12, C.muted, "right");
+  text("LEADERBOARD", x + 22, y + (portrait ? 39 : roomy ? 38 : 29), portrait ? 25 : roomy ? 22 : 16, C.gold, "left", "serif");
+  text(fitLabel(leaderboardStatus, w * .48, portrait ? 17 : roomy ? 14 : 12), x + w - 22, y + (portrait ? 38 : roomy ? 37 : 29), portrait ? 17 : roomy ? 14 : 12, C.muted, "right");
   if (!entries.length) {
-    text("No completed runs yet.", x + w / 2, y + h / 2 + 18, portrait ? 22 : 15, C.muted, "center");
+    text("No completed runs yet.", x + w / 2, y + h / 2 + 18, portrait ? 22 : roomy ? 18 : 15, C.muted, "center");
     return;
   }
-  const rowTop = y + (portrait ? 68 : 45);
-  const rowH = portrait ? 40 : 13;
+  const rowTop = y + (portrait ? 68 : roomy ? 82 : 45);
+  const rowH = portrait ? 40 : roomy ? 78 : 13;
   entries.forEach((entry, i) => {
     const ry = rowTop + i * rowH;
-    if (portrait) fill(i % 2 ? "rgba(238,231,215,.035)" : "rgba(220,180,70,.055)", x + 14, ry - 23, w - 28, 34, 8);
-    const rankX = x + (portrait ? 28 : 18);
-    const nameX = x + (portrait ? 76 : 54);
-    const statsX = x + w - (portrait ? 24 : 18);
-    const nameSize = portrait ? 22 : 13;
-    const statSize = portrait ? 17 : 12;
+    if (portrait || roomy) fill(i % 2 ? "rgba(238,231,215,.035)" : "rgba(220,180,70,.055)", x + 14, ry - (roomy ? 31 : 23), w - 28, roomy ? 62 : 34, 8);
+    const rankX = x + (portrait ? 28 : roomy ? 30 : 18);
+    const nameX = x + (portrait ? 76 : roomy ? 76 : 54);
+    const statsX = x + w - (portrait ? 24 : roomy ? 28 : 18);
+    const nameSize = portrait ? 22 : roomy ? 19 : 13;
+    const statSize = portrait ? 17 : roomy ? 14 : 12;
     const name = fitLabel(entry.name || "Player", w * (portrait ? .33 : .30), nameSize);
     const profit = Number(entry.profit) || 0;
     const debt = Number(entry.debt) || 0;
     const stat = `${entry.result} F${entry.floor}/${entry.totalFloors} ${entry.gold}g ${profit >= 0 ? "+" : ""}${profit}${debt ? ` D${debt}` : ""}`;
     text(`#${i + 1}`, rankX, ry, nameSize, i === 0 ? C.gold : C.muted);
     text(name, nameX, ry, nameSize, C.text);
-    text(fitLabel(stat, Math.max(120, statsX - nameX - w * .34), statSize), statsX, ry, statSize, entry.result === "Win" ? C.green : C.muted, "right");
+    text(fitLabel(stat, Math.max(120, statsX - nameX - w * (roomy ? .12 : .34)), statSize), statsX, roomy ? ry + 24 : ry, statSize, entry.result === "Win" ? C.green : C.muted, "right");
+    if (roomy) text(fitLabel(entry.mode || "Classic Turns", w - 82, 12), nameX, ry + 24, 12, C.muted);
   });
 }
 
