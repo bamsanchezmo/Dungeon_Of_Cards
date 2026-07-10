@@ -169,6 +169,7 @@ const relicAssetFiles = {
   "Dealer's Bane": "dealers_bane.png",
   "Cracked Scrying Lens": "cracked_scrying_lens.png",
   "Croesus' Purse": "croesus_purse.png",
+  "Hollow Crown": "hollow_crown.png",
   "Sovereign's Chalice": "sovereigns_chalice.png",
   "Auditor's Quill": "phoenix_feather.png",
   "Bone-Hand Charm": "charlies_hand.png",
@@ -1726,7 +1727,7 @@ function startDeathReverseMusic() {
   const gain = audioCtx.createGain();
   source.buffer = reverseMusicBuffer;
   source.loop = true;
-  source.playbackRate.value = .96;
+  source.playbackRate.value = .98;
   gain.gain.value = 0;
   source.connect(gain).connect(audioCtx.destination);
   source.onended = () => {
@@ -1741,10 +1742,13 @@ function startDeathReverseMusic() {
 }
 
 function stopDeathReverseMusic() {
-  if (deathReverseGain) deathReverseGain.gain.setTargetAtTime(0, audioCtx.currentTime, .04);
+  if (deathReverseGain) {
+    deathReverseGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    deathReverseGain.gain.setTargetAtTime(0, audioCtx.currentTime, .08);
+  }
   if (deathReverseSource) {
     try {
-      deathReverseSource.stop(audioCtx.currentTime + .08);
+      deathReverseSource.stop(audioCtx.currentTime + .16);
     } catch {
     }
   }
@@ -1770,7 +1774,22 @@ function updateMusicMood(now = performance.now()) {
     if (!musicDeathMode) {
       musicDeathStarted = now;
       musicDeathLastHeartbeat = 0;
-      if (musicDistortion) musicDistortion.curve = makeDistortionCurve(520);
+      if (musicDistortion) musicDistortion.curve = makeDistortionCurve(130);
+      if (musicFilter) {
+        musicFilter.frequency.cancelScheduledValues(audioCtx.currentTime);
+        musicFilter.Q.cancelScheduledValues(audioCtx.currentTime);
+        musicFilter.frequency.setTargetAtTime(760, audioCtx.currentTime, .16);
+        musicFilter.Q.setTargetAtTime(4.5, audioCtx.currentTime, .16);
+      }
+      if (musicGain) {
+        musicGain.gain.cancelScheduledValues(audioCtx.currentTime);
+        musicGain.gain.setTargetAtTime(.86, audioCtx.currentTime, .06);
+      }
+      audio.preservesPitch = false;
+      audio.mozPreservesPitch = false;
+      audio.webkitPreservesPitch = false;
+      audio.playbackRate = .68;
+      audio.volume = .38;
       if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
     }
     ensureReverseMusicBuffer();
@@ -1779,12 +1798,12 @@ function updateMusicMood(now = performance.now()) {
     if (elapsed >= DEATH_WARP_MS) {
       audio.pause();
       audio.volume = 0;
-      if (musicGain) musicGain.gain.setTargetAtTime(0, audioCtx.currentTime, .04);
+      if (musicGain) musicGain.gain.setTargetAtTime(0, audioCtx.currentTime, .12);
       if (reverseElapsed >= 0) {
         startDeathReverseMusic();
         const reverseFade = clamp(reverseElapsed / DEATH_REVERSE_FADE_MS, 0, 1);
-        if (deathReverseGain) deathReverseGain.gain.setTargetAtTime(.34 * reverseFade, audioCtx.currentTime, .22);
-        const beatGap = lerp(980, 610, reverseFade);
+        if (deathReverseGain) deathReverseGain.gain.setTargetAtTime(.26 * reverseFade, audioCtx.currentTime, .45);
+        const beatGap = lerp(1250, 860, reverseFade);
         if (reverseFade < 1 && now - musicDeathLastHeartbeat > beatGap && !audio.muted && !document.hidden) {
           musicDeathLastHeartbeat = now;
           sfx("heartbeat");
@@ -1794,18 +1813,9 @@ function updateMusicMood(now = performance.now()) {
       return;
     }
     stopDeathReverseMusic();
-    const fade = clamp((DEATH_WARP_MS - elapsed) / 260, 0, 1);
-    const wobble = Math.sin(now / 180) * .045 + Math.sin(now / 71) * .018;
-    audio.preservesPitch = false;
-    audio.mozPreservesPitch = false;
-    audio.webkitPreservesPitch = false;
-    audio.playbackRate = clamp(.58 + wobble, .48, .68);
-    audio.volume = .42 * fade;
-    if (musicFilter) {
-      musicFilter.frequency.setTargetAtTime(540 + Math.sin(now / 230) * 120, audioCtx.currentTime, .08);
-      musicFilter.Q.setTargetAtTime(12, audioCtx.currentTime, .08);
-    }
-    if (musicGain) musicGain.gain.setTargetAtTime(.92 * fade, audioCtx.currentTime, .08);
+    const fade = clamp((DEATH_WARP_MS - elapsed) / 360, 0, 1);
+    audio.volume = .38 * fade;
+    if (musicGain) musicGain.gain.setTargetAtTime(.86 * fade, audioCtx.currentTime, .12);
     musicDeathMode = true;
     return;
   }
@@ -2111,7 +2121,7 @@ function drawDealer(felt) {
   ]);
   strokeRound(barX, barY, barW, 78, 14, "rgba(220,180,70,.2)", 1);
   shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
-  text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
+  drawDealerAsset(e, barX + 41, barY + 40, 34);
   text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, C.gold);
   const meterW = portrait ? 180 : 220;
   const meterX = barX + barW - meterW - 30;
@@ -2950,6 +2960,58 @@ function relicAssetKey(relic) {
   return relicAssetFiles[relic.name] ? `relic:${relic.name}` : "";
 }
 
+function dealerAssetKey(enemy) {
+  const byName = {
+    "Apprentice Croupier": "relic:Apprentice's Coin",
+    "Tavern Cardsharp": "relic:Charlie's Hand",
+    "Hooded Stranger": "relic:Cracked Scrying Lens",
+    "Vampire Dealer": "relic:Vampire's Bargain",
+    "Toll Collector": "goldMark",
+    "Court Jester": "relic:Double Crown",
+    "Coin-Eater": "debtMark",
+    "Tin Pit Boss": "relic:Iron Filing",
+    "Graveyard Shift Dealer": "relic:Bone Talisman",
+    "Wandering Tinker": "relic:Tinker's Thimble",
+    "Iron Bookkeeper": "relic:Merchant's Ledger",
+    "Crooked Sheriff": "relic:Duelist's Sigil",
+    "Cursed Magistrate": "relic:Magistrate's Writ",
+    "Plague Doctor": "relic:Heart of the Deck",
+    "Whispering Auditor": "relic:Pawnbroker's Note",
+    "Greedy Notary": "relic:Insurance Policy",
+    "Veiled Magician": "relic:Phoenix Feather",
+    "Silent Executor": "relic:Executioner's Mark",
+    "Pawnshop Tyrant": "relic:Croesus' Purse",
+    "Mirror Twin": "relic:Split Mastery",
+    "Warden of Spades": "suitS",
+    "Lich Banker": "relic:Usurer's Seal",
+    "Gilded Inquisitor": "relic:Golden Tongue",
+    "Twin Croupiers": "relic:Double Crown",
+    "Obsidian Marquis": "relic:Hollow Crown",
+    "Hollow Sovereign": "relic:Hollow Crown",
+    "Black Deck Marshal": "suitS",
+    "Carrion Auctioneer": "bloodDrop",
+    "Last Light Oracle": "relic:Cracked Scrying Lens",
+    "The Dealer Eternal": "relic:Hollow Crown"
+  };
+  if (byName[enemy.name] && handAssetReady(byName[enemy.name])) return byName[enemy.name];
+  if (enemy.tiesLose && handAssetReady("bloodDrop")) return "bloodDrop";
+  if (enemy.hitFee && handAssetReady("goldMark")) return "goldMark";
+  if (enemy.noSurrender && handAssetReady("relic:White Flag")) return "relic:White Flag";
+  if (enemy.bjPays65 && handAssetReady("relic:Pawnbroker's Note")) return "relic:Pawnbroker's Note";
+  if (handAssetReady("relic:Dealer's Bane")) return "relic:Dealer's Bane";
+  return "";
+}
+
+function drawDealerAsset(enemy, cx, cy, size) {
+  const key = dealerAssetKey(enemy);
+  if (!isHanddrawnArt() || !key) {
+    text(enemy.icon, cx, cy + 3, enemy.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
+    return false;
+  }
+  drawHandAssetFit(key, cx, cy, size, C.black, "center", .9);
+  return true;
+}
+
 function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
   const key = relicAssetKey(relic);
   if (!isHanddrawnArt() || !key || !handAssetReady(key)) {
@@ -2998,14 +3060,39 @@ function drawHanddrawnChips(x, y, amount) {
   let rest = amount;
   let n = 0;
   if (amount <= 0) {
-    drawHandAsset("chip", x - 2, y - 8, 44, 28, "rgba(238,231,215,.32)", .55);
+    ctx.save();
+    ctx.strokeStyle = "rgba(238,231,215,.45)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(x + 21, y + 6, 22, 8, -.08, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    drawHandAsset("chip", x - 5, y - 11, 54, 36, "rgba(238,231,215,.72)", .72);
     return;
   }
   for (const [value, color] of denoms) {
     while (rest >= value && n < 12) {
       const cy = y - n * 5;
-      drawHandAsset("chip", x - 5 + (n % 2), cy - 10, 54, 36, color, .95);
-      drawHandAsset("chip", x - 5 + (n % 2), cy - 10, 54, 36, "#09070a", .62);
+      const wobble = n % 2;
+      ctx.save();
+      ctx.globalAlpha = .96;
+      ctx.fillStyle = shade(color, -46);
+      ctx.fillRect(x + wobble + 1, cy + 4, 42, 10);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(x + wobble + 22, cy + 4, 22, 8, -.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#08070b";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,240,150,.86)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(x + wobble + 22, cy + 4, 15, 4.6, -.08, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      drawHandAsset("chip", x - 7 + wobble, cy - 13, 58, 39, "rgba(255,245,190,.75)", .68);
+      drawHandAsset("chip", x - 7 + wobble, cy - 13, 58, 39, "#07060a", .8);
       rest -= value;
       n++;
     }
