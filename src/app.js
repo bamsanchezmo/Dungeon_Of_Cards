@@ -1458,30 +1458,30 @@ function openNameEditor() {
 function savePlayerName() {
   const name = cleanPlayerName(playerNameInput.value);
   if (!name) return notify("Enter a display name.");
+  const previousName = savedPlayerName(role === "solo" ? "You" : "Player");
   localStorage.setItem("dungeon-player-name", name);
   const seat = game?.seats.find((s) => s.id === localPlayerId);
   if (seat) seat.name = name;
   if (role === "guest") peer?.send({ type: "rename", playerId: localPlayerId, name });
   if (role === "host") broadcast();
-  updateLeaderboardName(name);
+  updateLeaderboardName(name, previousName);
   hideSignal();
   notify(`Playing as ${name}`);
 }
 
-function updateLeaderboardName(name) {
+function updateLeaderboardName(name, previousName = "") {
   const entries = loadLeaderboard();
   if (!entries.length) return;
-  const playerKeys = new Set([localPlayerId, hostId, localDeviceId].filter(Boolean));
-  let changed = false;
-  const renamed = entries.map((entry) => {
-    const ownerId = String(entry.runKey || "").split(":").pop();
-    if (!playerKeys.has(ownerId)) return entry;
-    changed = true;
-    return { ...entry, name };
-  });
+  const renamedEntries = entries.map((entry) => ({ ...entry, name }));
+  const changed = entries.some((entry) => entry.name !== name || entry.name === previousName);
   if (!changed) return;
-  saveLeaderboard(renamed);
-  void syncLocalLeaderboardEntries().then(() => refreshLeaderboard(true)).catch(() => {
+  saveLeaderboard(renamedEntries);
+  leaderboardOnline = leaderboardOnline.map((entry) => {
+    if (!renamedEntries.some((renamedEntry) => renamedEntry.runKey === entry.runKey)) return entry;
+    const next = { ...entry, name };
+    return next;
+  });
+  void syncRenamedLeaderboardEntries(renamedEntries).then(() => refreshLeaderboard(true)).catch(() => {
     leaderboardStatus = "Name saved locally - global unavailable";
   });
 }
@@ -1571,7 +1571,7 @@ async function refreshLeaderboard(force = false) {
 
 async function syncLocalLeaderboardEntries() {
   if (leaderboardSyncInFlight) return;
-  const localEntries = loadLeaderboard().slice(0, LEADERBOARD_MAX);
+  const localEntries = normalizeLocalLeaderboardName().slice(0, LEADERBOARD_MAX);
   if (!localEntries.length) return;
   leaderboardSyncInFlight = true;
   try {
@@ -1582,6 +1582,30 @@ async function syncLocalLeaderboardEntries() {
   } finally {
     leaderboardSyncInFlight = false;
   }
+}
+
+function normalizeLocalLeaderboardName() {
+  const entries = loadLeaderboard();
+  const name = savedPlayerName("");
+  if (!name || !entries.length || entries.every((entry) => entry.name === name)) return entries;
+  const renamed = entries.map((entry) => ({ ...entry, name }));
+  saveLeaderboard(renamed);
+  return renamed;
+}
+
+async function syncRenamedLeaderboardEntries(entries) {
+  const renamed = entries.filter((entry) => entry?.runKey);
+  if (!renamed.length) return;
+  const { error } = await leaderboardService()
+    .from("leaderboard")
+    .upsert(renamed.map(leaderboardDbRow), { onConflict: "run_key" });
+  if (error) throw error;
+  await Promise.all(renamed.map(async (entry) => {
+    await leaderboardService()
+      .from("leaderboard")
+      .update({ name: entry.name })
+      .eq("run_key", entry.runKey);
+  }));
 }
 
 async function syncLeaderboardEntry(entry) {
