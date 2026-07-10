@@ -100,6 +100,7 @@ let seenCardIds = new Set();
 let statsPlayerId = "";
 let handCarousel = {};
 let handCarouselAnim = {};
+let handCarouselPending = {};
 let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
@@ -331,13 +332,17 @@ canvas.addEventListener("pointerup", (ev) => {
   const p = eventPoint(ev);
   const hit = pointerStart.hit;
   const dx = p.x - pointerStart.x;
-  sfx("click");
-  if (Math.abs(dx) > 42) {
-    const direction = dx < 0 ? 1 : -1;
-    setHandCarousel(hit.carouselSeat, hit.selected + direction, hit.count);
-  } else {
-    hit.onClick();
+  const direction = Math.abs(dx) > 42
+    ? (dx < 0 ? 1 : -1)
+    : (p.x < hit.x + hit.w / 2 ? -1 : 1);
+  const next = clamp(hit.selected + direction, 0, hit.count - 1);
+  if (next !== hit.selected) {
+    sfx("click");
+    setHandCarousel(hit.carouselSeat, next, hit.count);
   }
+  pointerStart = null;
+});
+canvas.addEventListener("pointercancel", () => {
   pointerStart = null;
 });
 window.addEventListener("keydown", (ev) => {
@@ -495,6 +500,7 @@ function kickPlayer(id) {
   if (game.activeSeat >= game.seats.length) game.activeSeat = Math.max(0, game.seats.length - 1);
   delete handCarousel[id];
   delete handCarouselAnim[id];
+  delete handCarouselPending[id];
   statsPlayerId = "";
   rescaleEnemyForPlayers();
   log(`${removed.name} was removed from the lobby.`);
@@ -1629,6 +1635,24 @@ function goldLabel() {
   return `${base}${debt ? ` / Debt ${debt}g` : ""}`;
 }
 
+function drawGoldDebtLine(x, y, size = 18) {
+  const seat = mySeat() || game.seats[0];
+  const debt = debtForSeat(seat);
+  const base = isFreeForAll() ? `Bank ${seatBankroll(seat)}g` : `Gold ${game.gold}g`;
+  const iconSize = size * 1.25;
+  drawHandAssetFit("goldMark", x + iconSize / 2, y - size * .32, iconSize, C.gold, "center", .95);
+  text(base, x + iconSize + 8, y, size, C.gold);
+  if (debt) {
+    ctx.save();
+    ctx.font = `700 ${size}px sans-serif`;
+    const baseW = ctx.measureText(base).width;
+    ctx.restore();
+    const debtX = x + iconSize + 8 + baseW + 18;
+    drawHandAssetFit("debtMark", debtX + iconSize / 2, y - size * .32, iconSize, C.red, "center", .95);
+    text(`Debt ${debt}g`, debtX + iconSize + 8, y, size, C.red);
+  }
+}
+
 function spendGold(seat, amount) {
   if (amount <= 0) return true;
   if (isFreeForAll()) {
@@ -2187,7 +2211,17 @@ function drawSeats(felt) {
     if (seat.hands.length) {
       const activeIndex = clamp(seat.active ?? 0, 0, seat.hands.length - 1);
       const shouldFollowActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
-      if (shouldFollowActive && (handCarousel[seat.id] ?? activeIndex) !== activeIndex) setHandCarousel(seat.id, activeIndex, seat.hands.length);
+      if (shouldFollowActive && (handCarousel[seat.id] ?? activeIndex) !== activeIndex) {
+        const pending = handCarouselPending[seat.id];
+        if (!pending || pending.to !== activeIndex) {
+          handCarouselPending[seat.id] = { to: activeIndex, at: performance.now() + 950 };
+        } else if (performance.now() >= pending.at) {
+          delete handCarouselPending[seat.id];
+          setHandCarousel(seat.id, activeIndex, seat.hands.length);
+        }
+      } else {
+        delete handCarouselPending[seat.id];
+      }
       const selected = clamp(handCarousel[seat.id] ?? activeIndex, 0, seat.hands.length - 1);
       handCarousel[seat.id] = selected;
       if (seat.hands.length > 1) {
@@ -2210,16 +2244,12 @@ function drawSeats(felt) {
           ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
           ctx.rotate(offset * -.09);
           ctx.scale(scale, scale);
-          if (isPlayingHand) {
-            shadow(0, 0, 28, "rgba(220,180,70,.68)", () => fill("rgba(220,180,70,.32)", -12, -14, Math.min(210, seatW - 72) + 24, CARD_H + 28, 18));
-          }
-          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72));
+          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72), false);
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
         badge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor);
-        buttons.push({ x: x - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected > 0, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => setHandCarousel(seat.id, selected - 1, seat.hands.length) });
-        buttons.push({ x: x + seatW / 2 - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected < seat.hands.length - 1, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => setHandCarousel(seat.id, selected + 1, seat.hands.length) });
+        buttons.push({ x: x - 18, y: y - 4, w: seatW, h: 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
       } else {
         const hand = seat.hands[0];
         drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 40));
@@ -2262,7 +2292,7 @@ function drawSidePanel() {
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 100, 230, 1);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
-  text(goldLabel(), x + 22, 140, 18, C.gold);
+  drawGoldDebtLine(x + 22, 140, 18);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
   if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
@@ -2295,7 +2325,7 @@ function drawBottomPanel() {
   const leftX = x + 24;
   const rightStatX = x + w - 250;
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, leftX, y + 98, 24, C.text);
-  text(goldLabel(), leftX, y + 134, 24, C.gold);
+  drawGoldDebtLine(leftX, y + 134, 24);
   meter(rightStatX, y + 96, 220, 18, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
   if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
@@ -2337,7 +2367,7 @@ function drawTouchLandscapePanel() {
   text("DUNGEON OF CARDS", x + 190, 82, 25, C.gold, "center", "serif");
   addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 24, 142, 27, C.text);
-  text(goldLabel(), x + 245, 142, 27, C.gold);
+  drawGoldDebtLine(x + 245, 142, 27);
   meter(x + 24, 174, w - 48, 20, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
   text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
@@ -2824,6 +2854,9 @@ function goHome() {
   localPlayerId = hostId;
   cardAnimations = [];
   seenCardIds = new Set();
+  handCarousel = {};
+  handCarouselAnim = {};
+  handCarouselPending = {};
   hideSignal();
   peer?.peer?.destroy?.();
   peer = null;
@@ -2831,6 +2864,7 @@ function goHome() {
 }
 
 function setHandCarousel(seatId, next, count = Infinity) {
+  delete handCarouselPending[seatId];
   const target = clamp(next, 0, Math.max(0, count - 1));
   const current = clamp(handCarousel[seatId] ?? target, 0, Math.max(0, count - 1));
   if (current === target) {
@@ -2859,19 +2893,30 @@ function carouselVisualIndex(seatId, selected) {
   return lerp(anim.from, anim.to, eased);
 }
 
-function drawHand(cards, x, y, highlight, maxWidth = Infinity) {
+function drawCardOutlineGlow(x = 0, y = 0) {
+  ctx.save();
+  ctx.shadowColor = "rgba(255,218,91,.9)";
+  ctx.shadowBlur = 18;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(255,232,130,.88)";
+  strokeRound(x - 3, y - 3, CARD_W + 6, CARD_H + 6, 12, "rgba(255,232,130,.88)", 4);
+  ctx.restore();
+}
+
+function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true) {
   const step = cards.length < 2 ? 0 : Math.max(10, Math.min(62, (maxWidth - CARD_W) / Math.max(1, cards.length - 1)));
   const handW = cards.length < 2 ? CARD_W : CARD_W + step * (cards.length - 1);
   const scale = Number.isFinite(maxWidth) && handW > maxWidth ? clamp(maxWidth / handW, .62, 1) : 1;
   cards.forEach((card, i) => {
     const cx = x + i * step;
     const cy = y + Math.sin(i * .6) * 2;
-    const anim = prepareCardAnimation(card, cx, cy);
+    const anim = animate ? prepareCardAnimation(card, cx, cy) : null;
     if (anim && animationProgress(anim) < .92) return;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
-    drawCardFace(card, 0, 0, highlight && i === cards.length - 1);
+    if (highlight) drawCardOutlineGlow(0, 0);
+    drawCardFace(card, 0, 0, false);
     ctx.restore();
   });
 }
@@ -2916,7 +2961,8 @@ function drawFlyingCards() {
     ctx.translate(x + CARD_W / 2, y + CARD_H / 2);
     ctx.rotate(rot);
     ctx.scale(scale, scale);
-    drawCardFace(anim.card, -CARD_W / 2, -CARD_H / 2, true);
+    drawCardOutlineGlow(-CARD_W / 2, -CARD_H / 2);
+    drawCardFace(anim.card, -CARD_W / 2, -CARD_H / 2, false);
     ctx.restore();
   });
 }
@@ -2927,8 +2973,8 @@ function animationProgress(anim) {
 
 function deckPosition() {
   const felt = viewport.portrait
-    ? { x: 24, y: 24, w: layoutW() - 48, h: 700 }
-    : { x: 40, y: 40, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 720 };
+    ? { x: 24, y: 42, w: layoutW() - 48, h: 730 }
+    : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
   return { x: felt.x + felt.w - 125, y: felt.y + 50 };
 }
 
