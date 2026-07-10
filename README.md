@@ -24,4 +24,4 @@ No paid services are used. GitHub Pages hosts the game, and browsers exchange ho
 
 ## Leaderboard Note
 
-Run `supabase_leaderboard.sql` in the Supabase SQL editor once to create the shared leaderboard table and public read/write policies. The game still saves scores locally if the global table is not available.
+Run `supabase_leaderboard.sql` in the Supabase SQL editor once to create the shared leaderboard table and public read/write policies. The game keeps the global top 50 in that table, shows the top 5 in the menu, and syncs locally saved runs on app open/refresh. GitHub Pages is static, so browsers cannot safely update a leaderboard file in the repo without exposing a GitHub write token.

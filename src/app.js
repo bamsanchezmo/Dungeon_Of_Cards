@@ -114,6 +114,7 @@ const savedMode = localStorage.getItem("dungeon-mode");
 let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
 const LEADERBOARD_KEY = "dungeon-leaderboard-v1";
 const LEADERBOARD_MAX = 50;
+const LEADERBOARD_VISIBLE = 5;
 const LEADERBOARD_REFRESH_MS = 15000;
 const artPreference = "handdrawn";
 const handdrawnAssetFiles = {
@@ -194,6 +195,7 @@ let leaderboardOnline = [];
 let leaderboardStatus = "Loading global top 5...";
 let leaderboardRefreshAt = 0;
 let leaderboardRefreshInFlight = false;
+let leaderboardSyncInFlight = false;
 
 let enemyTemplates = [];
 
@@ -463,6 +465,7 @@ function newGame(players, code = "", mode = modePreference) {
     loanDebt: 0,
     loanSeatId: "",
     loanReason: "",
+    loanRequiredAmount: MIN_BET,
     loanVotes: {},
     loanSignedAt: 0,
     session: crypto.randomUUID?.() ?? String(Date.now())
@@ -680,7 +683,7 @@ function dealRound() {
     game.gold -= totalBets;
   }
   if (!isFreeForAll() && (game.enemy.hitFee || 0) > game.gold) {
-    triggerBankruptcyDeath("You cannot pay the table toll", loanSigner());
+    triggerBankruptcyDeath("You cannot pay the table toll", loanSigner(), game.enemy.hitFee || MIN_BET);
     sfx("lose");
     broadcast();
     return;
@@ -748,11 +751,11 @@ function hit(seatIndex) {
     if (!spendGold(seat, fee)) {
       if (isFreeForAll()) {
         updateSeatBankruptcy(seat);
-        triggerBankruptcyDeath(`${seat.name} cannot pay the hit toll`, seat);
+        triggerBankruptcyDeath(`${seat.name} cannot pay the hit toll`, seat, fee);
         broadcast();
         return;
       }
-      triggerBankruptcyDeath("You cannot pay the hit toll", seat);
+      triggerBankruptcyDeath("You cannot pay the hit toll", seat, fee);
       sfx("lose");
       broadcast();
       return;
@@ -1432,7 +1435,7 @@ function saveLeaderboard(entries) {
 }
 
 function displayLeaderboard() {
-  return (leaderboardOnline.length ? leaderboardOnline : loadLeaderboard()).slice(0, 5);
+  return (leaderboardOnline.length ? leaderboardOnline : loadLeaderboard()).slice(0, LEADERBOARD_VISIBLE);
 }
 
 function leaderboardDbRow(entry) {
@@ -1480,19 +1483,35 @@ async function refreshLeaderboard(force = false) {
   leaderboardRefreshInFlight = true;
   leaderboardRefreshAt = Date.now();
   try {
+    await syncLocalLeaderboardEntries();
     const { data, error } = await leaderboardService()
       .from("leaderboard")
       .select("run_key,name,score,result,mode,floor,total_floors,gold,debt,profit,rounds,played_at,created_at")
       .order("score", { ascending: false })
       .order("played_at", { ascending: false })
-      .limit(5);
+      .limit(LEADERBOARD_MAX);
     if (error) throw error;
-    leaderboardOnline = sortLeaderboard((data || []).map(leaderboardEntryFromDb)).slice(0, 5);
+    leaderboardOnline = sortLeaderboard((data || []).map(leaderboardEntryFromDb)).slice(0, LEADERBOARD_MAX);
     leaderboardStatus = "Global top 5";
   } catch {
     leaderboardStatus = loadLeaderboard().length ? "Local top 5 - global unavailable" : "Global leaderboard unavailable";
   } finally {
     leaderboardRefreshInFlight = false;
+  }
+}
+
+async function syncLocalLeaderboardEntries() {
+  if (leaderboardSyncInFlight) return;
+  const localEntries = loadLeaderboard().slice(0, LEADERBOARD_MAX);
+  if (!localEntries.length) return;
+  leaderboardSyncInFlight = true;
+  try {
+    const { error } = await leaderboardService()
+      .from("leaderboard")
+      .upsert(localEntries.map(leaderboardDbRow), { onConflict: "run_key" });
+    if (error) throw error;
+  } finally {
+    leaderboardSyncInFlight = false;
   }
 }
 
@@ -1619,12 +1638,13 @@ function sharedBankrupt() {
   return !!game && !isFreeForAll() && (Number(game.gold) || 0) <= 0;
 }
 
-function canOfferBankruptcyLoan(seat = null) {
+function canOfferBankruptcyLoan(seat = null, requiredAmount = MIN_BET) {
   if (!game) return false;
+  const required = Math.max(MIN_BET, Number(requiredAmount) || MIN_BET);
   if (isFreeForAll()) {
-    return !!seat && seatBankroll(seat) < MIN_BET && (Number(seat.debt) || 0) <= 0;
+    return !!seat && seatBankroll(seat) < required && (Number(seat.debt) || 0) <= 0;
   }
-  return sharedBankrupt() && (Number(game.loanDebt) || 0) <= 0;
+  return (Number(game.gold) || 0) < required && (Number(game.loanDebt) || 0) <= 0;
 }
 
 function sharedLoanNeedsVote() {
@@ -1646,17 +1666,19 @@ function loanDisplaySigner(playerId = localPlayerId) {
   return loanSigner();
 }
 
-function triggerBankruptcyDeath(reason, seat = null) {
+function triggerBankruptcyDeath(reason, seat = null, requiredAmount = MIN_BET) {
   const signerSeat = seat || game.seats[game.activeSeat] || mySeat() || game.seats[0];
   const hpBefore = Math.max(1, game.hp || game.maxHp || 1);
+  const required = Math.max(MIN_BET, Number(requiredAmount) || MIN_BET);
   if (!isFreeForAll()) {
     if (game.hp > 0) queueHpAnimation(game.hp, 0, game.maxHp);
     game.hp = 0;
   }
   game.loanSeatId = signerSeat?.id || "";
   game.loanReason = reason || "Bankruptcy";
+  game.loanRequiredAmount = required;
   game.loanVotes = {};
-  if (canOfferBankruptcyLoan(signerSeat)) {
+  if (canOfferBankruptcyLoan(signerSeat, required)) {
     game.phase = "loanOffer";
     if (!isFreeForAll()) log(`${reason}. A blood contract is offered.`);
   } else if (isFreeForAll()) {
@@ -1716,7 +1738,7 @@ function signLoan(playerId) {
   if (game.phase !== "loanOffer") return;
   if (isFreeForAll() && game.loanSeatId && playerId !== game.loanSeatId) return flashMsg(`${loanSigner().name} must sign`);
   const seat = game.seats.find((s) => s.id === (game.loanSeatId || playerId));
-  if (!canOfferBankruptcyLoan(seat)) {
+  if (!canOfferBankruptcyLoan(seat, game.loanRequiredAmount || MIN_BET)) {
     if (isFreeForAll()) eliminateSeat(seat, "No contract remains.");
     else game.phase = "defeat";
     return;
@@ -1740,6 +1762,7 @@ function signLoan(playerId) {
   }
   queueHpAnimation(0, reviveHp, game.maxHp);
   game.hp = reviveHp;
+  game.loanRequiredAmount = MIN_BET;
   enterBettingRound({ chargeInterest: false });
   if (!isFreeForAll()) log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
   sfx("life");
