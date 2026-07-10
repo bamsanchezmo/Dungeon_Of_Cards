@@ -2876,7 +2876,7 @@ function handAssetReady(key) {
 
 function handCardAssetsReady() {
   const ranks = "0123456789AJQK".split("").map((ch) => `glyph${ch}`);
-  return ["frame", "backDiamond", "suitS", "suitH", "suitD", "suitC", ...ranks].every(handAssetReady);
+  return ["backDiamond", "suitS", "suitH", "suitD", "suitC", ...ranks].every(handAssetReady);
 }
 
 function tintedHandAsset(key, color) {
@@ -2966,12 +2966,11 @@ function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
 
 function drawHanddrawnCardFace(card, x, y, highlight = false) {
   if (highlight) {
-    fill("rgba(220,180,70,.34)", x - 6, y - 6, CARD_W + 12, CARD_H + 12, 13);
-    drawHandAsset("frame", x - 7, y - 7, CARD_W + 14, CARD_H + 14, C.gold, .8);
+    shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
   }
   if (card.up === false) {
-    fill("#312045", x, y, CARD_W, CARD_H, 9);
-    fill("#4a2f66", x + 7, y + 7, CARD_W - 14, CARD_H - 14, 7);
+    shadow(0, 7, 13, "rgba(0,0,0,.36)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#4a2f66"], [1, "#23133a"]], true));
+    gradientRound(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, [[0, "#654482"], [1, "#38244e"]], true);
     for (let col = 0; col < 4; col++) {
       for (let row = 0; row < 6; row++) {
         const dx = x + 13 + col * 18 + ((row % 2) ? 3 : -1);
@@ -2979,12 +2978,12 @@ function drawHanddrawnCardFace(card, x, y, highlight = false) {
         drawHandAsset("backDiamond", dx, dy, 13, 17, "#d4b35e", .55);
       }
     }
-    drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, C.gold, .96);
+    strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
     return;
   }
-  fill("#eadbb7", x, y, CARD_W, CARD_H, 9);
-  fill("rgba(255,248,225,.42)", x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7);
-  drawHandAsset("frame", x - 4, y - 3, CARD_W + 8, CARD_H + 6, "#312821", .96);
+  shadow(0, 7, 12, "rgba(0,0,0,.28)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#fff2cb"], [.55, C.parchment], [1, "#cdbb8f"]], true));
+  strokeRound(x, y, CARD_W, CARD_H, 9, "#3c3228", 2);
+  strokeRound(x + 4, y + 4, CARD_W - 8, CARD_H - 8, 6, "rgba(255,255,255,.22)", 1);
   const red = card.suit === "H" || card.suit === "D";
   const color = red ? "#9e1f24" : "#12121b";
   drawHandRank(card.rank, x + 9, y + 13, card.rank === "10" ? 20 : 24, color, "left");
@@ -3168,20 +3167,6 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   buttons.push(b);
   const hot = inRect(hover, b) && enabled;
   const portrait = viewport.portrait;
-  if (isHanddrawnArt() && handAssetReady("frame")) {
-    const bg = !enabled
-      ? "#1a1720"
-      : primary
-        ? (hot ? "#e4bd55" : "#d2ad48")
-        : (hot ? "#33293f" : "#211a2b");
-    fill(bg, x, y, w, h, 9);
-    if (primary) fill("rgba(255,247,199,.18)", x + 8, y + 8, w - 16, Math.max(6, h * .24), 6);
-    drawHandAsset("frame", x - 4, y - 5, w + 8, h + 10, enabled ? (primary ? "#171015" : "rgba(238,231,215,.86)") : "#5d5664", enabled ? .95 : .62);
-    if (hot) drawHandAsset("frame", x - 7, y - 8, w + 14, h + 16, primary ? "#fff0a6" : C.gold, .42);
-    const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
-    text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? C.black : enabled ? C.text : C.muted, "center");
-    return;
-  }
   const stops = !enabled
     ? [[0, "#282631"], [1, "#1a1820"]]
     : primary
@@ -3191,9 +3176,6 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
-  if (isHanddrawnArt() && handAssetReady("frame")) {
-    drawHandAsset("frame", x + 3, y + 3, w - 6, h - 6, primary ? "#1b1519" : "rgba(238,231,215,.86)", primary ? .28 : .22);
-  }
   const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
   text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? C.black : enabled ? C.text : C.muted, "center");
 }
@@ -3204,17 +3186,8 @@ function badge(x, y, label, color) {
   ctx.font = `700 ${size}px sans-serif`;
   const width = Math.max(portrait ? 58 : 42, ctx.measureText(label).width + (portrait ? 32 : 24));
   const height = portrait ? 40 : 32;
-  if (isHanddrawnArt() && handAssetReady("token")) {
-    fill("#0d0a10", x - width / 2, y - height / 2, width, height, height / 2);
-    drawHandAsset("token", x - width / 2 - 5, y - height / 2 - 6, width + 10, height + 12, color, .72);
-    text(label, x, y + (portrait ? 7 : 6), size, color, "center");
-    return;
-  }
   gradientRound(x - width / 2, y - height / 2, width, height, height / 2, [[0, "#1b1621"], [1, "#08070b"]], true);
   strokeRound(x - width / 2, y - height / 2, width, height, height / 2, color, 1.5);
-  if (isHanddrawnArt() && handAssetReady("token")) {
-    drawHandAsset("token", x - width / 2 - 3, y - height / 2 - 4, width + 6, height + 8, color, .24);
-  }
   text(label, x, y + (portrait ? 7 : 6), size, color, "center");
 }
 
