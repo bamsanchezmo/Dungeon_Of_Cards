@@ -72,10 +72,13 @@ let peer = null;
 let game = null;
 let buttons = [];
 let hover = { x: -1, y: -1 };
+let pointerStart = null;
 let last = performance.now();
 let musicStarted = false;
 let musicPausedForFocus = false;
 let audio = null;
+let deathWarpAudio = null;
+let heartbeatAudio = null;
 let audioCtx = null;
 let audioSource = null;
 let musicFilter = null;
@@ -84,8 +87,7 @@ let musicGain = null;
 let musicDeathMode = false;
 let musicDeathStarted = 0;
 let musicDeathLastHeartbeat = 0;
-let reverseMusicBuffer = null;
-let reverseMusicPromise = null;
+let musicDeathWarpPlayed = false;
 let deathReverseSource = null;
 let deathReverseGain = null;
 let flash = "";
@@ -97,6 +99,7 @@ let cardAnimations = [];
 let seenCardIds = new Set();
 let statsPlayerId = "";
 let handCarousel = {};
+let handCarouselAnim = {};
 let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
@@ -108,11 +111,7 @@ const modeLabels = {
 };
 const savedMode = localStorage.getItem("dungeon-mode");
 let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
-let artPreference = localStorage.getItem("dungeon-art-style") === "handdrawn" ? "handdrawn" : "classic";
-const artLabels = {
-  classic: "Classic Art",
-  handdrawn: "Hand-Drawn Art"
-};
+const artPreference = "handdrawn";
 const handdrawnAssetFiles = {
   frame: "frame.png",
   divider: "divider.png",
@@ -308,6 +307,7 @@ canvas.addEventListener("mousemove", (ev) => {
 });
 canvas.addEventListener("pointerdown", (ev) => {
   const p = eventPoint(ev);
+  pointerStart = { ...p, hit: null };
   startAudio();
   if (hpAnimation) {
     hpAnimation = null;
@@ -315,9 +315,30 @@ canvas.addEventListener("pointerdown", (ev) => {
   }
   const hit = [...buttons].reverse().find((b) => b.enabled !== false && inRect(p, b));
   if (hit) {
+    if (hit.carouselSeat) {
+      pointerStart.hit = hit;
+      return;
+    }
     sfx("click");
     hit.onClick();
   }
+});
+canvas.addEventListener("pointerup", (ev) => {
+  if (!pointerStart?.hit?.carouselSeat) {
+    pointerStart = null;
+    return;
+  }
+  const p = eventPoint(ev);
+  const hit = pointerStart.hit;
+  const dx = p.x - pointerStart.x;
+  sfx("click");
+  if (Math.abs(dx) > 42) {
+    const direction = dx < 0 ? 1 : -1;
+    setHandCarousel(hit.carouselSeat, hit.selected + direction, hit.count);
+  } else {
+    hit.onClick();
+  }
+  pointerStart = null;
 });
 window.addEventListener("keydown", (ev) => {
   if (signalPanel.hidden === false) return;
@@ -473,6 +494,7 @@ function kickPlayer(id) {
   game.hp = Math.min(game.hp, game.maxHp);
   if (game.activeSeat >= game.seats.length) game.activeSeat = Math.max(0, game.seats.length - 1);
   delete handCarousel[id];
+  delete handCarouselAnim[id];
   statsPlayerId = "";
   rescaleEnemyForPlayers();
   log(`${removed.name} was removed from the lobby.`);
@@ -1574,13 +1596,11 @@ function cycleModePreference() {
 }
 
 function cycleArtPreference() {
-  artPreference = artPreference === "handdrawn" ? "classic" : "handdrawn";
-  localStorage.setItem("dungeon-art-style", artPreference);
-  if (artPreference === "handdrawn") loadHanddrawnAssets();
+  loadHanddrawnAssets();
 }
 
 function isHanddrawnArt() {
-  return artPreference === "handdrawn";
+  return true;
 }
 
 function seatBankroll(seat) {
@@ -1677,12 +1697,41 @@ function startAudio() {
     audio.mozPreservesPitch = true;
     audio.webkitPreservesPitch = true;
   }
+  if (!deathWarpAudio) {
+    deathWarpAudio = new Audio("./assets/death_warp.wav");
+    deathWarpAudio.preload = "auto";
+    deathWarpAudio.volume = .22;
+  }
+  if (!heartbeatAudio) {
+    heartbeatAudio = new Audio("./assets/heartbeat.wav");
+    heartbeatAudio.preload = "auto";
+    heartbeatAudio.volume = .24;
+  }
   if (!audioCtx) audioCtx = new AudioContext();
   setupMusicChain();
-  ensureReverseMusicBuffer();
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   if (!musicStarted) {
     audio.play().then(() => musicStarted = true).catch(() => {});
+  }
+}
+
+function playClip(clip, volume = .22) {
+  if (!clip || audio?.muted || document.hidden) return;
+  try {
+    clip.pause();
+    clip.currentTime = 0;
+    clip.volume = volume;
+    clip.play().catch(() => {});
+  } catch {
+  }
+}
+
+function stopClip(clip) {
+  if (!clip) return;
+  try {
+    clip.pause();
+    clip.currentTime = 0;
+  } catch {
   }
 }
 
@@ -1699,46 +1748,6 @@ function setupMusicChain() {
   musicGain = audioCtx.createGain();
   musicGain.gain.value = 1;
   audioSource.connect(musicFilter).connect(musicDistortion).connect(musicGain).connect(audioCtx.destination);
-}
-
-function ensureReverseMusicBuffer() {
-  if (!audioCtx || reverseMusicBuffer) return Promise.resolve(reverseMusicBuffer);
-  if (reverseMusicPromise) return reverseMusicPromise;
-  reverseMusicPromise = fetch("./assets/Velvet_Blackjack.ogg")
-    .then((res) => res.arrayBuffer())
-    .then((data) => audioCtx.decodeAudioData(data))
-    .then((buffer) => {
-      const reversed = audioCtx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
-      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-        const input = buffer.getChannelData(channel);
-        const output = reversed.getChannelData(channel);
-        for (let i = 0, j = input.length - 1; i < input.length; i++, j--) output[i] = input[j];
-      }
-      reverseMusicBuffer = reversed;
-      return reverseMusicBuffer;
-    })
-    .catch(() => null);
-  return reverseMusicPromise;
-}
-
-function startDeathReverseMusic() {
-  if (!audioCtx || !reverseMusicBuffer || deathReverseSource || audio?.muted || document.hidden) return;
-  const source = audioCtx.createBufferSource();
-  const gain = audioCtx.createGain();
-  source.buffer = reverseMusicBuffer;
-  source.loop = true;
-  source.playbackRate.value = .98;
-  gain.gain.value = 0;
-  source.connect(gain).connect(audioCtx.destination);
-  source.onended = () => {
-    if (deathReverseSource === source) {
-      deathReverseSource = null;
-      deathReverseGain = null;
-    }
-  };
-  deathReverseSource = source;
-  deathReverseGain = gain;
-  source.start();
 }
 
 function stopDeathReverseMusic() {
@@ -1771,56 +1780,32 @@ function updateMusicMood(now = performance.now()) {
   if (!audio) return;
   const death = game?.phase === "loanOffer" || game?.phase === "defeat";
   if (death) {
+    const lightDeathAudio = isIOSDevice();
     if (!musicDeathMode) {
       musicDeathStarted = now;
       musicDeathLastHeartbeat = 0;
-      if (musicDistortion) musicDistortion.curve = makeDistortionCurve(130);
-      if (musicFilter) {
-        musicFilter.frequency.cancelScheduledValues(audioCtx.currentTime);
-        musicFilter.Q.cancelScheduledValues(audioCtx.currentTime);
-        musicFilter.frequency.setTargetAtTime(760, audioCtx.currentTime, .16);
-        musicFilter.Q.setTargetAtTime(4.5, audioCtx.currentTime, .16);
-      }
-      if (musicGain) {
-        musicGain.gain.cancelScheduledValues(audioCtx.currentTime);
-        musicGain.gain.setTargetAtTime(.86, audioCtx.currentTime, .06);
-      }
-      audio.preservesPitch = false;
-      audio.mozPreservesPitch = false;
-      audio.webkitPreservesPitch = false;
-      audio.playbackRate = .68;
-      audio.volume = .38;
-      if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
-    }
-    ensureReverseMusicBuffer();
-    const elapsed = now - musicDeathStarted;
-    const reverseElapsed = elapsed - DEATH_WARP_MS - DEATH_SILENCE_MS;
-    if (elapsed >= DEATH_WARP_MS) {
+      musicDeathWarpPlayed = false;
+      stopDeathReverseMusic();
       audio.pause();
       audio.volume = 0;
-      if (musicGain) musicGain.gain.setTargetAtTime(0, audioCtx.currentTime, .12);
-      if (reverseElapsed >= 0) {
-        startDeathReverseMusic();
-        const reverseFade = clamp(reverseElapsed / DEATH_REVERSE_FADE_MS, 0, 1);
-        if (deathReverseGain) deathReverseGain.gain.setTargetAtTime(.26 * reverseFade, audioCtx.currentTime, .45);
-        const beatGap = lerp(1250, 860, reverseFade);
-        if (reverseFade < 1 && now - musicDeathLastHeartbeat > beatGap && !audio.muted && !document.hidden) {
-          musicDeathLastHeartbeat = now;
-          sfx("heartbeat");
-        }
-      }
-      musicDeathMode = true;
-      return;
+      if (musicGain) musicGain.gain.setTargetAtTime(0, audioCtx.currentTime, .08);
     }
-    stopDeathReverseMusic();
-    const fade = clamp((DEATH_WARP_MS - elapsed) / 360, 0, 1);
-    audio.volume = .38 * fade;
-    if (musicGain) musicGain.gain.setTargetAtTime(.86 * fade, audioCtx.currentTime, .12);
+    if (!musicDeathWarpPlayed) {
+      musicDeathWarpPlayed = true;
+      playClip(deathWarpAudio, lightDeathAudio ? .13 : .2);
+    }
+    const beatGap = lightDeathAudio ? 2100 : 1500;
+    if (now - musicDeathLastHeartbeat > beatGap) {
+      musicDeathLastHeartbeat = now;
+      playClip(heartbeatAudio, lightDeathAudio ? .12 : .2);
+    }
     musicDeathMode = true;
     return;
   }
   if (!musicDeathMode) return;
   stopDeathReverseMusic();
+  stopClip(deathWarpAudio);
+  stopClip(heartbeatAudio);
   audio.playbackRate = 1;
   audio.preservesPitch = true;
   audio.mozPreservesPitch = true;
@@ -1835,18 +1820,25 @@ function updateMusicMood(now = performance.now()) {
   musicDeathMode = false;
   musicDeathStarted = 0;
   musicDeathLastHeartbeat = 0;
+  musicDeathWarpPlayed = false;
   if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
 }
 
 function toggleMusic() {
   if (!audio) return;
   audio.muted = !audio.muted;
-  if (audio.muted) stopDeathReverseMusic();
+  if (audio.muted) {
+    stopDeathReverseMusic();
+    stopClip(deathWarpAudio);
+    stopClip(heartbeatAudio);
+  }
   flashMsg(audio.muted ? "Music muted" : "Music on");
 }
 
 function pauseMusicForFocus() {
   stopDeathReverseMusic();
+  stopClip(deathWarpAudio);
+  stopClip(heartbeatAudio);
   if (!audio || audio.paused || audio.muted) return;
   musicPausedForFocus = true;
   audio.pause();
@@ -1859,6 +1851,10 @@ function resumeMusicForFocus() {
 }
 
 function sfx(kind) {
+  if (kind === "heartbeat") {
+    playClip(heartbeatAudio, isIOSDevice() ? .12 : .2);
+    return;
+  }
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   const now = audioCtx.currentTime;
@@ -1902,12 +1898,6 @@ function sfx(kind) {
     blip(150, 0, .2, .24, "square", 52);
     blip(78, .025, .26, .18, "sawtooth", 38);
     blip(310, .02, .045, .11, "square", 180);
-    return;
-  }
-  if (kind === "heartbeat") {
-    blip(72, 0, .18, .27, "sine", 43);
-    blip(46, .16, .22, .21, "triangle", 34);
-    blip(96, .01, .05, .08, "square", 60);
     return;
   }
   const osc = audioCtx.createOscillator();
@@ -2054,14 +2044,13 @@ function drawMenu() {
   addButton(buttonX, buttonY + buttonGap * 3, buttonW, portrait ? 72 : 44, `Mode: ${modeLabels[modePreference]}`, () => {
     cycleModePreference();
   });
-  addButton(buttonX, buttonY + buttonGap * 4, buttonW, portrait ? 72 : 44, `Art: ${artLabels[artPreference]}`, cycleArtPreference);
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
 }
 
 function drawTable() {
   const felt = viewport.portrait
-    ? { x: 24, y: 24, w: layoutW() - 48, h: 700 }
-    : { x: 40, y: 40, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 720 };
+    ? { x: 24, y: 42, w: layoutW() - 48, h: 730 }
+    : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
   const theme = feltTheme();
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
@@ -2121,7 +2110,7 @@ function drawDealer(felt) {
   ]);
   strokeRound(barX, barY, barW, 78, 14, "rgba(220,180,70,.2)", 1);
   shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
-  drawDealerAsset(e, barX + 41, barY + 40, 34);
+  text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
   text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, C.gold);
   const meterW = portrait ? 180 : 220;
   const meterX = barX + barW - meterW - 30;
@@ -2161,25 +2150,41 @@ function drawSeats(felt) {
     text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
     if (seat.hands.length > 1) buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 42, onClick: () => statsPlayerId = seat.id });
     if (seat.hands.length) {
-      const selected = clamp(handCarousel[seat.id] ?? seat.active ?? 0, 0, seat.hands.length - 1);
+      const activeIndex = clamp(seat.active ?? 0, 0, seat.hands.length - 1);
+      const shouldFollowActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
+      if (shouldFollowActive && (handCarousel[seat.id] ?? activeIndex) !== activeIndex) setHandCarousel(seat.id, activeIndex, seat.hands.length);
+      const selected = clamp(handCarousel[seat.id] ?? activeIndex, 0, seat.hands.length - 1);
       handCarousel[seat.id] = selected;
       if (seat.hands.length > 1) {
         const centerX = x + seatW / 2 - CARD_W / 2 - 18;
-        [-1, 1].forEach((offset) => {
-          const hidx = selected + offset;
-          const hand = seat.hands[hidx];
-          if (!hand) return;
+        const visualIndex = carouselVisualIndex(seat.id, selected);
+        const handOrder = seat.hands
+          .map((hand, hidx) => ({ hand, hidx, distance: Math.abs(hidx - visualIndex) }))
+          .filter((item) => item.distance < 2.05)
+          .sort((a, b) => b.distance - a.distance);
+        handOrder.forEach(({ hand, hidx }) => {
+          const offset = hidx - visualIndex;
+          const distance = Math.abs(offset);
+          const isFocused = hidx === selected;
+          const isPlayingHand = hidx === activeIndex && isActive;
           ctx.save();
-          ctx.globalAlpha = .38;
-          ctx.translate(centerX + offset * 92, y + 22);
-          ctx.scale(.72, .72);
-          drawHand(hand.cards, 0, 0, false, 150);
+          ctx.globalAlpha = isFocused ? 1 : clamp(.3 + (1 - distance) * .28, .24, .58);
+          const scale = isFocused ? 1 : clamp(1 - distance * .18, .66, .82);
+          const handX = centerX + offset * 104;
+          const handY = y + 8 + distance * 18;
+          ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
+          ctx.rotate(offset * -.09);
+          ctx.scale(scale, scale);
+          if (isPlayingHand) {
+            shadow(0, 0, 28, "rgba(220,180,70,.68)", () => fill("rgba(220,180,70,.32)", -12, -14, Math.min(210, seatW - 72) + 24, CARD_H + 28, 18));
+          }
+          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72));
           ctx.restore();
         });
-        drawHand(seat.hands[selected].cards, centerX, y + 8, selected === seat.active && isActive, Math.min(210, seatW - 72));
-        badge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, handColor(seat.hands[selected]));
-        buttons.push({ x: x - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected > 0, onClick: () => handCarousel[seat.id] = selected - 1 });
-        buttons.push({ x: x + seatW / 2 - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected < seat.hands.length - 1, onClick: () => handCarousel[seat.id] = selected + 1 });
+        const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
+        badge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor);
+        buttons.push({ x: x - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected > 0, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => setHandCarousel(seat.id, selected - 1, seat.hands.length) });
+        buttons.push({ x: x + seatW / 2 - 18, y: y - 4, w: seatW / 2, h: 112, enabled: selected < seat.hands.length - 1, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => setHandCarousel(seat.id, selected + 1, seat.hands.length) });
       } else {
         const hand = seat.hands[0];
         drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 40));
@@ -2238,7 +2243,7 @@ function drawSidePanel() {
 
 function drawBottomPanel() {
   const x = 24;
-  const y = 750;
+  const y = 800;
   const w = layoutW() - 48;
   const h = Math.max(720, layoutH() - y - 28);
   shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
@@ -2265,10 +2270,10 @@ function drawBottomPanel() {
   text(phaseTitle(), x + w / 2, y + 230, 29, C.text, "center");
   drawActionButtons(leftX, y + 264);
 
-  fill("rgba(238,231,215,.06)", leftX, y + 620, w - 48, 1);
-  drawRelicPanel(leftX, y + 660, 320);
-  text("Log", x + 392, y + 660, 24, C.gold);
-  game.log.slice(0, 5).forEach((line, i) => text(line, x + 392, y + 698 + i * 29, 19, C.muted));
+  fill("rgba(238,231,215,.06)", leftX, y + 560, w - 48, 1);
+  drawRelicPanel(leftX, y + 598, 320);
+  text("Log", x + 392, y + 598, 24, C.gold);
+  game.log.slice(0, 5).forEach((line, i) => text(line, x + 392, y + 636 + i * 29, 19, C.muted));
 }
 
 function drawRelicPanel(x, y, w) {
@@ -2302,12 +2307,12 @@ function drawTouchLandscapePanel() {
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
   text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
   drawActionButtons(x + 20, 310);
-  text("Relics", x + 24, 604, 24, C.gold);
+  text("Relics", x + 24, 560, 24, C.gold);
   const relicSummary = game.relics.length ? `${game.relics.length} collected — tap to view` : "None yet";
-  text(relicSummary, x + 24, 642, 20, C.muted);
-  buttons.push({ x: x + 18, y: 574, w: w - 36, h: 94, onClick: () => { relicsOpen = true; relicPage = 0; } });
+  text(relicSummary, x + 24, 598, 20, C.muted);
+  buttons.push({ x: x + 18, y: 530, w: w - 36, h: 94, onClick: () => { relicsOpen = true; relicPage = 0; } });
   const latest = game.log[0] || "";
-  text(fitLabel(latest, w - 48, 18), x + 24, 718, 18, C.muted);
+  text(fitLabel(latest, w - 48, 18), x + 24, 700, 18, C.muted);
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
@@ -2789,6 +2794,35 @@ function goHome() {
   if (location.search) history.replaceState(null, "", location.pathname);
 }
 
+function setHandCarousel(seatId, next, count = Infinity) {
+  const target = clamp(next, 0, Math.max(0, count - 1));
+  const current = clamp(handCarousel[seatId] ?? target, 0, Math.max(0, count - 1));
+  if (current === target) {
+    handCarousel[seatId] = target;
+    return;
+  }
+  handCarouselAnim[seatId] = {
+    from: current,
+    to: target,
+    start: performance.now(),
+    duration: 320
+  };
+  handCarousel[seatId] = target;
+  sfx("flip");
+}
+
+function carouselVisualIndex(seatId, selected) {
+  const anim = handCarouselAnim[seatId];
+  if (!anim) return selected;
+  const t = clamp((performance.now() - anim.start) / anim.duration, 0, 1);
+  if (t >= 1) {
+    delete handCarouselAnim[seatId];
+    return selected;
+  }
+  const eased = 1 - Math.pow(1 - t, 3);
+  return lerp(anim.from, anim.to, eased);
+}
+
 function drawHand(cards, x, y, highlight, maxWidth = Infinity) {
   const step = cards.length < 2 ? 0 : Math.max(10, Math.min(62, (maxWidth - CARD_W) / Math.max(1, cards.length - 1)));
   const handW = cards.length < 2 ? CARD_W : CARD_W + step * (cards.length - 1);
@@ -2960,58 +2994,6 @@ function relicAssetKey(relic) {
   return relicAssetFiles[relic.name] ? `relic:${relic.name}` : "";
 }
 
-function dealerAssetKey(enemy) {
-  const byName = {
-    "Apprentice Croupier": "relic:Apprentice's Coin",
-    "Tavern Cardsharp": "relic:Charlie's Hand",
-    "Hooded Stranger": "relic:Cracked Scrying Lens",
-    "Vampire Dealer": "relic:Vampire's Bargain",
-    "Toll Collector": "goldMark",
-    "Court Jester": "relic:Double Crown",
-    "Coin-Eater": "debtMark",
-    "Tin Pit Boss": "relic:Iron Filing",
-    "Graveyard Shift Dealer": "relic:Bone Talisman",
-    "Wandering Tinker": "relic:Tinker's Thimble",
-    "Iron Bookkeeper": "relic:Merchant's Ledger",
-    "Crooked Sheriff": "relic:Duelist's Sigil",
-    "Cursed Magistrate": "relic:Magistrate's Writ",
-    "Plague Doctor": "relic:Heart of the Deck",
-    "Whispering Auditor": "relic:Pawnbroker's Note",
-    "Greedy Notary": "relic:Insurance Policy",
-    "Veiled Magician": "relic:Phoenix Feather",
-    "Silent Executor": "relic:Executioner's Mark",
-    "Pawnshop Tyrant": "relic:Croesus' Purse",
-    "Mirror Twin": "relic:Split Mastery",
-    "Warden of Spades": "suitS",
-    "Lich Banker": "relic:Usurer's Seal",
-    "Gilded Inquisitor": "relic:Golden Tongue",
-    "Twin Croupiers": "relic:Double Crown",
-    "Obsidian Marquis": "relic:Hollow Crown",
-    "Hollow Sovereign": "relic:Hollow Crown",
-    "Black Deck Marshal": "suitS",
-    "Carrion Auctioneer": "bloodDrop",
-    "Last Light Oracle": "relic:Cracked Scrying Lens",
-    "The Dealer Eternal": "relic:Hollow Crown"
-  };
-  if (byName[enemy.name] && handAssetReady(byName[enemy.name])) return byName[enemy.name];
-  if (enemy.tiesLose && handAssetReady("bloodDrop")) return "bloodDrop";
-  if (enemy.hitFee && handAssetReady("goldMark")) return "goldMark";
-  if (enemy.noSurrender && handAssetReady("relic:White Flag")) return "relic:White Flag";
-  if (enemy.bjPays65 && handAssetReady("relic:Pawnbroker's Note")) return "relic:Pawnbroker's Note";
-  if (handAssetReady("relic:Dealer's Bane")) return "relic:Dealer's Bane";
-  return "";
-}
-
-function drawDealerAsset(enemy, cx, cy, size) {
-  const key = dealerAssetKey(enemy);
-  if (!isHanddrawnArt() || !key) {
-    text(enemy.icon, cx, cy + 3, enemy.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
-    return false;
-  }
-  drawHandAssetFit(key, cx, cy, size, C.black, "center", .9);
-  return true;
-}
-
 function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
   const key = relicAssetKey(relic);
   if (!isHanddrawnArt() || !key || !handAssetReady(key)) {
@@ -3051,8 +3033,8 @@ function drawHanddrawnCardFace(card, x, y, highlight = false) {
   drawHandRank(card.rank, x + 9, y + 13, card.rank === "10" ? 20 : 24, color, "left");
   drawHandAssetFit(suitAssetKey(card.suit), x + 21, y + 45, 17, color, "center");
   drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W / 2, y + CARD_H / 2 + 12, 46, color, "center");
-  drawHandRank(card.rank, x + CARD_W - 8, y + CARD_H - 34, card.rank === "10" ? 17 : 20, color, "right");
-  drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W - 18, y + CARD_H - 24, 15, color, "center");
+  drawHandRank(card.rank, x + CARD_W - 9, y + CARD_H - 48, card.rank === "10" ? 15 : 18, color, "right");
+  drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W - 18, y + CARD_H - 17, 13, color, "center");
 }
 
 function drawHanddrawnChips(x, y, amount) {
@@ -3192,10 +3174,6 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
 };
 
 drawChips = function drawChips(x, y, amount) {
-  if (isHanddrawnArt() && handAssetReady("chip")) {
-    drawHanddrawnChips(x, y, amount);
-    return;
-  }
   const denoms = [[500, "#d2af3c"], [100, "#242432"], [25, "#3c8c50"], [10, "#3c64b4"], [5, "#b43c3c"], [1, "#e6e6dc"]];
   let rest = amount;
   let n = 0;
@@ -3533,6 +3511,11 @@ function layoutH() {
 
 function isTouchLandscape() {
   return !viewport.portrait && viewport.cssH <= 540 && viewport.cssW <= 1100;
+}
+
+function isIOSDevice() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
 function clamp(v, min, max) {
