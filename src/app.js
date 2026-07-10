@@ -596,8 +596,12 @@ function applyAction(playerId, name) {
     if (name === "betDown") seat.bet = clamp(seat.bet - 5, min, max);
     if (name === "betUp") seat.bet = clamp(seat.bet + 5, min, max);
     if (name === "minBet") seat.bet = min;
-    if (name === "maxBet") seat.bet = max;
+    if (name === "maxBet") {
+      seat.bet = safeMaxBetForSeat(seat);
+      warnHitFeeReserve(seat, true);
+    }
     if (name === "ready") {
+      if (!seat.ready && !warnHitFeeReserve(seat, false)) return;
       seat.ready = !seat.ready;
       sfx(seat.ready ? "ready" : "click");
       log(`${seat.name} ${seat.ready ? "is ready" : "is adjusting their bet"}.`);
@@ -993,6 +997,7 @@ function loseResult(seat, h, msg) {
 
 function continueAfterRound() {
   if (game.phase === "victory" || game.phase === "defeat") {
+    stopDeathAudioClips();
     if (game.code) restartLobbyRun();
     else appScene = "menu";
     return;
@@ -1672,6 +1677,36 @@ function maxBetForSeat(seat) {
   return Math.max(0, Math.min(MAX_BET, game.gold - committedByOthers));
 }
 
+function moneyAfterBetForSeat(seat) {
+  if (isFreeForAll()) return seatBankroll(seat) - Math.max(0, seat.bet || 0);
+  const totalBets = game.seats.reduce((sum, s) => sum + Math.max(0, s.bet || 0), 0);
+  return game.gold - totalBets;
+}
+
+function safeMaxBetForSeat(seat) {
+  const max = maxBetForSeat(seat);
+  const fee = Number(game?.enemy?.hitFee) || 0;
+  if (!fee || max <= MIN_BET) return max;
+  return Math.max(MIN_BET, max - fee);
+}
+
+function warnHitFeeReserve(seat, fromMaxButton = false) {
+  const fee = Number(game?.enemy?.hitFee) || 0;
+  if (!fee || !seat || seat.bet <= 0) return true;
+  const remaining = moneyAfterBetForSeat(seat);
+  if (remaining >= fee) {
+    if (fromMaxButton && maxBetForSeat(seat) !== seat.bet) {
+      flashMsg(`This floor charges ${fee}g per hit. Saved ${fee}g.`);
+    }
+    return true;
+  }
+  const message = `This floor charges ${fee}g per hit. Leave at least ${fee}g after betting.`;
+  flashMsg(message);
+  log(`${seat.name}: ${message}`);
+  sfx("lose");
+  return false;
+}
+
 function voteRelic(playerId, index) {
   if (game.phase !== "shop") return;
   game.relicVotes ||= {};
@@ -1733,6 +1768,16 @@ function stopClip(clip) {
     clip.currentTime = 0;
   } catch {
   }
+}
+
+function stopDeathAudioClips() {
+  stopDeathReverseMusic();
+  stopClip(deathWarpAudio);
+  stopClip(heartbeatAudio);
+  musicDeathMode = false;
+  musicDeathStarted = 0;
+  musicDeathLastHeartbeat = 0;
+  musicDeathWarpPlayed = false;
 }
 
 function setupMusicChain() {
@@ -1803,9 +1848,7 @@ function updateMusicMood(now = performance.now()) {
     return;
   }
   if (!musicDeathMode) return;
-  stopDeathReverseMusic();
-  stopClip(deathWarpAudio);
-  stopClip(heartbeatAudio);
+  stopDeathAudioClips();
   audio.playbackRate = 1;
   audio.preservesPitch = true;
   audio.mozPreservesPitch = true;
@@ -1817,10 +1860,6 @@ function updateMusicMood(now = performance.now()) {
   }
   if (musicGain) musicGain.gain.setTargetAtTime(1, audioCtx.currentTime, .18);
   if (musicDistortion) musicDistortion.curve = makeDistortionCurve(0);
-  musicDeathMode = false;
-  musicDeathStarted = 0;
-  musicDeathLastHeartbeat = 0;
-  musicDeathWarpPlayed = false;
   if (musicStarted && audio.paused && !audio.muted && !document.hidden) audio.play().catch(() => {});
 }
 
@@ -1828,17 +1867,13 @@ function toggleMusic() {
   if (!audio) return;
   audio.muted = !audio.muted;
   if (audio.muted) {
-    stopDeathReverseMusic();
-    stopClip(deathWarpAudio);
-    stopClip(heartbeatAudio);
+    stopDeathAudioClips();
   }
   flashMsg(audio.muted ? "Music muted" : "Music on");
 }
 
 function pauseMusicForFocus() {
-  stopDeathReverseMusic();
-  stopClip(deathWarpAudio);
-  stopClip(heartbeatAudio);
+  stopDeathAudioClips();
   if (!audio || audio.paused || audio.muted) return;
   musicPausedForFocus = true;
   audio.pause();
@@ -2781,6 +2816,7 @@ function drawGameMenu() {
 }
 
 function goHome() {
+  stopDeathAudioClips();
   menuOpen = false;
   appScene = "menu";
   game = null;
