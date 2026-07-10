@@ -100,7 +100,7 @@ let seenCardIds = new Set();
 let statsPlayerId = "";
 let handCarousel = {};
 let handCarouselAnim = {};
-let handCarouselPending = {};
+let handCarouselActiveIndex = {};
 let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
@@ -537,7 +537,7 @@ function kickPlayer(id) {
   if (game.activeSeat >= game.seats.length) game.activeSeat = Math.max(0, game.seats.length - 1);
   delete handCarousel[id];
   delete handCarouselAnim[id];
-  delete handCarouselPending[id];
+  delete handCarouselActiveIndex[id];
   statsPlayerId = "";
   rescaleEnemyForPlayers();
   log(`${removed.name} was removed from the lobby.`);
@@ -2643,16 +2643,14 @@ function drawSeats(felt) {
     if (seat.hands.length) {
       const activeIndex = clamp(seat.active ?? 0, 0, seat.hands.length - 1);
       const shouldFollowActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
-      if (shouldFollowActive && (handCarousel[seat.id] ?? activeIndex) !== activeIndex) {
-        const pending = handCarouselPending[seat.id];
-        if (!pending || pending.to !== activeIndex) {
-          handCarouselPending[seat.id] = { to: activeIndex, at: performance.now() + 950 };
-        } else if (performance.now() >= pending.at) {
-          delete handCarouselPending[seat.id];
-          setHandCarousel(seat.id, activeIndex, seat.hands.length);
-        }
-      } else {
-        delete handCarouselPending[seat.id];
+      if (handCarousel[seat.id] == null) {
+        handCarousel[seat.id] = activeIndex;
+        handCarouselActiveIndex[seat.id] = activeIndex;
+      } else if (shouldFollowActive && handCarouselActiveIndex[seat.id] !== activeIndex) {
+        handCarouselActiveIndex[seat.id] = activeIndex;
+        setHandCarousel(seat.id, activeIndex, seat.hands.length);
+      } else if (!shouldFollowActive) {
+        handCarouselActiveIndex[seat.id] = activeIndex;
       }
       const selected = clamp(handCarousel[seat.id] ?? activeIndex, 0, seat.hands.length - 1);
       handCarousel[seat.id] = selected;
@@ -3342,7 +3340,7 @@ function goHome() {
   seenCardIds = new Set();
   handCarousel = {};
   handCarouselAnim = {};
-  handCarouselPending = {};
+  handCarouselActiveIndex = {};
   hideSignal();
   peer?.peer?.destroy?.();
   peer = null;
@@ -3365,7 +3363,7 @@ function beginDeveloperTest(title, mode = "classic") {
   developerPanelOpen = false;
   handCarousel = {};
   handCarouselAnim = {};
-  handCarouselPending = {};
+  handCarouselActiveIndex = {};
   newGame([{ id: hostId, name: savedPlayerName("You") }], "", mode);
   game.developerTest = true;
   game.log = [`Developer test: ${title}.`];
@@ -3472,7 +3470,6 @@ function devScenarioFeedbackAnimations() {
 }
 
 function setHandCarousel(seatId, next, count = Infinity) {
-  delete handCarouselPending[seatId];
   const target = clamp(next, 0, Math.max(0, count - 1));
   const current = clamp(handCarousel[seatId] ?? target, 0, Math.max(0, count - 1));
   if (current === target) {
