@@ -105,6 +105,10 @@ let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
 let signalKind = "";
+let developerModeUnlocked = localStorage.getItem("dungeon-dev-mode") === "true";
+let developerPanelOpen = false;
+let developerTapTimes = [];
+let developerSplitLimit = clamp(Number(localStorage.getItem("dungeon-dev-split-limit")) || 8, 4, 12);
 const modeLabels = {
   classic: "Classic Turns",
   freePlay: "Free Play",
@@ -795,7 +799,7 @@ function doubleDown(seatIndex) {
 function split(seatIndex) {
   const seat = game.seats[seatIndex];
   const h = activeHand(seat);
-  if (!h || h.cards.length !== 2 || cardValue(h.cards[0]) !== cardValue(h.cards[1]) || seatBankroll(seat) < h.bet || seat.hands.length >= 4) {
+  if (!h || h.cards.length !== 2 || cardValue(h.cards[0]) !== cardValue(h.cards[1]) || seatBankroll(seat) < h.bet || seat.hands.length >= maxSplitHands()) {
     return flashMsg("Split unavailable");
   }
   if (h.splitAces && h.cards[0].rank === "A" && !has("extraSplit")) return flashMsg("Aces cannot be re-split");
@@ -1827,6 +1831,27 @@ function isHanddrawnArt() {
   return true;
 }
 
+function maxSplitHands() {
+  return developerModeUnlocked ? developerSplitLimit : 4;
+}
+
+function handleDeveloperSplashTap() {
+  const now = performance.now();
+  developerTapTimes = [...developerTapTimes.filter((t) => now - t < 4000), now];
+  if (!developerModeUnlocked && developerTapTimes.length >= 7) {
+    developerModeUnlocked = true;
+    localStorage.setItem("dungeon-dev-mode", "true");
+    developerTapTimes = [];
+    notify("Developer mode unlocked.");
+    sfx("win");
+    return;
+  }
+  if (developerModeUnlocked && developerTapTimes.length >= 7) {
+    developerPanelOpen = true;
+    developerTapTimes = [];
+  }
+}
+
 function seatBankroll(seat) {
   return isFreeForAll() ? Math.max(0, Number(seat?.gold) || 0) : Math.max(0, Number(game?.gold) || 0);
 }
@@ -2248,6 +2273,10 @@ function draw() {
     buttons = [];
     drawGameMenu();
   }
+  if (developerPanelOpen) {
+    buttons = [];
+    drawDeveloperPanel();
+  }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
 }
@@ -2263,6 +2292,7 @@ function drawSplash() {
   text("Wizard Stab Studio", cx, cy - 46, viewport.portrait ? 40 : 48, C.gold, "center", "serif");
   ctx.restore();
   text("presents", cx, cy + 12, viewport.portrait ? 27 : 28, C.parchment, "center", "serif");
+  buttons.push({ x: cx - 280, y: cy - 112, w: 560, h: 86, onClick: handleDeveloperSplashTap });
   addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Continue", () => appScene = "menu", true);
 }
 
@@ -2284,6 +2314,7 @@ function drawMenu() {
   strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
   drawMenuAmbience(table, portrait);
   if (side) drawMenuSidePanel(side);
+  if (developerModeUnlocked) addButton(table.x + 22, table.y + 22, portrait ? 112 : 80, portrait ? 48 : 34, "Dev", () => developerPanelOpen = true);
 
   if (!portrait) {
     drawMenuShowCard({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, -.08, 1);
@@ -3163,8 +3194,9 @@ function fillGradientBar(x, y, w, h, c1, c2) {
 function drawGameMenu() {
   const lw = layoutW();
   const lh = layoutH();
+  const hasDev = developerModeUnlocked;
   const panelW = viewport.portrait ? 520 : 430;
-  const panelH = viewport.portrait ? 410 : 340;
+  const panelH = viewport.portrait ? (hasDev ? 500 : 410) : (hasDev ? 410 : 340);
   const x = lw / 2 - panelW / 2;
   const y = Math.max(72, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.62)", 0, 0, lw, lh);
@@ -3176,12 +3208,68 @@ function drawGameMenu() {
   text("Return to the table or go back home.", lw / 2, y + 104, viewport.portrait ? 21 : 16, C.muted, "center");
   addButton(x + 42, y + 138, panelW - 84, viewport.portrait ? 72 : 56, "Resume", () => menuOpen = false, true);
   addButton(x + 42, y + (viewport.portrait ? 226 : 204), panelW - 84, viewport.portrait ? 72 : 56, "Change Name", openNameEditor);
-  addButton(x + 42, y + (viewport.portrait ? 314 : 270), panelW - 84, viewport.portrait ? 72 : 56, "Home Screen", goHome);
+  if (hasDev) addButton(x + 42, y + (viewport.portrait ? 314 : 270), panelW - 84, viewport.portrait ? 72 : 56, "Developer", () => developerPanelOpen = true);
+  addButton(x + 42, y + (viewport.portrait ? (hasDev ? 402 : 314) : (hasDev ? 336 : 270)), panelW - 84, viewport.portrait ? 72 : 56, "Home Screen", goHome);
+}
+
+function drawDeveloperPanel() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const panelW = Math.min(portrait ? 680 : 760, lw - 56);
+  const panelH = portrait ? 760 : 610;
+  const x = lw / 2 - panelW / 2;
+  const y = Math.max(34, lh / 2 - panelH / 2);
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  shadow(0, 26, 70, "rgba(0,0,0,.55)", () => gradientRound(x, y, panelW, panelH, 18, [[0, "#302640"], [1, "#111018"]], true));
+  strokeRound(x, y, panelW, panelH, 18, C.goldDim, 2);
+  text("DEVELOPER MODE", lw / 2, y + 56, portrait ? 34 : 30, C.gold, "center", "serif");
+  text(`Local testing only - split cap ${maxSplitHands()} hands`, lw / 2, y + 90, portrait ? 19 : 16, C.muted, "center");
+
+  const colGap = 18;
+  const cols = panelW > 560 ? 2 : 1;
+  const colW = (panelW - 72 - (cols - 1) * colGap) / cols;
+  const bh = portrait ? 58 : 46;
+  const rowGap = portrait ? 12 : 10;
+  const startY = y + 122;
+  const leftX = x + 36;
+  const addDevButton = (index, label, fn, primary = false, enabled = true) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    addButton(leftX + col * (colW + colGap), startY + row * (bh + rowGap), colW, bh, label, fn, primary, enabled);
+  };
+
+  let i = 0;
+  addDevButton(i++, `Split Limit ${developerSplitLimit}`, () => cycleDeveloperSplitLimit(), true);
+  addDevButton(i++, "Force Split Pair", () => devForceSplitPair(), false, !!activeHand(mySeat() || game?.seats?.[0]));
+  addDevButton(i++, "+100 Gold", () => devAddGold(100), true, !!game);
+  addDevButton(i++, "Full HP", () => devSetHp(game?.maxHp || 100), false, !!game);
+  addDevButton(i++, "HP to 1", () => devSetHp(1), false, !!game);
+  addDevButton(i++, "Next Floor", () => devJumpFloor(1), false, !!game);
+  addDevButton(i++, "Previous Floor", () => devJumpFloor(-1), false, !!game);
+  addDevButton(i++, "Add Random Relic", () => devAddRelic(), false, !!game);
+  addDevButton(i++, "Clear Debt", () => devClearDebt(), false, !!game);
+  addDevButton(i++, "Trigger Loan", () => devTriggerLoan(), false, !!game);
+  addDevButton(i++, "Test HP Loss", () => queueHpAnimation(game?.hp || 100, Math.max(0, (game?.hp || 100) - 25), game?.maxHp || 100), false, !!game);
+  addDevButton(i++, "Test Money +50", () => queueMoneyAnimation(50), false);
+
+  const infoY = startY + Math.ceil(i / cols) * (bh + rowGap) + 20;
+  text(`Mode: ${game ? modeLabels[game.mode] || game.mode : "No active run"}`, x + 40, infoY, portrait ? 18 : 15, C.text);
+  text(`Role: ${role}   Player: ${localPlayerId || "none"}   Device: ${localDeviceId.slice(0, 8)}`, x + 40, infoY + 28, portrait ? 16 : 13, C.muted);
+  if (game?.code) text(`Lobby: ${game.code}`, x + 40, infoY + 54, portrait ? 16 : 13, C.gold);
+
+  addButton(x + 36, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Lock Dev Mode", () => {
+    developerModeUnlocked = false;
+    developerPanelOpen = false;
+    localStorage.removeItem("dungeon-dev-mode");
+  });
+  addButton(x + panelW / 2 + 12, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
 }
 
 function goHome() {
   stopDeathAudioClips();
   menuOpen = false;
+  developerPanelOpen = false;
   appScene = "menu";
   game = null;
   role = "solo";
@@ -3195,6 +3283,101 @@ function goHome() {
   peer?.peer?.destroy?.();
   peer = null;
   if (location.search) history.replaceState(null, "", location.pathname);
+}
+
+function devChanged(message = "Developer change applied.") {
+  notify(message);
+  if (role === "host") broadcast();
+}
+
+function cycleDeveloperSplitLimit() {
+  developerSplitLimit = developerSplitLimit >= 12 ? 4 : developerSplitLimit + 1;
+  localStorage.setItem("dungeon-dev-split-limit", String(developerSplitLimit));
+  devChanged(`Split limit set to ${developerSplitLimit}.`);
+}
+
+function devSeat() {
+  return mySeat() || game?.seats?.[0] || null;
+}
+
+function devAddGold(amount) {
+  if (!game) return;
+  const seat = devSeat();
+  if (isFreeForAll()) seat.gold = seatBankroll(seat) + amount;
+  else game.gold += amount;
+  queueMoneyAnimation(amount);
+  devChanged(`Added ${amount}g.`);
+}
+
+function devSetHp(value) {
+  if (!game) return;
+  const from = game.hp;
+  game.hp = clamp(value, 0, game.maxHp);
+  queueHpAnimation(from, game.hp, game.maxHp);
+  devChanged(`HP set to ${game.hp}.`);
+}
+
+function devJumpFloor(delta) {
+  if (!game) return;
+  game.floor = clamp((Number(game.floor) || 0) + delta, 0, enemyTemplates.length - 1);
+  game.enemy = cloneEnemy(game.floor);
+  enterBettingRound({ chargeInterest: false });
+  devChanged(`Jumped to floor ${game.floor + 1}.`);
+}
+
+function devAddRelic() {
+  if (!game) return;
+  const owned = new Set(game.relics.map((r) => r.name));
+  const pool = relicPool.filter((r) => !owned.has(r.name));
+  const relic = { ...(pool[Math.floor(Math.random() * pool.length)] || relicPool[0]) };
+  game.relics.push(relic);
+  game.foresightUsesLeft += relic.foresightUses || 0;
+  devChanged(`Added relic: ${relic.name}.`);
+}
+
+function devClearDebt() {
+  if (!game) return;
+  if (isFreeForAll()) {
+    for (const seat of game.seats) {
+      seat.debt = 0;
+      seat.loanUsed = false;
+    }
+  } else {
+    game.loanDebt = 0;
+    game.loanUsed = false;
+  }
+  devChanged("Debt cleared.");
+}
+
+function devTriggerLoan() {
+  if (!game) return;
+  const seat = devSeat();
+  if (isFreeForAll() && seat) seat.gold = 0;
+  else game.gold = 0;
+  triggerBankruptcyDeath("Developer triggered bankruptcy", seat, MIN_BET);
+  devChanged("Loan flow triggered.");
+}
+
+function devForceSplitPair() {
+  if (!game) return;
+  const seat = devSeat();
+  const hand = activeHand(seat) || seat?.hands?.[0];
+  if (!hand) return;
+  const suitA = "S";
+  const suitB = "H";
+  hand.cards = [
+    { rank: "8", suit: suitA, up: true, _dealId: `${game.session}:dev-pair-a-${Date.now()}`, _dealDelay: 0, _dealKind: "deal" },
+    { rank: "8", suit: suitB, up: true, _dealId: `${game.session}:dev-pair-b-${Date.now()}`, _dealDelay: 0, _dealKind: "deal" }
+  ];
+  hand.status = "playing";
+  hand.split = false;
+  seat.active = Math.max(0, seat.hands.indexOf(hand));
+  seat.finished = false;
+  game.phase = "player";
+  game.activeSeat = Math.max(0, game.seats.indexOf(seat));
+  seenCardIds.add(hand.cards[0]._dealId);
+  seenCardIds.add(hand.cards[1]._dealId);
+  devChanged("Forced split pair.");
 }
 
 function setHandCarousel(seatId, next, count = Infinity) {
@@ -3858,7 +4041,11 @@ function fitLabel(value, maxWidth, size) {
 }
 
 function canSplitLocal(hand) {
-  return hand?.cards.length === 2 && cardValue(hand.cards[0]) === cardValue(hand.cards[1]) && seatBankroll(mySeat()) >= hand.bet;
+  const seat = mySeat();
+  return hand?.cards.length === 2
+    && cardValue(hand.cards[0]) === cardValue(hand.cards[1])
+    && seatBankroll(seat) >= hand.bet
+    && (seat?.hands?.length || 0) < maxSplitHands();
 }
 
 function flashMsg(msg) {
