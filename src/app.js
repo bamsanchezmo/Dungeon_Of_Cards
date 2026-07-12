@@ -642,6 +642,7 @@ function newGame(players, code = "", mode = modePreference) {
     loanVotes: {},
     loanSignedAt: 0,
     map: null,
+    floorMaps: [],
     mapVotes: {},
     mapReady: {},
     currentNodeId: "start",
@@ -650,7 +651,8 @@ function newGame(players, code = "", mode = modePreference) {
     clearedNodes: ["start"],
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
-  game.map = createFloorMap(0);
+  game.floorMaps = createRunFloorMaps();
+  game.map = game.floorMaps[0];
   inspectedNodeId = "start-1";
   refreshReachableNodes();
   appScene = "game";
@@ -678,7 +680,43 @@ function rescaleEnemyForPlayers() {
   }
 }
 
-function createFloorMap(floorIndex) {
+function createRunFloorMaps() {
+  const maps = [];
+  let minTableCount = 0;
+  let minDifficultyScore = 0;
+  for (let floorIndex = 0; floorIndex < FLOORS; floorIndex++) {
+    const map = createFloorMap(floorIndex, { minTableCount, minDifficultyScore });
+    minTableCount = Math.max(minTableCount, countMapTables(map));
+    minDifficultyScore = Math.max(minDifficultyScore, mapDifficultyScore(map));
+    maps.push(map);
+  }
+  return maps;
+}
+
+function countMapTables(map) {
+  return (map?.nodes || []).filter((node) => node.kind === "table").length;
+}
+
+function mapDifficultyScore(map) {
+  const tables = (map?.nodes || []).filter((node) => node.kind === "table");
+  return tables.length + tables.reduce((sum, node) => sum + (Number(node.threat) || 1), 0);
+}
+
+function ensureRunFloorMaps() {
+  if (!game) return [];
+  if (!Array.isArray(game.floorMaps) || game.floorMaps.length !== FLOORS) game.floorMaps = createRunFloorMaps();
+  return game.floorMaps;
+}
+
+function setGameMapForFloor(floorIndex) {
+  if (!game) return null;
+  const maps = ensureRunFloorMaps();
+  const index = clamp(floorIndex, 0, FLOORS - 1);
+  game.map = maps[index] || createFloorMap(index);
+  return game.map;
+}
+
+function createFloorMap(floorIndex, options = {}) {
   const floor = floorIndex + 1;
   const palette = floorThemeColor(floorIndex);
   const bossColor = bossTableColor(floorIndex);
@@ -690,9 +728,9 @@ function createFloorMap(floorIndex) {
     ["Cage Table", "Lantern Table", "Velvet Table", "Backroom Table"]
   ];
   const node = (id, label, kind, x, y, next = [], threatBoost = 0) => {
-    const threat = kind === "boss" ? Math.min(5, 2 + Math.ceil(floor / 3)) : clamp(1 + Math.floor(floorIndex / 2) + threatBoost, 1, 5);
+    const threat = kind === "boss" ? clamp(Math.round(Number(threatBoost) || 1), 1, 5) : tableThreatForFloor(floorIndex, threatBoost);
     const rarity = rarityForFloor(floorIndex, threatBoost + (kind === "boss" ? 2 : 0));
-    const reward = kind === "start" || kind === "elevator" ? null : createRewardRelic(rarity, rewardPicker());
+    const reward = createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker);
     const encounter = kind === "table" || kind === "boss" ? createMapEnemy(floorIndex, kind, threat, id) : null;
     const color = kind === "boss" ? bossColor : kind === "table" ? difficultyGlowColor(threat) : reward?.rarityColor || palette;
     const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
@@ -721,8 +759,31 @@ function createFloorMap(floorIndex) {
     if (count === 2) return [.30, .70];
     return [.20, .40, .60, .80];
   };
-  const makeColumn = (columnIndex, totalColumns, x, nextIds = null) => {
-    const count = columnCount(columnIndex, totalColumns);
+  const scoreForCounts = (counts) => {
+    const starterScore = 1 + tableThreatForFloor(floorIndex, 0);
+    const routeScore = counts.reduce((sum, count, columnIndex) => {
+      return sum + Array.from({ length: count }, (_, i) => {
+        const threatBoost = Math.max(0, columnIndex) + (count >= 4 && (i === 0 || i === count - 1) ? 0 : i % 2);
+        return 1 + tableThreatForFloor(floorIndex, threatBoost);
+      }).reduce((a, b) => a + b, 0);
+    }, 0);
+    return starterScore + routeScore;
+  };
+  const growCountsToMinimum = (counts, minTableCount, minDifficultyScore) => {
+    const currentTableCount = () => 1 + counts.reduce((sum, count) => sum + count, 0);
+    const nextCount = (columnIndex, totalColumns) => columnCount(columnIndex, totalColumns);
+    while (currentTableCount() < minTableCount || scoreForCounts(counts) < minDifficultyScore) {
+      if (counts.length < 3) {
+        counts.push(Math.max(1, nextCount(counts.length, Math.max(1, counts.length + 1))));
+        continue;
+      }
+      const upgradeIndex = counts.findIndex((count) => count < 4);
+      if (upgradeIndex < 0) break;
+      counts[upgradeIndex] = counts[upgradeIndex] <= 1 ? 2 : 4;
+    }
+    return counts;
+  };
+  const makeColumn = (columnIndex, totalColumns, x, count, nextIds = null) => {
     const ids = Array.from({ length: count }, (_, i) => `c${columnIndex}-${i + 1}`);
     const ys = tableYs(count);
     const nodes = ids.map((id, i) => {
@@ -736,14 +797,23 @@ function createFloorMap(floorIndex) {
   };
   const routeColumns = [];
   const totalColumns = routeColumnCount();
+  const columnCounts = growCountsToMinimum(
+    Array.from({ length: totalColumns }, (_, i) => columnCount(i, totalColumns)),
+    Math.max(0, Number(options.minTableCount) || 0),
+    Math.max(0, Number(options.minDifficultyScore) || 0)
+  );
+  const finalColumnCount = columnCounts.length;
   let nextIds = ["boss"];
-  for (let i = totalColumns - 1; i >= 0; i--) {
-    const t = totalColumns <= 1 ? .5 : i / Math.max(1, totalColumns - 1);
+  for (let i = finalColumnCount - 1; i >= 0; i--) {
+    const t = finalColumnCount <= 1 ? .5 : i / Math.max(1, finalColumnCount - 1);
     const x = lerp(.36, .62, t);
-    const column = makeColumn(i, totalColumns, x, nextIds);
+    const column = makeColumn(i, finalColumnCount, x, columnCounts[i], nextIds);
     routeColumns.unshift(column);
     nextIds = column.ids;
   }
+  const gruntThreats = [tableThreatForFloor(floorIndex, 0), ...routeColumns.flatMap((column) => column.nodes.map((n) => n.threat))];
+  const averageGruntThreat = gruntThreats.reduce((sum, threat) => sum + threat, 0) / Math.max(1, gruntThreats.length);
+  const bossThreat = clamp(Math.round(averageGruntThreat) + 1, 2, 5);
   const map = {
     floor,
     theme: floorThemeName(floorIndex),
@@ -756,11 +826,63 @@ function createFloorMap(floorIndex) {
       node("start", "Start", "start", .07, .50, ["start-1"]),
       node("start-1", "Starter Table", "table", .22, .50, branchNextIds(0, 1, routeColumns[0]?.ids || ["boss"]), 0),
       ...routeColumns.flatMap((column) => column.nodes),
-      node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"]),
+      node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"], bossThreat),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
   };
   return map;
+}
+
+function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
+  if (kind === "start" || kind === "elevator") return null;
+  if (kind === "boss") return { ...createRewardRelic(rarity, rewardPicker()), type: "relic" };
+
+  const floor = floorIndex + 1;
+  const relicChance = clamp(.58 - floorIndex * .025 - Math.max(0, threat - 2) * .035, .32, .58);
+  const roll = Math.random();
+  if (roll < relicChance) return { ...createRewardRelic(rarity, rewardPicker()), type: "relic" };
+
+  const perkRoll = Math.random();
+  const rarityMult = rarity?.mult || 1;
+  const scale = 1 + floorIndex * .16 + Math.max(0, threat - 1) * .08;
+  if (perkRoll < .46) {
+    const amount = Math.round((30 + floor * 8 + threat * 7) * scale * rarityMult / 5) * 5;
+    return {
+      type: "gold",
+      name: `${rarity.name} Cash Drop`,
+      icon: "$",
+      description: `Gain ${amount} gold instead of a relic.`,
+      amount,
+      rarityName: rarity.name,
+      rarityColor: rarity.color
+    };
+  }
+  if (perkRoll < .76) {
+    const amount = Math.round((10 + floor * 2 + threat * 2) * scale);
+    return {
+      type: "heal",
+      name: `${rarity.name} House Meal`,
+      icon: "+",
+      description: `Restore ${amount} HP after clearing this table.`,
+      amount,
+      rarityName: rarity.name,
+      rarityColor: rarity.color
+    };
+  }
+  const amount = Math.max(4, Math.round((4 + floor + threat) * rarityMult));
+  return {
+    type: "maxHp",
+    name: `${rarity.name} Vitality Voucher`,
+    icon: "♥",
+    description: `Increase max HP by ${amount} and heal for the same amount.`,
+    amount,
+    rarityName: rarity.name,
+    rarityColor: rarity.color
+  };
+}
+
+function tableThreatForFloor(floorIndex, threatBoost = 0) {
+  return clamp(1 + Math.floor(floorIndex / 2) + Math.max(0, Math.round(threatBoost)), 1, 5);
 }
 
 function branchNextIds(index, count, nextIds) {
@@ -1024,14 +1146,16 @@ function describeRelic(relic, fallback) {
 function createMapEnemy(floorIndex, kind, threat, id) {
   if (kind === "boss") {
     const boss = cloneEnemy(floorIndex);
+    const threatScale = 1 + Math.max(0, threat - 3) * .18;
     boss.name = floorBossName(floorIndex);
     boss.color = bossTableColor(floorIndex);
+    boss.threat = threat;
     boss.title = `Floor ${floorIndex + 1} - Floor Boss`;
     boss.isBoss = true;
     boss.bossPhase = 0;
     boss.bossPhases = bossPhasesForFloor(floorIndex);
-    boss.baseHp = calibratedBossHp(floorIndex, 1);
-    boss.maxHp = calibratedBossHp(floorIndex);
+    boss.baseHp = Math.ceil(calibratedBossHp(floorIndex, 1) * threatScale);
+    boss.maxHp = Math.ceil(calibratedBossHp(floorIndex) * threatScale);
     boss.hp = boss.maxHp;
     boss.roundDamageCap = Math.max(75, Math.ceil(boss.maxHp * (floorIndex < 3 ? .24 : floorIndex < 7 ? .21 : .18)));
     boss.description = `${boss.description} Boss phases at 66% and 33% HP.`;
@@ -1043,16 +1167,37 @@ function createMapEnemy(floorIndex, kind, threat, id) {
   const template = pool[Math.abs(hashString(`${id}:${floorIndex}:${threat}`)) % pool.length] || enemyTemplates[0];
   const gruntArtKeys = ["grunt:cardsharp", "grunt:bookie", "grunt:bouncer", "grunt:croupier", "grunt:dealer", "grunt:cheater"];
   const hp = 45 + floorIndex * 18 + threat * 16;
+  const aggressionRules = gruntThreatRules(threat, floorIndex);
   return {
     ...template,
+    ...aggressionRules,
     name: tableEnemyName(template.name, threat),
     title: `Floor ${floorIndex + 1} - Grunt Table`,
     threat,
     gruntArtKey: gruntArtKeys[Math.abs(hashString(`${template.name}:${id}:${floorIndex}`)) % gruntArtKeys.length],
     hp,
     maxHp: hp,
-    dealerPeek: template.dealerPeek !== false
+    dealerPeek: aggressionRules.dealerPeek ?? template.dealerPeek !== false
   };
+}
+
+function gruntThreatRules(threat, floorIndex) {
+  const rules = {
+    lossHpMult: 1 + Math.max(0, threat - 1) * .08,
+    luck: Math.max(0, threat - 2) * 4 + Math.floor(floorIndex / 3) * 2
+  };
+  if (threat >= 2) rules.hitsSoft17 = true;
+  if (threat >= 3) rules.noInsurance = true;
+  if (threat >= 4) {
+    rules.hitFee = Math.max(rules.hitFee || 0, 3 + floorIndex);
+    rules.dealerPeek = false;
+  }
+  if (threat >= 5) {
+    rules.noSurrender = true;
+    rules.tiesLose = true;
+    rules.lossHpMult += .12;
+  }
+  return rules;
 }
 
 function tableEnemyName(name, threat) {
@@ -1491,7 +1636,7 @@ function completeMapEncounter() {
   if (!node) return;
   game.clearedNodes = [...new Set([...(game.clearedNodes || []), node.id])];
   game.currentNodeId = node.id;
-  if (node.reward) gainRelic(node.reward);
+  if (node.reward) claimMapReward(node.reward);
   game.activeEncounterId = "";
   if (node.kind === "boss") {
     if (game.floor >= FLOORS - 1) {
@@ -1526,7 +1671,7 @@ function finishFloorTransition() {
   if (!game || game.phase !== "floorTransition") return;
   const targetFloor = clamp((game.floorTransition?.to || game.floor + 2) - 1, 0, FLOORS - 1);
   game.floor = targetFloor;
-  game.map = createFloorMap(game.floor);
+  setGameMapForFloor(game.floor);
   game.currentNodeId = "start";
   game.clearedNodes = ["start"];
   inspectedNodeId = "start-1";
@@ -1545,6 +1690,49 @@ function gainRelic(relic) {
   game.relicPopup = { relic, shownAt: Date.now() };
   notify(`${relic.name}: ${relic.description}`);
   log(`Gained relic: ${relic.name}.`);
+}
+
+function claimMapReward(reward) {
+  if (!reward) return;
+  if (reward.type === "relic") {
+    gainRelic(reward);
+    return;
+  }
+  if (reward.type === "gold") {
+    awardMapGold(reward.amount || 0);
+    queueMoneyAnimation(reward.amount || 0);
+    notify(`${reward.name}: +${reward.amount || 0} gold`);
+    log(`Reward gained: ${reward.name} (+${reward.amount || 0} gold).`);
+    return;
+  }
+  if (reward.type === "heal") {
+    const before = game.hp;
+    game.hp = Math.min(game.maxHp, game.hp + (reward.amount || 0));
+    queueHpAnimation(before, game.hp, game.maxHp);
+    notify(`${reward.name}: restored ${Math.max(0, game.hp - before)} HP`);
+    log(`Reward gained: ${reward.name} (${reward.description}).`);
+    return;
+  }
+  if (reward.type === "maxHp") {
+    const before = game.hp;
+    game.maxHp += reward.amount || 0;
+    game.hp = Math.min(game.maxHp, game.hp + (reward.amount || 0));
+    queueHpAnimation(before, game.hp, game.maxHp);
+    notify(`${reward.name}: max HP +${reward.amount || 0}`);
+    log(`Reward gained: ${reward.name} (${reward.description}).`);
+  }
+}
+
+function awardMapGold(amount) {
+  const value = Math.max(0, Math.round(Number(amount) || 0));
+  if (!value || !game) return;
+  if (isFreeForAll()) {
+    (game.seats || []).filter((seat) => !seat.spectating).forEach((seat) => {
+      seat.gold = (Number(seat.gold) || 0) + value;
+    });
+  } else {
+    game.gold += value;
+  }
 }
 
 function getMapNode(nodeId) {
@@ -1843,10 +2031,11 @@ function winResult(seat, h, amount, msg) {
 }
 
 function lossResultPayload(seat, h, lostAmount, msg, grossLoss = lostAmount) {
+  const enemyLossMult = Number(game?.enemy?.lossHpMult || 1) || 1;
   return {
     net: -lostAmount,
     grossLoss,
-    lifeLoss: lifeLossForBetLoss(seat, h, Math.max(lostAmount, grossLoss)) * (Number(bossRuleValue("lossHpMult", 1)) || 1),
+    lifeLoss: lifeLossForBetLoss(seat, h, Math.max(lostAmount, grossLoss)) * enemyLossMult * (Number(bossRuleValue("lossHpMult", 1)) || 1),
     msg
   };
 }
@@ -4174,10 +4363,31 @@ function drawMapRewardCard(node, x, y, w, portrait) {
     buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.kind === "elevator" ? "Elevator" : "Route Start", subtitle: node.label, color: ui.title, body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight." }; } });
     return;
   }
-  drawRelicIcon(node.reward, x + 37, y + 50, portrait ? 58 : 50, node.rarity.color);
-  textFit(node.reward.name, x + 66, y + 34, w - 82, portrait ? 21 : 16, node.rarity.color);
+  const rewardColor = node.reward.rarityColor || node.rarity.color;
+  drawMapRewardIcon(node.reward, x + 37, y + 50, portrait ? 58 : 50, rewardColor);
+  textFit(node.reward.name, x + 66, y + 34, w - 82, portrait ? 21 : 16, rewardColor);
   wrapTextSized(node.reward.description, x + 66, y + 60, w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.text, 2);
-  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: `${node.rarity.name} relic reward`, color: node.rarity.color, body: node.reward.description, relic: node.reward }; } });
+  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: mapRewardSubtitle(node.reward), color: rewardColor, body: node.reward.description, relic: node.reward.type === "relic" ? node.reward : null }; } });
+}
+
+function mapRewardSubtitle(reward) {
+  if (!reward) return "No reward";
+  if (reward.type === "relic") return `${reward.rarityName || "Relic"} relic reward`;
+  if (reward.type === "gold") return `${reward.rarityName || "Bonus"} gold reward`;
+  if (reward.type === "heal") return `${reward.rarityName || "Bonus"} HP reward`;
+  if (reward.type === "maxHp") return `${reward.rarityName || "Bonus"} max HP reward`;
+  return reward.rarityName || "Table reward";
+}
+
+function drawMapRewardIcon(reward, cx, cy, size, color) {
+  if (reward?.type === "relic") return drawRelicIcon(reward, cx, cy, size, color);
+  const r = size * .5;
+  shadow(0, 6, 14, hexToRgba(color, .28), () => {
+    fill("rgba(8,6,12,.86)", cx - r, cy - r, size, size, Math.max(10, size * .2));
+    strokeRound(cx - r, cy - r, size, size, Math.max(10, size * .2), color, 2);
+  });
+  text(reward?.icon || "?", cx, cy + size * .12, size * .42, color, "center");
+  return true;
 }
 
 function drawMapEncounterCard(node, x, y, w, portrait) {
@@ -4329,8 +4539,11 @@ function drawMapPanel(x, y, w, h) {
   textFit(node.label, x + 24, y + 82, w - 48, portrait ? 25 : 19, C.text);
   textFit(node.reachable ? "Reachable now" : node.cleared ? "Cleared" : node.current ? "Current position" : "Future path preview", x + 24, y + 112, w - 48, portrait ? 18 : 14, node.reachable ? C.green : C.muted);
   if (node.reward) {
-    drawRelicRow(node.reward, x + 24, y + 154, w - 48, true);
-    textFit(`${node.rarity.name} Reward`, x + 24, y + (portrait ? 254 : 230), w - 48, portrait ? 20 : 15, node.rarity.color);
+    const rewardColor = node.reward.rarityColor || node.rarity.color;
+    drawMapRewardIcon(node.reward, x + 52, y + 182, portrait ? 58 : 50, rewardColor);
+    textFit(node.reward.name, x + 90, y + 166, w - 114, portrait ? 20 : 15, rewardColor);
+    wrapTextSized(node.reward.description, x + 90, y + 192, w - 114, portrait ? 17 : 12, portrait ? 14 : 11, C.text, 2);
+    textFit(mapRewardSubtitle(node.reward), x + 24, y + (portrait ? 254 : 230), w - 48, portrait ? 20 : 15, rewardColor);
   } else {
     textFit(node.kind === "elevator" ? "The elevator opens after the mini boss." : "Gather the party and start the climb.", x + 24, y + 160, w - 48, portrait ? 20 : 15, C.muted);
   }
@@ -5360,7 +5573,8 @@ function devScenarioFeedbackAnimations() {
 function devScenarioMapNavigator() {
   const seat = beginDeveloperTest("map navigator", "classic");
   game.floor = 0;
-  game.map = createFloorMap(game.floor);
+  game.floorMaps = createRunFloorMaps();
+  setGameMapForFloor(game.floor);
   game.currentNodeId = "start";
   game.clearedNodes = ["start"];
   game.activeEncounterId = "";
@@ -5379,7 +5593,7 @@ function devSetFloor(floorIndex) {
   if (!game?.developerTest) return flashMsg("Start Map Navigator first");
   developerPanelOpen = false;
   game.floor = clamp(floorIndex, 0, FLOORS - 1);
-  game.map = createFloorMap(game.floor);
+  setGameMapForFloor(game.floor);
   game.currentNodeId = "start";
   game.clearedNodes = ["start"];
   game.activeEncounterId = "";
