@@ -3584,7 +3584,6 @@ function drawFloorTransition() {
   ctx.globalAlpha = 1;
   const glow = Math.sin(progress * Math.PI) * .85 + .15;
   shadow(0, 0, 28, hexToRgba(C.gold, .45 * glow), () => strokeRound(shaftX - 96, elevatorY - 47, 192, 94, 32, C.gold, 4));
-  text(`${from}  →  ${to}`, x + panelW / 2, y + panelH - 86, portrait ? 44 : 38, C.gold, "center", "serif");
   text("New tables. New rules. Higher stakes.", x + panelW / 2, y + panelH - 45, portrait ? 20 : 18, C.muted, "center");
 }
 
