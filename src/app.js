@@ -808,16 +808,16 @@ function floorThemeColor(floorIndex) {
 }
 
 const floorCardPalettes = [
-  { dark: "#10180f", main: "#2f7f45", accent: "#d9b84a" },
-  { dark: "#121820", main: "#5f7585", accent: "#d6e0e7" },
-  { dark: "#151127", main: "#485da8", accent: "#c3cffb" },
-  { dark: "#21190f", main: "#8b7650", accent: "#e0c17a" },
-  { dark: "#17100a", main: "#8a6221", accent: "#e2b64a" },
-  { dark: "#161224", main: "#574a87", accent: "#c7b7ff" },
-  { dark: "#1d0f0a", main: "#8e351b", accent: "#f0a04a" },
-  { dark: "#101b20", main: "#2e7186", accent: "#91d8e8" },
-  { dark: "#080a10", main: "#242b3b", accent: "#a9b4c8" },
-  { dark: "#18110a", main: "#9d7830", accent: "#f3d36b" }
+  { dark: "#0a290a", main: "#228722", accent: "#97d897" },
+  { dark: "#112222", main: "#317777", accent: "#a2cdcd" },
+  { dark: "#291d0a", main: "#a07020", accent: "#dbc194" },
+  { dark: "#222211", main: "#777731", accent: "#cdcda2" },
+  { dark: "#0a291f", main: "#13966a", accent: "#8ee1c5" },
+  { dark: "#0a1f29", main: "#226587", accent: "#97c2d8" },
+  { dark: "#291f0a", main: "#876522", accent: "#d8c297" },
+  { dark: "#191122", main: "#543177", accent: "#b8a2cd" },
+  { dark: "#160f24", main: "#483078", accent: "#b0a1cf" },
+  { dark: "#26200d", main: "#7e692a", accent: "#d2c59d" }
 ];
 
 function floorCardPalette(floorIndex) {
@@ -5398,6 +5398,15 @@ function paletteCacheKey(palette) {
   return [palette?.dark, palette?.main, palette?.accent].join("|");
 }
 
+function mixRgb(a, b, amount) {
+  const t = clamp(Number(amount) || 0, 0, 1);
+  return {
+    r: a.r + (b.r - a.r) * t,
+    g: a.g + (b.g - a.g) * t,
+    b: a.b + (b.b - a.b) * t
+  };
+}
+
 function paletteShiftedHandAsset(key, palette) {
   if (!handAssetReady(key)) return null;
   const source = chromaKeyedHandAsset(key);
@@ -5421,21 +5430,17 @@ function paletteShiftedHandAsset(key, palette) {
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] < 4) continue;
     const lum = data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114;
-    let base;
-    let strength;
-    if (lum < 80) {
-      base = colors.dark;
-      strength = .72 + lum / 80 * .34;
-    } else if (lum < 178) {
-      base = colors.main;
-      strength = .62 + (lum - 80) / 98 * .62;
-    } else {
-      base = colors.accent;
-      strength = .7 + (lum - 178) / 77 * .42;
+    const light = clamp(lum / 255, 0, 1);
+    let shaded = colors.main;
+    if (light < .5) {
+      shaded = mixRgb(colors.main, colors.dark, (.5 - light) / .5 * .92);
+    } else if (light > .62) {
+      shaded = mixRgb(colors.main, colors.accent, (light - .62) / .38 * .78);
     }
-    data[i] = clamp(Math.round(base.r * strength), 0, 255);
-    data[i + 1] = clamp(Math.round(base.g * strength), 0, 255);
-    data[i + 2] = clamp(Math.round(base.b * strength), 0, 255);
+    const contrast = .7 + light * .56;
+    data[i] = clamp(Math.round(shaded.r * contrast), 0, 255);
+    data[i + 1] = clamp(Math.round(shaded.g * contrast), 0, 255);
+    data[i + 2] = clamp(Math.round(shaded.b * contrast), 0, 255);
   }
   octx.putImageData(imageData, 0, 0);
   paletteShiftedAssetCache.set(cacheKey, off);
