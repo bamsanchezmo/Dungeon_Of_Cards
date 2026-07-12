@@ -59,6 +59,41 @@ const musicTracks = {
   ]
 };
 
+const floorArtIds = [
+  "floor_01_lobby_tables",
+  "floor_02_slots_and_side_bets",
+  "floor_03_security_checkpoint",
+  "floor_04_bone_lounge",
+  "floor_05_vault_hall",
+  "floor_06_mirror_casino",
+  "floor_07_dragon_tables",
+  "floor_08_clockwork_pit",
+  "floor_09_black_felt",
+  "floor_10_penthouse"
+];
+
+const mapNodeArtFiles = {
+  start: "art/floors/shared/start_marker.png",
+  elevator: "art/floors/shared/elevator.png",
+  tableCommon: "art/floors/shared/table_common.png",
+  tableUncommon: "art/floors/shared/table_uncommon.png",
+  tableRare: "art/floors/shared/table_rare.png",
+  tableEpic: "art/floors/shared/table_epic.png",
+  tableLegendary: "art/floors/shared/table_legendary.png",
+  tableMythic: "art/floors/shared/table_mythic.png",
+  routeLine: "art/floors/shared/route_line.png"
+};
+
+floorArtIds.forEach((id, index) => {
+  const floor = String(index + 1).padStart(2, "0");
+  mapNodeArtFiles[`floor${floor}:background`] = `art/floors/${id}/background.png`;
+  mapNodeArtFiles[`floor${floor}:table`] = `art/floors/${id}/table.png`;
+  mapNodeArtFiles[`floor${floor}:bossTable`] = `art/floors/${id}/boss_table.png`;
+  mapNodeArtFiles[`floor${floor}:bossPortrait`] = `art/floors/${id}/boss_portrait.png`;
+  mapNodeArtFiles[`floor${floor}:elevator`] = `art/floors/${id}/elevator.png`;
+  mapNodeArtFiles[`floor${floor}:decoration`] = `art/floors/${id}/decoration.png`;
+});
+
 const C = {
   bg: "#120e16",
   panel: "#201a2a",
@@ -230,6 +265,9 @@ const relicAssetFiles = {
 };
 for (const [name, file] of Object.entries(relicAssetFiles)) {
   handdrawnAssetFiles[`relic:${name}`] = `art/relics/${file}`;
+}
+for (const [key, file] of Object.entries(mapNodeArtFiles)) {
+  handdrawnAssetFiles[`map:${key}`] = file;
 }
 const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
@@ -566,17 +604,25 @@ function rescaleEnemyForPlayers() {
 function createFloorMap(floorIndex) {
   const floor = floorIndex + 1;
   const palette = floorThemeColor(floorIndex);
+  const bossColor = bossTableColor(floorIndex);
+  const floorKey = floorAssetKey(floorIndex);
   const node = (id, label, kind, x, y, next = [], threatBoost = 0) => {
     const threat = kind === "boss" ? Math.min(5, 2 + Math.ceil(floor / 3)) : clamp(1 + Math.floor(floorIndex / 2) + threatBoost, 1, 5);
     const rarity = rarityForFloor(floorIndex, threatBoost + (kind === "boss" ? 2 : 0));
     const reward = kind === "start" || kind === "elevator" ? null : createRewardRelic(floorIndex, rarity, id);
     const encounter = kind === "table" || kind === "boss" ? createMapEnemy(floorIndex, kind, threat, id) : null;
-    return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color: reward?.rarityColor || palette };
+    const color = kind === "boss" ? bossColor : reward?.rarityColor || palette;
+    const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
+    return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color, bossColor, assetKey };
   };
   const map = {
     floor,
     theme: floorThemeName(floorIndex),
     color: palette,
+    bossColor,
+    floorKey,
+    backgroundAsset: `map:${floorKey}:background`,
+    decorationAsset: `map:${floorKey}:decoration`,
     nodes: [
       node("start", "Start", "start", .07, .50, ["start-1"]),
       node("start-1", "Starter Table", "table", .22, .50, ["top-1", "bottom-1"], 0),
@@ -602,6 +648,33 @@ function floorThemeName(floorIndex) {
 
 function floorThemeColor(floorIndex) {
   return ["#4e8a57", "#aa42a8", "#5872b8", "#b8a06a", "#d1a23c", "#8e78d4", "#d66a32", "#65b8d6", "#2d3448", C.gold][Math.min(floorIndex, 9)];
+}
+
+function bossTableColor(floorIndex) {
+  return [
+    "#7b3f2a",
+    "#d04bd8",
+    "#3f5f9f",
+    "#b7a06f",
+    "#d4a21f",
+    "#8d79ff",
+    "#d65628",
+    "#5ac7e2",
+    "#1c2236",
+    "#f1c75c"
+  ][Math.min(floorIndex, 9)];
+}
+
+function floorAssetKey(floorIndex) {
+  const floor = String(clamp(floorIndex, 0, floorArtIds.length - 1) + 1).padStart(2, "0");
+  return `floor${floor}`;
+}
+
+function mapNodeAssetKey(kind, rarity, floorKey) {
+  if (kind === "start") return "map:start";
+  if (kind === "elevator") return `map:${floorKey}:elevator`;
+  if (kind === "boss") return `map:${floorKey}:bossTable`;
+  return `map:${floorKey}:table`;
 }
 
 function rarityForFloor(floorIndex, boost = 0) {
@@ -646,6 +719,7 @@ function createMapEnemy(floorIndex, kind, threat, id) {
   if (kind === "boss") {
     const boss = cloneEnemy(floorIndex);
     boss.name = floorIndex === FLOORS - 1 ? "The House" : boss.name;
+    boss.color = bossTableColor(floorIndex);
     return boss;
   }
   const poolStart = floorIndex < 3 ? 1 : floorIndex < 6 ? 4 : 7;
@@ -671,6 +745,11 @@ function hashString(value) {
   let hash = 0;
   for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
   return hash;
+}
+
+function capitalize(value) {
+  const textValue = String(value || "");
+  return textValue ? textValue[0].toUpperCase() + textValue.slice(1) : "";
 }
 
 function addPlayerSeat(id, name = "") {
@@ -3031,6 +3110,11 @@ function drawDungeonMap() {
 }
 
 function drawMapCarpet(x, y, w, h) {
+  if (drawRawAssetCover(game.map.backgroundAsset, x + 10, y + 10, w - 20, h - 20, .92)) {
+    fill("rgba(5,4,8,.18)", x, y, w, h, 24);
+    drawRawAssetContain(game.map.decorationAsset, x + w * .36, y + h * .12, w * .28, h * .22, .72);
+    return;
+  }
   ctx.save();
   ctx.globalAlpha = .15;
   ctx.strokeStyle = game.map.color;
@@ -3159,19 +3243,23 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const y = p.y - h / 2;
   const selected = inspectedNodeId === node.id || game.mapVotes?.[localPlayerId] === node.id;
   const border = node.cleared ? C.green : node.reachable ? C.gold : selected ? C.parchment : "rgba(238,231,215,.22)";
-  const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? game.map.color : node.color;
+  const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : node.color;
+  const nodeAsset = mapNodeDrawableAsset(node);
+  const drewNodeAsset = !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, node.locked ? .5 : 1);
   ctx.save();
   ctx.globalAlpha = node.locked ? .48 : 1;
-  shadow(0, selected ? 0 : 16, selected ? 34 : 22, selected ? fillColor : "rgba(0,0,0,.48)", () => {
-    if (node.kind === "start") {
-      fill(fillColor, x, y, w, h, w / 2);
-    } else if (node.kind === "boss") {
-      polygon(p.x, p.y, w / 2, 8, fillColor);
-    } else {
-      gradientRound(x, y, w, h, 14, [[0, lighten(fillColor, .22)], [.58, fillColor], [1, "#17111d"]], true);
-      fill("rgba(255,255,255,.14)", x + 9, y + 9, w - 18, 10, 6);
-    }
-  });
+  if (!drewNodeAsset) {
+    shadow(0, selected ? 0 : 16, selected ? 34 : 22, selected ? fillColor : "rgba(0,0,0,.48)", () => {
+      if (node.kind === "start") {
+        fill(fillColor, x, y, w, h, w / 2);
+      } else if (node.kind === "boss") {
+        polygon(p.x, p.y, w / 2, 8, fillColor);
+      } else {
+        gradientRound(x, y, w, h, 14, [[0, lighten(fillColor, .22)], [.58, fillColor], [1, "#17111d"]], true);
+        fill("rgba(255,255,255,.14)", x + 9, y + 9, w - 18, 10, 6);
+      }
+    });
+  }
   if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, selected || node.reachable ? 5 : 3);
   else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, selected || node.reachable ? 5 : 3);
   const label = node.kind === "elevator" ? "E" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
@@ -3188,6 +3276,29 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   }
   ctx.restore();
   buttons.push({ x, y, w, h: h + 50, onClick: () => { inspectedNodeId = node.id; } });
+}
+
+function mapNodeDrawableAsset(node) {
+  const preferred = node.assetKey;
+  if (handAssetReady(preferred)) return preferred;
+  if (node.kind === "start" && handAssetReady("map:start")) return "map:start";
+  if (node.kind === "elevator") {
+    const floorElevator = `map:${game.map.floorKey}:elevator`;
+    if (handAssetReady(floorElevator)) return floorElevator;
+    if (handAssetReady("map:elevator")) return "map:elevator";
+  }
+  if (node.kind === "boss") {
+    const floorBoss = `map:${game.map.floorKey}:bossTable`;
+    if (handAssetReady(floorBoss)) return floorBoss;
+  }
+  if (node.kind === "table") {
+    const floorTable = `map:${game.map.floorKey}:table`;
+    if (handAssetReady(floorTable)) return floorTable;
+    const rarityKey = `map:table${capitalize(node.rarity?.key || "common")}`;
+    if (handAssetReady(rarityKey)) return rarityKey;
+    if (handAssetReady("map:tableCommon")) return "map:tableCommon";
+  }
+  return "";
 }
 
 function drawPolishedMapPanel(x, y, w, h) {
@@ -4636,6 +4747,41 @@ function drawHandAsset(key, x, y, w, h, color = "#000", alpha = 1) {
   ctx.globalAlpha *= alpha;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(asset, x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawRawAsset(key, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(handdrawnImages[key], x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawRawAssetContain(key, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const size = handAssetSize(key);
+  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  return drawRawAsset(key, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, alpha);
+}
+
+function drawRawAssetCover(key, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const img = handdrawnImages[key];
+  const scale = Math.max(w / Math.max(1, img.naturalWidth), h / Math.max(1, img.naturalHeight));
+  const sw = w / scale;
+  const sh = h / scale;
+  const sx = (img.naturalWidth - sw) / 2;
+  const sy = (img.naturalHeight - sh) / 2;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   ctx.restore();
   return true;
 }

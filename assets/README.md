@@ -15,6 +15,37 @@ Replace art by keeping the same filenames in these folders.
 - `art/maps/` — future floor-map node, route, elevator, and background art.
 - `art/backgrounds/` — future menu/table/casino backgrounds.
 
+## Floor map art
+
+Use `art/floors/` for replaceable map visuals.
+
+Current floor-map replacement folders:
+
+- `art/floors/shared/`
+- `art/floors/floor_01_lobby_tables/`
+- `art/floors/floor_02_slots_and_side_bets/`
+- `art/floors/floor_03_security_checkpoint/`
+- `art/floors/floor_04_bone_lounge/`
+- `art/floors/floor_05_vault_hall/`
+- `art/floors/floor_06_mirror_casino/`
+- `art/floors/floor_07_dragon_tables/`
+- `art/floors/floor_08_clockwork_pit/`
+- `art/floors/floor_09_black_felt/`
+- `art/floors/floor_10_penthouse/`
+
+Each floor folder can contain:
+
+- `background.png`
+- `table.png`
+- `boss_table.png`
+- `boss_portrait.png`
+- `elevator.png`
+- `decoration.png`
+
+Shared fallback assets can go in `art/floors/shared/` as `start_marker.png`, `elevator.png`, `table_common.png`, `table_uncommon.png`, `table_rare.png`, `table_epic.png`, `table_legendary.png`, `table_mythic.png`, and `route_line.png`.
+
+The game tries floor-specific art first, shared fallback art second, and procedural drawing last.
+
 ## Audio
 
 - `audio/music/` — looping music tracks.
