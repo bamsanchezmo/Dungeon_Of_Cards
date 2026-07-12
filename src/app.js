@@ -698,11 +698,20 @@ function createFloorMap(floorIndex) {
     const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
     return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color, bossColor, assetKey };
   };
-  const columnCount = () => {
+  const routeColumnCount = () => {
     const floorBias = clamp(floorIndex / Math.max(1, FLOORS - 1), 0, 1);
+    const roll = Math.random() + floorBias * .72;
+    if (roll < .52) return 1;
+    if (roll < 1.12) return 2;
+    return 3;
+  };
+  const columnCount = (columnIndex, totalColumns) => {
+    const floorBias = clamp(floorIndex / Math.max(1, FLOORS - 1), 0, 1);
+    const columnBias = totalColumns <= 1 ? .25 : columnIndex / Math.max(1, totalColumns - 1);
+    const density = clamp(floorBias * .72 + columnBias * .28, 0, 1);
     const roll = Math.random();
-    const oneChance = .32 * (1 - floorBias);
-    const fourChance = .16 + floorBias * .58;
+    const oneChance = .34 * (1 - density);
+    const fourChance = .12 + density * .62;
     if (roll < oneChance) return 1;
     if (roll > 1 - fourChance) return 4;
     return 2;
@@ -712,8 +721,8 @@ function createFloorMap(floorIndex) {
     if (count === 2) return [.30, .70];
     return [.20, .40, .60, .80];
   };
-  const makeColumn = (columnIndex, x, nextIds = null) => {
-    const count = columnCount();
+  const makeColumn = (columnIndex, totalColumns, x, nextIds = null) => {
+    const count = columnCount(columnIndex, totalColumns);
     const ids = Array.from({ length: count }, (_, i) => `c${columnIndex}-${i + 1}`);
     const ys = tableYs(count);
     const nodes = ids.map((id, i) => {
@@ -725,9 +734,16 @@ function createFloorMap(floorIndex) {
     });
     return { ids, nodes };
   };
-  const col3 = makeColumn(2, .62, ["boss"]);
-  const col2 = makeColumn(1, .49, col3.ids);
-  const col1 = makeColumn(0, .35, col2.ids);
+  const routeColumns = [];
+  const totalColumns = routeColumnCount();
+  let nextIds = ["boss"];
+  for (let i = totalColumns - 1; i >= 0; i--) {
+    const t = totalColumns <= 1 ? .5 : i / Math.max(1, totalColumns - 1);
+    const x = lerp(.36, .62, t);
+    const column = makeColumn(i, totalColumns, x, nextIds);
+    routeColumns.unshift(column);
+    nextIds = column.ids;
+  }
   const map = {
     floor,
     theme: floorThemeName(floorIndex),
@@ -738,10 +754,8 @@ function createFloorMap(floorIndex) {
     decorationAsset: `map:${floorKey}:decoration`,
     nodes: [
       node("start", "Start", "start", .07, .50, ["start-1"]),
-      node("start-1", "Starter Table", "table", .22, .50, branchNextIds(0, 1, col1.ids), 0),
-      ...col1.nodes,
-      ...col2.nodes,
-      ...col3.nodes,
+      node("start-1", "Starter Table", "table", .22, .50, branchNextIds(0, 1, routeColumns[0]?.ids || ["boss"]), 0),
+      ...routeColumns.flatMap((column) => column.nodes),
       node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"]),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
