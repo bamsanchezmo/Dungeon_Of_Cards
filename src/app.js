@@ -434,8 +434,8 @@ function calibratedHp(floor) {
 function calibratedBossHp(floorIndex, playerCount = game?.seats?.length || 1) {
   const floor = floorIndex + 1;
   const base = [
-    320, 430, 560, 710, 900,
-    1120, 1375, 1660, 1980, 2400
+    480, 650, 850, 1080, 1360,
+    1700, 2100, 2550, 3050, 3700
   ][Math.min(floorIndex, FLOORS - 1)] || (300 + floor * 190);
   return Math.max(1, Math.ceil(base * houseHpMultiplier(playerCount)));
 }
@@ -540,6 +540,9 @@ function tick(now) {
     game.dealerTimer -= dt;
     if (game.dealerTimer <= 0) settleRound();
   }
+  if (game?.phase === "floorTransition" && Date.now() - (game.floorTransition?.startedAt || Date.now()) > (game.floorTransition?.duration || 2600)) {
+    finishFloorTransition();
+  }
   updateMusicMood(now);
   recordLeaderboardIfNeeded();
   if ((!game || appScene === "menu") && Date.now() - leaderboardRefreshAt > LEADERBOARD_REFRESH_MS) {
@@ -639,7 +642,7 @@ function rescaleEnemyForPlayers() {
   game.enemy.hp = ratio <= 0 ? 0 : Math.max(1, Math.min(nextMax, Math.ceil(nextMax * ratio)));
   if (game.enemy.isBoss) {
     const floorIndex = Math.max(0, (game.floor || 1) - 1);
-    game.enemy.roundDamageCap = Math.max(75, Math.ceil(game.enemy.maxHp * (floorIndex < 3 ? .30 : floorIndex < 7 ? .26 : .22)));
+    game.enemy.roundDamageCap = Math.max(75, Math.ceil(game.enemy.maxHp * (floorIndex < 3 ? .24 : floorIndex < 7 ? .21 : .18)));
   }
 }
 
@@ -921,7 +924,7 @@ function createMapEnemy(floorIndex, kind, threat, id) {
     boss.baseHp = calibratedBossHp(floorIndex, 1);
     boss.maxHp = calibratedBossHp(floorIndex);
     boss.hp = boss.maxHp;
-    boss.roundDamageCap = Math.max(75, Math.ceil(boss.maxHp * (floorIndex < 3 ? .30 : floorIndex < 7 ? .26 : .22)));
+    boss.roundDamageCap = Math.max(75, Math.ceil(boss.maxHp * (floorIndex < 3 ? .24 : floorIndex < 7 ? .21 : .18)));
     boss.description = `${boss.description} Boss phases at 66% and 33% HP.`;
     return boss;
   }
@@ -1360,7 +1363,10 @@ function applyBossPhaseRules(initial = false) {
     if (phase) {
       log(`${enemy.name} phase ${nextPhase + 1}: ${phase.name}. ${phase.text}`);
       notify(`${phase.name}: ${phase.text}`);
-      if (!initial) flashMsg(`${phase.name}: ${phase.text}`);
+      if (!initial) {
+        sfx("phase");
+        flashMsg(`${phase.name}: ${phase.text}`);
+      }
     }
   }
   return changed;
@@ -1379,17 +1385,17 @@ function completeMapEncounter() {
       log("The Penthouse boss folds. The climb is won.");
       return;
     }
-    game.floor++;
-    game.map = createFloorMap(game.floor);
-    game.currentNodeId = "start";
-    game.clearedNodes = ["start"];
-    inspectedNodeId = "start-1";
-    log(`Elevator doors open onto Floor ${game.floor + 1}: ${game.map.theme}.`);
+    const fromFloor = game.floor + 1;
+    const toFloor = fromFloor + 1;
+    game.phase = "floorTransition";
+    game.floorTransition = { from: fromFloor, to: toFloor, startedAt: Date.now(), duration: 2800 };
+    sfx("floorClear");
+    log(`Floor ${fromFloor} cleared. Elevator climbing to Floor ${toFloor}.`);
   } else {
     const next = (node.next || []).find((id) => getMapNode(id)?.kind === "boss");
     inspectedNodeId = next || node.next?.[0] || node.id;
+    game.phase = "map";
   }
-  game.phase = "map";
   game.mapVotes = {};
   game.mapReady = {};
   game.selectedNodeId = "";
@@ -1399,6 +1405,20 @@ function completeMapEncounter() {
     s.finished = false;
     s.hands = [];
   });
+  if (game.phase === "map") refreshReachableNodes();
+}
+
+function finishFloorTransition() {
+  if (!game || game.phase !== "floorTransition") return;
+  const targetFloor = clamp((game.floorTransition?.to || game.floor + 2) - 1, 0, FLOORS - 1);
+  game.floor = targetFloor;
+  game.map = createFloorMap(game.floor);
+  game.currentNodeId = "start";
+  game.clearedNodes = ["start"];
+  inspectedNodeId = "start-1";
+  game.floorTransition = null;
+  game.phase = "map";
+  log(`Elevator doors open onto Floor ${game.floor + 1}: ${game.map.theme}.`);
   refreshReachableNodes();
 }
 
@@ -2998,6 +3018,19 @@ function sfx(kind) {
     blip(310, .02, .045, .11, "square", 180);
     return;
   }
+  if (kind === "phase") {
+    blip(180, 0, .16, .18, "sawtooth", 300);
+    blip(420, .11, .18, .16, "square", 620);
+    blip(840, .25, .22, .13, "triangle", 520);
+    return;
+  }
+  if (kind === "floorClear") {
+    blip(420, 0, .12, .14, "triangle", 620);
+    blip(660, .1, .14, .16, "triangle", 900);
+    blip(980, .22, .18, .17, "triangle", 1320);
+    blip(1480, .4, .24, .14, "triangle", 1040);
+    return;
+  }
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   const freq = { deal: 440, flip: 560, win: 740, lose: 160, bust: 120, push: 300, shuffle: 220 }[kind] || 330;
@@ -3061,6 +3094,8 @@ function draw() {
   } else {
     if (game.phase === "map") {
       drawDungeonMap();
+    } else if (game.phase === "floorTransition") {
+      drawFloorTransition();
     } else {
       drawTable();
       drawFlyingCards();
@@ -3403,27 +3438,48 @@ function drawDealer(felt) {
   const descriptionW = portrait ? 300 : Math.max(160, Math.min(460, barW - meterW - 150));
   textFit(e.name, barX + 82, barY + 28, Math.max(120, meterX - barX - 102), portrait ? 23 : 22, ui.titleWarm);
   wrapTextSized(e.description, barX + 82, barY + 56, descriptionW, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
-  meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
-  drawBossPhaseTicks(e, meterX, barY + 29, meterW, 14);
+  if (e.isBoss) drawBossHealthBar(e, meterX, barY + 29, meterW, 14);
+  else meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
   buttons.push({ x: barX, y: barY, w: barW, h: 78, onClick: () => rulesOpen = true });
 }
 
-function drawBossPhaseTicks(enemy, x, y, w, h) {
-  if (!enemy?.isBoss || !Array.isArray(enemy.bossPhases)) return;
+function bossPhaseColor(index) {
+  return ["#59d67a", "#f0c84e", "#e85b54"][clamp(index, 0, 2)] || C.gold;
+}
+
+function drawBossHealthBar(enemy, x, y, w, h) {
+  if (!enemy?.isBoss || !Array.isArray(enemy.bossPhases)) {
+    meter(x, y, w, h, enemy?.maxHp ? enemy.hp / enemy.maxHp : 0, C.red, C.gold);
+    return;
+  }
+  const value = clamp(enemy.hp / enemy.maxHp, 0, 1);
+  const phaseIndex = clamp(Number(enemy.bossPhase) || 0, 0, enemy.bossPhases.length - 1);
+  const phaseColor = bossPhaseColor(phaseIndex);
+  fill("#08070b", x, y, w, h, h / 2);
+  strokeRound(x, y, w, h, h / 2, "rgba(238,231,215,.12)", 1.5);
   ctx.save();
-  ctx.strokeStyle = "rgba(245,251,255,.86)";
-  ctx.lineWidth = 2;
-  for (const phase of enemy.bossPhases.slice(1)) {
-    const tx = x + w * phase.threshold;
-    ctx.beginPath();
-    ctx.moveTo(tx, y - 4);
-    ctx.lineTo(tx, y + h + 4);
-    ctx.stroke();
+  ctx.globalAlpha = .34;
+  const segments = [
+    { from: .66, to: 1, color: bossPhaseColor(0) },
+    { from: .33, to: .66, color: bossPhaseColor(1) },
+    { from: 0, to: .33, color: bossPhaseColor(2) }
+  ];
+  for (const seg of segments) {
+    fill(seg.color, x + w * seg.from, y, w * (seg.to - seg.from), h, h / 2);
+  }
+  ctx.restore();
+  const filled = value * w;
+  if (filled > 0) {
+    const g = ctx.createLinearGradient(x, y, x + w, y);
+    g.addColorStop(0, phaseColor);
+    g.addColorStop(.62, lighten(phaseColor, .22));
+    g.addColorStop(1, "#fff0a8");
+    shadow(0, 0, 14, hexToRgba(phaseColor, .58), () => fill(g, x, y, filled, h, h / 2));
+    if (filled > 6) fill("rgba(255,255,255,.18)", x + 2, y + 2, filled - 4, Math.max(1, h * .28), h / 3);
   }
   const active = enemy.bossPhases[clamp(Number(enemy.bossPhase) || 0, 0, enemy.bossPhases.length - 1)];
   if (active) textFit(active.name, x + w / 2, y - 7, w, viewport.portrait ? 14 : 11, activeFloorUi().title, "center");
-  ctx.restore();
 }
 
 function drawDungeonMap() {
@@ -3478,6 +3534,56 @@ function drawMapCarpet(x, y, w, h) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawFloorTransition() {
+  const lw = layoutW(), lh = layoutH(), portrait = viewport.portrait;
+  const t = game.floorTransition || { from: 1, to: 2, startedAt: Date.now(), duration: 2800 };
+  const progress = clamp((Date.now() - t.startedAt) / Math.max(1, t.duration), 0, 1);
+  const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+  const from = clamp(t.from || 1, 1, FLOORS);
+  const to = clamp(t.to || from + 1, 1, FLOORS);
+  fill("rgba(0,0,0,.58)", 0, 0, lw, lh);
+  const ui = activeFloorUi();
+  const panelW = Math.min(portrait ? lw - 48 : 720, lw - 60);
+  const panelH = Math.min(portrait ? 760 : 520, lh - 70);
+  const x = (lw - panelW) / 2;
+  const y = (lh - panelH) / 2;
+  shadow(0, 18, 42, "rgba(0,0,0,.5)", () => gradientRound(x, y, panelW, panelH, 24, [[0, hexToRgba(activeFloorColor(), .42)], [.5, "#15101c"], [1, "#080d12"]], true));
+  strokeRound(x, y, panelW, panelH, 24, ui.accent, 3);
+  text("FLOOR CLEARED", x + panelW / 2, y + 66, portrait ? 38 : 34, C.gold, "center", "serif");
+  text(`Elevator climbing to Floor ${to}`, x + panelW / 2, y + 108, portrait ? 23 : 20, C.text, "center");
+
+  const shaftX = x + panelW / 2;
+  const shaftTop = y + (portrait ? 160 : 145);
+  const shaftH = panelH - (portrait ? 250 : 210);
+  const rowGap = portrait ? 78 : 60;
+  const centerY = shaftTop + shaftH / 2;
+  const offset = (from - 1 + eased) * rowGap;
+  strokeRound(shaftX - 78, shaftTop - 24, 156, shaftH + 48, 28, "rgba(238,231,215,.18)", 2);
+  fill("rgba(0,0,0,.28)", shaftX - 62, shaftTop - 10, 124, shaftH + 20, 22);
+  ctx.save();
+  pathRound(shaftX - 86, shaftTop - 34, 172, shaftH + 68, 30);
+  ctx.clip();
+  for (let floor = 1; floor <= FLOORS; floor++) {
+    const fy = centerY + (floor - 1) * rowGap - offset;
+    const dist = Math.abs(fy - centerY);
+    const active = floor === to && progress > .58;
+    const passed = floor < to;
+    const scale = active ? 1.36 : Math.max(.72, 1.08 - dist / 420);
+    const alpha = clamp(1 - dist / (shaftH * .72), .18, 1);
+    ctx.globalAlpha = alpha;
+    const r = (portrait ? 27 : 23) * scale;
+    fill(active ? ui.primaryTop : passed ? hexToRgba(C.gold, .82) : "rgba(238,231,215,.22)", shaftX - r, fy - r, r * 2, r * 2, r);
+    strokeRound(shaftX - r, fy - r, r * 2, r * 2, r, active ? "#fff3ad" : "rgba(255,255,255,.25)", active ? 3 : 1.5);
+    text(String(floor), shaftX, fy + (portrait ? 11 : 9) * scale, (portrait ? 34 : 28) * scale, active ? C.black : C.text, "center", "serif");
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  const glow = Math.sin(progress * Math.PI) * .85 + .15;
+  shadow(0, 0, 28, hexToRgba(C.gold, .45 * glow), () => strokeRound(shaftX - 96, centerY - 47, 192, 94, 32, C.gold, 4));
+  text(`${from}  →  ${to}`, x + panelW / 2, y + panelH - 86, portrait ? 44 : 38, C.gold, "center", "serif");
+  text("New tables. New rules. Higher stakes.", x + panelW / 2, y + panelH - 45, portrait ? 20 : 18, C.muted, "center");
 }
 
 function drawMapHeader(lw, portrait) {
@@ -6119,17 +6225,23 @@ function drawStatsOverlay() {
 
 function drawRulesOverlay() {
   buttons = [];
-  const lw = layoutW(), lh = layoutH(), w = Math.min(650, lw - 60), h = viewport.portrait ? 660 : 510;
+  const lw = layoutW(), lh = layoutH(), portrait = viewport.portrait;
+  const w = Math.min(portrait ? lw - 48 : 720, lw - 60);
+  const h = Math.min(portrait ? 760 : 600, lh - 70);
   const x = (lw - w) / 2, y = Math.max(40, (lh - h) / 2);
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
   gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true);
   strokeRound(x, y, w, h, 18, game.enemy.color, 3);
   text("HOUSE RULES", lw / 2, y + 60, 31, C.gold, "center", "serif");
   textFit(game.enemy.name, lw / 2, y + 101, Math.min(520, lw - 120), 22, C.text, "center");
-  const rules = houseRules();
+  const rules = houseRules().slice(0, viewport.portrait ? 8 : 8);
   rules.forEach((rule, i) => {
     fill("rgba(238,231,215,.055)", x + 36, y + 132 + i * 54, w - 72, 42, 8);
+    ctx.save();
+    pathRound(x + 36, y + 132 + i * 54, w - 72, 42, 8);
+    ctx.clip();
     text(`• ${rule}`, x + 54, y + 160 + i * 54, viewport.portrait ? 19 : 17, C.text);
+    ctx.restore();
   });
   addButton(x + w / 2 - 100, y + h - 72, 200, 48, "Close", () => rulesOpen = false);
 }
