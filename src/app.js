@@ -643,10 +643,10 @@ function createFloorMap(floorIndex) {
       node("start-1", "Starter Table", "table", .22, .50, ["top-1", "bottom-1"], 0),
       node("top-1", "Upper Table", "table", .38, .30, ["top-2a", "top-2b"], 1),
       node("bottom-1", "Lower Table", "table", .38, .70, ["bottom-2a", "bottom-2b"], 1),
-      node("top-2a", "Skybox Table", "table", .55, .16, ["boss"], 1),
-      node("top-2b", "Neon Table", "table", .55, .34, ["boss"], 2),
-      node("bottom-2a", "Vault Table", "table", .55, .66, ["boss"], 2),
-      node("bottom-2b", "Basement Table", "table", .55, .84, ["boss"], 1),
+      node("top-2a", "Skybox Table", "table", .55, .22, ["boss"], 1),
+      node("top-2b", "Neon Table", "table", .55, .40, ["boss"], 2),
+      node("bottom-2a", "Vault Table", "table", .55, .60, ["boss"], 2),
+      node("bottom-2b", "Basement Table", "table", .55, .78, ["boss"], 1),
       node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"]),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
