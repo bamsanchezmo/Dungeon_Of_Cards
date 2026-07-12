@@ -37,6 +37,14 @@ const rarityTiers = [
   { key: "mythic", name: "Mythic", color: "#ff4e72", scale: 3.8 }
 ];
 
+const threatColors = [
+  "#54d66a",
+  "#42a5ff",
+  "#b65cff",
+  "#ff9f2f",
+  "#ff4e72"
+];
+
 const musicTracks = {
   menu: "menu_theme.mp3",
   floors: [
@@ -3420,7 +3428,7 @@ function tableSceneAssets() {
   return {
     boss,
     background: tableSceneAsset(`${floorKey}:background`),
-    table: tableSceneAsset(`${floorKey}:${boss ? "bossTable" : "table"}`),
+    table: boss ? tableSceneAsset(`${floorKey}:bossTable`) : "tableBase:grunt",
     decoration: tableSceneAsset(`${floorKey}:decoration`)
   };
 }
@@ -3436,7 +3444,7 @@ function drawEncounterTableArt(felt, scene) {
   const targetW = Math.min(felt.w * (portrait ? .96 : .9), portrait ? 700 : 1260);
   const targetH = portrait ? 390 : 520;
   const x = felt.x + felt.w / 2 - targetW / 2;
-  const y = felt.y + (portrait ? 96 : 86);
+  const y = felt.y + (felt.h - targetH) / 2 + (portrait ? 8 : 18);
   let tableRect = null;
   if (scene.boss) {
     tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
@@ -3450,7 +3458,7 @@ function drawEncounterTableArt(felt, scene) {
       drawRawAssetContain(scene.table, x, y, targetW, targetH, .94);
     }
   }
-  drawTablePlaqueMotif(tableRect);
+  if (!scene.boss) drawTablePlaqueMotif(tableRect);
   if (scene.decoration) {
     drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
@@ -3468,13 +3476,7 @@ function gruntAssetKeyForEnemy(enemy) {
 }
 
 function difficultyGlowColor(threat = 1) {
-  return [
-    "#54d66a",
-    "#42a5ff",
-    "#b65cff",
-    "#ff9f2f",
-    "#ff4e72"
-  ][clamp(Math.round(threat) - 1, 0, 4)] || C.gold;
+  return threatColors[clamp(Math.round(threat) - 1, 0, threatColors.length - 1)] || C.gold;
 }
 
 function drawGruntDealerBehindTable(felt, tableRect) {
@@ -3494,16 +3496,9 @@ function drawGruntDealerBehindTable(felt, tableRect) {
   ctx.save();
   ctx.globalAlpha = .78;
   ctx.shadowColor = hexToRgba(glow, .92);
-  ctx.shadowBlur = portrait ? 20 : 30;
+  ctx.shadowBlur = portrait ? 28 : 42;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(asset, x, y, targetW, targetH);
-  ctx.shadowBlur = 0;
-  ctx.globalAlpha = .34;
-  ctx.strokeStyle = hexToRgba(glow, .8);
-  ctx.lineWidth = portrait ? 3 : 4;
-  ctx.beginPath();
-  ctx.ellipse(x + targetW / 2, y + targetH * .48, targetW * .34, targetH * .46, 0, 0, Math.PI * 2);
-  ctx.stroke();
   ctx.restore();
   return true;
 }
@@ -3843,13 +3838,9 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const nodeAsset = mapNodeDrawableAsset(node);
   const lockedAlpha = node.locked ? .78 : 1;
   if (node.kind === "table") drawMapGruntBehindTableNode(node, p, w, h, lockedAlpha);
-  if (node.kind === "table") {
-    const glowAlpha = node.reachable || node.current || selected ? .48 : .22;
-    shadow(0, 0, selected ? 28 : 18, hexToRgba(threatColor, glowAlpha), () => {
-      strokeRound(x - w * .13, y - h * .13, w * 1.26, h * 1.26, 18, hexToRgba(threatColor, selected ? .68 : .38), selected ? 4 : 2.5);
-    });
-  }
-  const drewNodeAsset = !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
+  const drewNodeAsset = node.kind === "table"
+    ? drawPaletteShiftedAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x - w * .42, y - h * .22, w * 1.84, h * 1.2, lockedAlpha)
+    : !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
   ctx.save();
   ctx.globalAlpha = lockedAlpha;
   if (!drewNodeAsset) {
@@ -3867,7 +3858,7 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   ctx.globalAlpha = 1;
   const strokeWidth = selectedReachable || selectedFuture ? 5 : node.reachable || node.cleared || node.current ? 4 : 3;
   if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, strokeWidth);
-  else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
+  else if (node.kind !== "table") strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
   const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
   const hideAssetLabel = drewNodeAsset && (node.kind === "start" || node.kind === "table");
   if (node.kind === "boss") {
@@ -3913,7 +3904,7 @@ function drawMapGruntBehindTableNode(node, p, w, h, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha * (node.locked ? .66 : .82);
   ctx.shadowColor = hexToRgba(threatColor, node.reachable || node.current ? .9 : .45);
-  ctx.shadowBlur = node.reachable || node.current ? 16 : 9;
+  ctx.shadowBlur = node.reachable || node.current ? 28 : 18;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(asset, x, y, targetW, targetH);
   ctx.restore();
@@ -3934,11 +3925,7 @@ function mapNodeDrawableAsset(node) {
     if (handAssetReady(floorBoss)) return floorBoss;
   }
   if (node.kind === "table") {
-    const floorTable = `map:${game.map.floorKey}:table`;
-    if (handAssetReady(floorTable)) return floorTable;
-    const rarityKey = `map:table${capitalize(node.rarity?.key || "common")}`;
-    if (handAssetReady(rarityKey)) return rarityKey;
-    if (handAssetReady("map:tableCommon")) return "map:tableCommon";
+    if (handAssetReady("tableBase:grunt")) return "tableBase:grunt";
   }
   return "";
 }
