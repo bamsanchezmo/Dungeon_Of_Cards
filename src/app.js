@@ -668,7 +668,7 @@ function createFloorMap(floorIndex) {
     const rarity = rarityForFloor(floorIndex, threatBoost + (kind === "boss" ? 2 : 0));
     const reward = kind === "start" || kind === "elevator" ? null : createRewardRelic(rarity, rewardPicker());
     const encounter = kind === "table" || kind === "boss" ? createMapEnemy(floorIndex, kind, threat, id) : null;
-    const color = kind === "boss" ? bossColor : reward?.rarityColor || palette;
+    const color = kind === "boss" ? bossColor : kind === "table" ? difficultyGlowColor(threat) : reward?.rarityColor || palette;
     const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
     return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color, bossColor, assetKey };
   };
@@ -3837,10 +3837,18 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const selectedReachable = selected && node.reachable;
   const selectedFuture = selected && !node.reachable && !node.cleared && !node.current;
   const ui = activeFloorUi();
-  const border = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? ui.title : node.reachable ? "rgba(238,231,215,.66)" : "rgba(238,231,215,.46)";
-  const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : node.color;
+  const threatColor = node.kind === "table" ? difficultyGlowColor(node.threat) : node.color;
+  const border = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? ui.title : node.reachable ? hexToRgba(threatColor || C.parchment, .82) : "rgba(238,231,215,.46)";
+  const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : threatColor || node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
   const lockedAlpha = node.locked ? .78 : 1;
+  if (node.kind === "table") drawMapGruntBehindTableNode(node, p, w, h, lockedAlpha);
+  if (node.kind === "table") {
+    const glowAlpha = node.reachable || node.current || selected ? .48 : .22;
+    shadow(0, 0, selected ? 28 : 18, hexToRgba(threatColor, glowAlpha), () => {
+      strokeRound(x - w * .13, y - h * .13, w * 1.26, h * 1.26, 18, hexToRgba(threatColor, selected ? .68 : .38), selected ? 4 : 2.5);
+    });
+  }
   const drewNodeAsset = !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
   ctx.save();
   ctx.globalAlpha = lockedAlpha;
@@ -3889,6 +3897,27 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   }
   ctx.restore();
   buttons.push({ x, y, w, h: h + 50, onClick: () => { inspectedNodeId = node.id; } });
+}
+
+function drawMapGruntBehindTableNode(node, p, w, h, alpha = 1) {
+  const key = gruntAssetKeyForEnemy(node.encounter);
+  if (!handAssetReady(key)) return false;
+  const size = handAssetSize(key);
+  const threatColor = difficultyGlowColor(node.threat);
+  const targetH = h * (viewport.portrait ? 1.22 : 1.14);
+  const targetW = targetH * size.w / Math.max(1, size.h);
+  const x = p.x - targetW / 2;
+  const y = p.y - h * .92;
+  const asset = chromaKeyedHandAsset(key);
+  if (!asset) return false;
+  ctx.save();
+  ctx.globalAlpha = alpha * (node.locked ? .66 : .82);
+  ctx.shadowColor = hexToRgba(threatColor, node.reachable || node.current ? .9 : .45);
+  ctx.shadowBlur = node.reachable || node.current ? 16 : 9;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(asset, x, y, targetW, targetH);
+  ctx.restore();
+  return true;
 }
 
 function mapNodeDrawableAsset(node) {
