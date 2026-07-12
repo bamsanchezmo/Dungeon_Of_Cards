@@ -3471,7 +3471,7 @@ function drawMapRewardCard(node, x, y, w, portrait) {
   badge(x + 31, y + 48, node.reward.icon, node.rarity.color);
   text(fitLabel(node.reward.name, w - 82, portrait ? 21 : 16), x + 66, y + 34, portrait ? 21 : 16, node.rarity.color);
   wrapTextSized(node.reward.description, x + 66, y + 60, w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.text, 2);
-  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: `${node.rarity.name} relic reward`, color: node.rarity.color, body: node.reward.description }; } });
+  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: `${node.rarity.name} relic reward`, color: node.rarity.color, body: node.reward.description, relic: node.reward }; } });
 }
 
 function drawMapEncounterCard(node, x, y, w, portrait) {
@@ -3490,9 +3490,11 @@ function drawMapInfoOverlay() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   const w = portrait ? Math.min(lw - 44, 620) : 520;
-  const h = portrait ? 360 : 300;
+  const hasRelicArt = !!mapInfoDetail.relic;
+  const h = portrait ? (hasRelicArt ? 430 : 360) : (hasRelicArt ? 370 : 300);
   const x = lw / 2 - w / 2;
   const y = lh / 2 - h / 2;
+  const bodyY = hasRelicArt ? y + (portrait ? 214 : 190) : y + 118;
   buttons = [];
   fill("rgba(0,0,0,.64)", 0, 0, lw, lh);
   shadow(0, 24, 70, "rgba(0,0,0,.55)", () => {
@@ -3501,7 +3503,10 @@ function drawMapInfoOverlay() {
   strokeRound(x, y, w, h, 22, mapInfoDetail.color || C.gold, 2);
   text(mapInfoDetail.title, x + 28, y + 48, portrait ? 28 : 23, mapInfoDetail.color || C.gold, "left", "serif");
   if (mapInfoDetail.subtitle) text(mapInfoDetail.subtitle, x + 28, y + 78, portrait ? 18 : 14, C.muted);
-  wrapTextSized(mapInfoDetail.body || "", x + 28, y + 118, w - 56, portrait ? 22 : 17, portrait ? 18 : 15, C.text, portrait ? 8 : 7);
+  if (hasRelicArt) {
+    drawRelicIcon(mapInfoDetail.relic, x + w / 2, y + (portrait ? 145 : 130), portrait ? 112 : 96, mapInfoDetail.color || C.gold);
+  }
+  wrapTextSized(mapInfoDetail.body || "", x + 28, bodyY, w - 56, portrait ? 22 : 17, portrait ? 18 : 15, C.text, portrait ? 8 : 7);
   addButton(x + 28, y + h - (portrait ? 80 : 66), w - 56, portrait ? 58 : 48, "Close", () => { mapInfoDetail = null; }, true);
 }
 
