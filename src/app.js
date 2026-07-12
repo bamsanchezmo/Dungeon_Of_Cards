@@ -209,6 +209,8 @@ const LEADERBOARD_VISIBLE = 5;
 const LEADERBOARD_REFRESH_MS = 15000;
 const artPreference = "handdrawn";
 const handdrawnAssetFiles = {
+  splashBackground: "art/ui/splash_background.png",
+  mainMenuBackground: "art/ui/main_menu_background.png",
   frame: "art/ui/frame.png",
   divider: "art/ui/divider.png",
   token: "art/ui/token.png",
@@ -1189,6 +1191,7 @@ function gainRelic(relic) {
   game.relics.push(relic);
   game.foresightUsesLeft += relic.foresightUses || 0;
   lastRelicName = relic.name;
+  game.relicPopup = { relic, shownAt: Date.now() };
   notify(`${relic.name}: ${relic.description}`);
   log(`Gained relic: ${relic.name}.`);
 }
@@ -2833,6 +2836,7 @@ function draw() {
   if (rulesOpen) drawRulesOverlay();
   if (relicsOpen) drawRelicsOverlay();
   if (mapInfoDetail) drawMapInfoOverlay();
+  if (game?.relicPopup) drawRelicRewardPopup();
   drawFeedbackAnimations();
   if (menuOpen) {
     buttons = [];
@@ -2851,14 +2855,23 @@ function drawSplash() {
   const lh = layoutH();
   const cx = lw / 2;
   const cy = lh / 2;
+  if (drawRawAssetCover("splashBackground", 0, 0, lw, lh, .98)) {
+    fill("rgba(5,4,10,.34)", 0, 0, lw, lh);
+    const glow = ctx.createRadialGradient(cx, cy - 20, 80, cx, cy - 20, Math.max(lw, lh) * .48);
+    glow.addColorStop(0, "rgba(20,13,30,.14)");
+    glow.addColorStop(1, "rgba(0,0,0,.66)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, lw, lh);
+  }
   ctx.save();
-  ctx.shadowColor = "rgba(220,180,70,.35)";
-  ctx.shadowBlur = 20;
-  text("Wizard Stab Studio", cx, cy - 46, viewport.portrait ? 40 : 48, C.gold, "center", "serif");
+  ctx.shadowColor = "rgba(220,180,70,.72)";
+  ctx.shadowBlur = 26;
+  text("DUNGEON", cx, cy - 92, viewport.portrait ? 58 : 72, C.gold, "center", "serif");
+  text("OF CARDS", cx, cy - 30, viewport.portrait ? 48 : 60, C.parchment, "center", "serif");
   ctx.restore();
-  text("presents", cx, cy + 12, viewport.portrait ? 27 : 28, C.parchment, "center", "serif");
-  buttons.push({ x: cx - 280, y: cy - 112, w: 560, h: 86, onClick: handleDeveloperSplashTap });
-  addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Continue", () => appScene = "menu", true);
+  text("Wizard Stab Studio presents", cx, cy + 14, viewport.portrait ? 24 : 24, C.muted, "center", "serif");
+  buttons.push({ x: cx - 280, y: cy - 150, w: 560, h: 130, onClick: handleDeveloperSplashTap });
+  addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Enter Casino", () => appScene = "menu", true);
   if (developerModeUnlocked) {
     addButton(cx - 150, cy + (viewport.portrait ? 178 : 156), 300, viewport.portrait ? 72 : 54, "Developer", () => developerPanelOpen = true);
   }
@@ -2871,20 +2884,23 @@ function drawMenu() {
   const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1325, lh - 108) } : { x: 40, y: 70, w: Math.min(844, lw - 390), h: 660 };
   const cx = table.x + table.w / 2;
   const side = portrait ? null : { x: table.x + table.w + 28, y: table.y, w: Math.max(280, lw - (table.x + table.w + 68)), h: table.h };
+  const hasMenuArt = drawRawAssetCover("mainMenuBackground", 0, 0, lw, lh, .98);
+  if (hasMenuArt) fill("rgba(5,4,10,.24)", 0, 0, lw, lh);
+  const theme = floorThemeColor(0);
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
-      [0, "#1d3028"],
-      [.55, "#111d19"],
-      [1, "#21182a"]
+      [0, hexToRgba(theme, hasMenuArt ? .36 : .72)],
+      [.55, hasMenuArt ? "rgba(12,10,16,.68)" : "#111d19"],
+      [1, "rgba(33,24,42,.76)"]
     ], true);
   });
-  strokeRound(table.x, table.y, table.w, table.h, 24, "rgba(220,180,70,.4)", 3);
+  strokeRound(table.x, table.y, table.w, table.h, 24, hexToRgba(theme, .8), 3);
   strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
-  drawMenuAmbience(table, portrait);
+  if (!hasMenuArt) drawMenuAmbience(table, portrait);
   if (side) drawMenuSidePanel(side);
   if (developerModeUnlocked) addButton(table.x + 22, table.y + 22, portrait ? 112 : 80, portrait ? 48 : 34, "Dev", () => developerPanelOpen = true);
 
-  if (!portrait) {
+  if (!portrait && !hasMenuArt) {
     drawMenuShowCard({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, -.08, 1);
     drawMenuShowCard({ rank: "K", suit: "H", up: true }, table.x + table.w - 180, table.y + 92, .07, 1);
     drawMenuShowCard({ up: false }, table.x + table.w - 118, table.y + 250, .12, .96);
@@ -2933,10 +2949,11 @@ function drawMenu() {
 }
 
 function drawMenuSidePanel(side) {
+  const theme = floorThemeColor(0);
   shadow(0, 22, 55, "rgba(0,0,0,.42)", () => {
-    gradientRound(side.x, side.y, side.w, side.h, 18, [[0, "#1a1421"], [.55, "#100d16"], [1, "#22172b"]], true);
+    gradientRound(side.x, side.y, side.w, side.h, 18, [[0, hexToRgba(theme, .34)], [.55, "#100d16"], [1, "#22172b"]], true);
   });
-  strokeRound(side.x, side.y, side.w, side.h, 18, "rgba(220,180,70,.32)", 2);
+  strokeRound(side.x, side.y, side.w, side.h, 18, hexToRgba(theme, .56), 2);
   strokeRound(side.x + 10, side.y + 10, side.w - 20, side.h - 20, 13, "rgba(238,231,215,.06)", 1);
 }
 
@@ -3337,7 +3354,18 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, strokeWidth);
   else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
   const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
-  if (label) text(label, p.x, p.y + (node.kind === "boss" ? 6 : 8), node.kind === "boss" ? 17 : 24, C.black, "center", "serif");
+  const hideAssetLabel = drewNodeAsset && (node.kind === "start" || node.kind === "table");
+  if (node.kind === "boss") {
+    const badgeW = Math.max(58, w * .86);
+    const badgeH = portrait ? 30 : 26;
+    shadow(0, 0, 18, "rgba(0,0,0,.55)", () => {
+      gradientRound(p.x - badgeW / 2, p.y - badgeH / 2, badgeW, badgeH, badgeH / 2, [[0, "rgba(255,232,150,.95)"], [1, "rgba(177,112,30,.95)"]], true);
+    });
+    strokeRound(p.x - badgeW / 2, p.y - badgeH / 2, badgeW, badgeH, badgeH / 2, "rgba(255,248,210,.8)", 2);
+    text("BOSS", p.x, p.y + (portrait ? 8 : 7), portrait ? 17 : 14, C.black, "center", "serif");
+  } else if (label && !hideAssetLabel) {
+    text(label, p.x, p.y + 8, 24, C.black, "center", "serif");
+  }
   if (node.kind === "table" || node.kind === "boss") {
     const tagW = Math.min(116, Math.max(74, w + 24));
     const tagH = portrait ? 42 : 34;
@@ -3381,12 +3409,13 @@ function drawPolishedMapPanel(x, y, w, h) {
   const portrait = viewport.portrait;
   const selected = getMapNode(inspectedNodeId) || reachableMapNodes()[0] || getMapNode(game.currentNodeId);
   const solo = game.seats.filter((s) => !s.spectating).length <= 1;
+  const theme = activeFloorColor();
   shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
-    gradientRound(x, y, w, h, 20, [[0, "#30233f"], [.48, "#15101c"], [1, "#10151a"]], true);
+    gradientRound(x, y, w, h, 20, [[0, hexToRgba(theme, .38)], [.48, "#15101c"], [1, "#10151a"]], true);
   });
-  strokeRound(x, y, w, h, 20, "rgba(220,180,70,.34)", 2);
-  fill("rgba(220,180,70,.08)", x + 16, y + 16, w - 32, 54, 14);
-  strokeRound(x + 16, y + 16, w - 32, 54, 14, "rgba(220,180,70,.18)", 1);
+  strokeRound(x, y, w, h, 20, hexToRgba(theme, .58), 2);
+  fill(hexToRgba(theme, .12), x + 16, y + 16, w - 32, 54, 14);
+  strokeRound(x + 16, y + 16, w - 32, 54, 14, hexToRgba(theme, .26), 1);
   text("Route Planner", x + w / 2, y + 51, portrait ? 28 : 21, C.gold, "center", "serif");
   if (!selected) return;
 
@@ -3455,6 +3484,40 @@ function drawMapInfoOverlay() {
   if (mapInfoDetail.subtitle) text(mapInfoDetail.subtitle, x + 28, y + 78, portrait ? 18 : 14, C.muted);
   wrapTextSized(mapInfoDetail.body || "", x + 28, y + 118, w - 56, portrait ? 22 : 17, portrait ? 18 : 15, C.text, portrait ? 8 : 7);
   addButton(x + 28, y + h - (portrait ? 80 : 66), w - 56, portrait ? 58 : 48, "Close", () => { mapInfoDetail = null; }, true);
+}
+
+function drawRelicRewardPopup() {
+  const relic = game.relicPopup?.relic;
+  if (!relic) {
+    game.relicPopup = null;
+    return;
+  }
+  const age = Date.now() - (game.relicPopup.shownAt || Date.now());
+  if (age > 12000) {
+    game.relicPopup = null;
+    return;
+  }
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const w = portrait ? Math.min(lw - 44, 620) : 560;
+  const h = portrait ? 420 : 340;
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  const color = relic.rarityColor || C.gold;
+  buttons = [];
+  fill("rgba(0,0,0,.66)", 0, 0, lw, lh);
+  shadow(0, 28, 80, "rgba(0,0,0,.6)", () => {
+    gradientRound(x, y, w, h, 24, [[0, hexToRgba(color, .32)], [.44, "#18101f"], [1, "#10161a"]], true);
+  });
+  strokeRound(x, y, w, h, 24, color, 3);
+  fill("rgba(255,255,255,.08)", x + 18, y + 18, w - 36, 72, 16);
+  text("TABLE CLEARED", x + w / 2, y + 51, portrait ? 26 : 20, C.muted, "center", "serif");
+  text("Relic Acquired", x + w / 2, y + 82, portrait ? 32 : 26, C.gold, "center", "serif");
+  drawRelicIcon(relic, x + w / 2, y + (portrait ? 158 : 142), portrait ? 96 : 82, color);
+  text(fitLabel(relic.name, w - 72, portrait ? 34 : 28), x + w / 2, y + (portrait ? 234 : 210), portrait ? 34 : 28, color, "center");
+  wrapTextSized(relic.description, x + 50, y + (portrait ? 282 : 250), w - 100, portrait ? 26 : 21, portrait ? 21 : 17, C.text, 3);
+  addButton(x + 38, y + h - (portrait ? 82 : 66), w - 76, portrait ? 58 : 48, "Continue", () => { game.relicPopup = null; }, true);
 }
 
 function drawSoloMapControls(x, y, w, h, node, portrait) {
@@ -3667,16 +3730,17 @@ function drawSidePanel() {
     return;
   }
   const x = layoutW() - 310;
+  const theme = activeFloorColor();
   shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
     gradientRound(x, 40, 270, 720, 18, [
-      [0, "#241a30"],
+      [0, hexToRgba(theme, .34)],
       [.44, "#14101b"],
       [1, "#1b1423"]
     ], true);
   });
-  strokeRound(x, 40, 270, 720, 18, "rgba(220,180,70,.28)", 2);
-  gradientRound(x + 14, 52, 176, 42, 10, [[0, "rgba(220,180,70,.13)"], [1, "rgba(220,180,70,.02)"]], true);
-  strokeRound(x + 14, 52, 176, 42, 10, "rgba(220,180,70,.20)", 1);
+  strokeRound(x, 40, 270, 720, 18, hexToRgba(theme, .52), 2);
+  gradientRound(x + 14, 52, 176, 42, 10, [[0, hexToRgba(theme, .22)], [1, hexToRgba(theme, .04)]], true);
+  strokeRound(x + 14, 52, 176, 42, 10, hexToRgba(theme, .28), 1);
   text("DUNGEON", x + 102, 70, 17, C.gold, "center", "serif");
   text("OF CARDS", x + 102, 86, 10, C.muted, "center", "serif");
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
@@ -3701,14 +3765,15 @@ function drawBottomPanel() {
   const y = 800;
   const w = layoutW() - 48;
   const h = Math.max(720, layoutH() - y - 28);
+  const theme = activeFloorColor();
   shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
     gradientRound(x, y, w, h, 18, [
-      [0, "#241a30"],
+      [0, hexToRgba(theme, .34)],
       [.46, "#15101c"],
       [1, "#10151a"]
     ], true);
   });
-  strokeRound(x, y, w, h, 18, "rgba(220,180,70,.3)", 2);
+  strokeRound(x, y, w, h, 18, hexToRgba(theme, .56), 2);
   text("DUNGEON OF CARDS", x + w / 2, y + 48, 30, C.gold, "center", "serif");
   addButton(x + w - 140, y + 18, 112, 54, "Menu", () => menuOpen = true);
 
@@ -3720,8 +3785,8 @@ function drawBottomPanel() {
   text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
   if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
 
-  gradientRound(leftX, y + 192, w - 48, 58, 12, [[0, "rgba(220,180,70,.14)"], [1, "rgba(220,180,70,.04)"]], true);
-  strokeRound(leftX, y + 192, w - 48, 58, 12, "rgba(220,180,70,.18)", 1);
+  gradientRound(leftX, y + 192, w - 48, 58, 12, [[0, hexToRgba(theme, .2)], [1, hexToRgba(theme, .05)]], true);
+  strokeRound(leftX, y + 192, w - 48, 58, 12, hexToRgba(theme, .24), 1);
   text(phaseTitle(), x + w / 2, y + 230, 29, C.text, "center");
   drawActionButtons(leftX, y + 264);
 
@@ -3752,8 +3817,9 @@ function drawRelicPanel(x, y, w) {
 function drawTouchLandscapePanel() {
   const x = layoutW() - 510;
   const w = 470;
-  gradientRound(x, 30, w, 740, 20, [[0, "#241a30"], [.44, "#14101b"], [1, "#1b1423"]], true);
-  strokeRound(x, 30, w, 740, 20, "rgba(220,180,70,.32)", 3);
+  const theme = activeFloorColor();
+  gradientRound(x, 30, w, 740, 20, [[0, hexToRgba(theme, .34)], [.44, "#14101b"], [1, "#1b1423"]], true);
+  strokeRound(x, 30, w, 740, 20, hexToRgba(theme, .58), 3);
   text("DUNGEON OF CARDS", x + 190, 82, 25, C.gold, "center", "serif");
   addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 24, 142, 27, C.text);
@@ -5215,13 +5281,14 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   buttons.push(b);
   const hot = inRect(hover, b) && enabled;
   const portrait = viewport.portrait;
+  const theme = activeFloorColor();
   const stops = !enabled
     ? [[0, "#282631"], [1, "#1a1820"]]
     : primary
       ? [[0, hot ? "#ffe081" : "#f0cb64"], [1, "#b8892f"]]
-      : [[0, hot ? "#433650" : "#2d2439"], [1, hot ? "#271f33" : "#19131f"]];
+      : [[0, hot ? lighten(theme, .12) : hexToRgba(theme, .42)], [1, hot ? hexToRgba(theme, .28) : "#19131f"]];
   shadow(0, hot ? 8 : 4, hot ? 18 : 10, "rgba(0,0,0,.32)", () => gradientRound(x, y, w, h, 9, stops, true));
-  strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : "rgba(220,180,70,.55)") : "#47414f", primary ? 2 : 1.5);
+  strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : hexToRgba(theme, .72)) : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
   const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
@@ -5310,6 +5377,12 @@ function feltTheme() {
   if (e.hitFee) return ["#554322", "#2f2513", "#151007"];
   if (e.noDouble || e.noSurrender) return ["#243d50", "#142633", "#081118"];
   return ["#234331", "#12251c", "#07120f"];
+}
+
+function activeFloorColor() {
+  if (game?.map?.color) return game.map.color;
+  if (game) return floorThemeColor(Number(game.floor) || 0);
+  return floorThemeColor(0);
 }
 
 function houseRules() {
@@ -5422,6 +5495,16 @@ function lighten(hex, amount = .15) {
   const g = Math.min(255, Math.round(((n >> 8) & 255) + 255 * amount));
   const b = Math.min(255, Math.round((n & 255) + 255 * amount));
   return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function hexToRgba(hex, alpha = 1) {
+  const raw = String(hex || "").replace("#", "");
+  if (raw.length !== 6) return hex;
+  const n = parseInt(raw, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function pathRound(x, y, w, h, r) {

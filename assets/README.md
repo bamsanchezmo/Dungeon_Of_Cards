@@ -8,7 +8,7 @@ Replace art by keeping the same filenames in these folders.
 - `art/suits/` — suit symbols.
 - `art/glyphs/` — card rank and UI symbol glyphs.
 - `art/relics/` — relic icons.
-- `art/ui/` — frames, chips, dividers, texture, tokens, doodles.
+- `art/ui/` — menu/splash backgrounds, frames, chips, dividers, texture, tokens, doodles.
 - `art/effects/` — blood, heartbeat, hit/win/loss visual effects.
 - `art/marks/` — gold/debt marks and signature flourishes.
 - `art/dealers/` — future dealer/boss portraits.
@@ -45,6 +45,15 @@ Each floor folder can contain:
 Shared fallback assets can go in `art/floors/shared/` as `start_marker.png`, `elevator.png`, `table_common.png`, `table_uncommon.png`, `table_rare.png`, `table_epic.png`, `table_legendary.png`, `table_mythic.png`, and `route_line.png`.
 
 The game tries floor-specific art first, shared fallback art second, and procedural drawing last.
+
+## Menu and splash art
+
+Use `art/ui/` for replaceable title/menu visuals:
+
+- `splash_background.png`
+- `main_menu_background.png`
+
+The game draws UI and buttons over these images, so avoid baked-in text or button labels when replacing them.
 
 ## In-game table scene art
 
