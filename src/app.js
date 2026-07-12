@@ -5298,7 +5298,10 @@ function handAssetReady(key) {
 }
 
 function shouldChromaKeyAsset(key) {
-  return /^floor\d{2}CardBack$/.test(String(key));
+  const assetKey = String(key);
+  if (/^floor\d{2}CardBack$/.test(assetKey)) return true;
+  if (/^(map|tableScene):floor\d{2}:(table|bossTable|bossPortrait|elevator|decoration)$/.test(assetKey)) return true;
+  return false;
 }
 
 function handCardAssetsReady() {
