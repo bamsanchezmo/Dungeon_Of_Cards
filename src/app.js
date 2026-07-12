@@ -4796,7 +4796,7 @@ function drawSeats(felt) {
     const slot = portrait ? portraitSeatRect(idx) : null;
     const seatW = portrait ? slot.w - 24 : Math.min(370, columnW - 50);
     const x = portrait ? slot.x + 18 : felt.x + 50 + (idx % 2) * columnW;
-    const y = portrait ? slot.y + 44 : felt.y + 365 + Math.floor(idx / 2) * 170;
+    const y = portrait ? slot.y + 42 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
     const isReady = game.phase === "betting" && seat.ready;
     if (portrait) {
@@ -4853,21 +4853,21 @@ function drawSeats(felt) {
           ctx.save();
           ctx.globalAlpha = isFocused ? 1 : clamp(.72 - depth * .18, .42, .68);
           const scale = isFocused ? 1 : clamp(.86 - depth * .12, .68, .82);
-          const handX = centerX + offset * (portrait ? 76 : 108);
-          const handY = y + (portrait ? 2 : 8) + depth * (portrait ? 14 : 24);
+          const handX = centerX + offset * (portrait ? 86 : 108);
+          const handY = y + (portrait ? 10 : 8) + depth * (portrait ? 18 : 24);
           ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
           ctx.rotate(offset * -.11);
           ctx.scale(scale, scale);
-          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(portrait ? 174 : 210, seatW - 72), true, { x: handX, y: handY });
+          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(portrait ? 230 : 210, seatW - 48), true, { x: handX, y: handY });
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
-        handStatusBadge(x + seatW / 2, y + (portrait ? slot.h - 30 : 148), `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
+        handStatusBadge(x + seatW / 2, y + (portrait ? slot.h - 28 : 148), `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
         buttons.push({ x: x - 12, y: y - 4, w: seatW, h: portrait ? slot.h - 44 : 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
       } else {
         const hand = seat.hands[0];
-        drawHand(hand.cards, x, y + (portrait ? 2 : 10), isActive, Math.min(portrait ? 180 : 220, seatW - 40));
-        handStatusBadge(x + 45, y + (portrait ? slot.h - 30 : 148), handLabel(hand), handColor(hand), hand);
+        drawHand(hand.cards, x, y + (portrait ? 10 : 10), isActive, Math.min(portrait ? 235 : 220, seatW - 30));
+        handStatusBadge(x + 45, y + (portrait ? slot.h - 28 : 148), handLabel(hand), handColor(hand), hand);
       }
     } else {
       drawChips(x + 38, y + 50, seat.bet);
@@ -4885,11 +4885,11 @@ function drawSeats(felt) {
 function portraitSeatRect(index) {
   const marginX = 20;
   const gapX = 12;
-  const gapY = 10;
+  const gapY = 12;
   const dockTop = layoutH() - mobileGameplayDockHeight() - 18;
-  const areaBottom = dockTop - 14;
-  const areaH = 292;
-  const areaTop = Math.max(650, areaBottom - areaH);
+  const areaBottom = dockTop - 16;
+  const desiredTop = Math.max(470, layoutH() * .47);
+  const areaTop = Math.min(desiredTop, areaBottom - 360);
   const cellW = (layoutW() - marginX * 2 - gapX) / 2;
   const cellH = (areaBottom - areaTop - gapY) / 2;
   return {
