@@ -3872,15 +3872,35 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
       const selectedReachableEdge = nextId === selectedRouteId && next.reachable && (node.current || node.cleared);
       const clearedEdge = node.cleared && next.cleared;
-      ctx.strokeStyle = selectedReachableEdge ? hexToRgba(ui.accent, .9) : clearedEdge ? "rgba(92,190,120,.58)" : "rgba(238,231,215,.32)";
-      ctx.lineWidth = selectedReachableEdge ? 5.5 : clearedEdge ? 4.5 : 3.5;
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
       const midX = (from.x + to.x) / 2;
-      ctx.bezierCurveTo(midX, from.y, midX, to.y, to.x, to.y);
-      ctx.stroke();
+      const color = selectedReachableEdge
+        ? ui.accent
+        : clearedEdge
+          ? ui.titleWarm || C.green
+          : hexToRgba(ui.accent, .78);
+      const alpha = selectedReachableEdge ? .98 : clearedEdge ? .82 : .62;
+      const width = selectedReachableEdge ? 6.25 : clearedEdge ? 5.25 : 4.25;
+      drawMapRouteCurve(from, to, midX, "rgba(0,0,0,.72)", width + 6.5, .95);
+      drawMapRouteCurve(from, to, midX, hexToRgba(ui.accent, selectedReachableEdge ? .72 : clearedEdge ? .42 : .34), width + 3.5, .9, selectedReachableEdge ? 18 : 11);
+      drawMapRouteCurve(from, to, midX, hexToRgba(color, alpha), width, 1);
     }
   }
+  ctx.restore();
+}
+
+function drawMapRouteCurve(from, to, midX, color, width, alpha = 1, glow = 0) {
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  if (glow) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = glow;
+  }
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.bezierCurveTo(midX, from.y, midX, to.y, to.x, to.y);
+  ctx.stroke();
   ctx.restore();
 }
 
