@@ -50,12 +50,14 @@ The game tries floor-specific art first, shared fallback art second, and procedu
 
 Use `art/tables/` for visuals shown after sitting at a table.
 
-Each floor table folder can contain:
+Each floor table folder should contain:
 
 - `background.png`
 - `table.png`
 - `boss_table.png`
-- `boss_portrait.png`
+
+Optional:
+
 - `decoration.png`
 
 Floor 1 already includes generated starter table assets in `art/tables/floor_01_lobby_tables/`.

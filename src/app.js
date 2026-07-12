@@ -100,7 +100,6 @@ floorArtIds.forEach((id, index) => {
   tableSceneArtFiles[`floor${floor}:background`] = `art/tables/${id}/background.png`;
   tableSceneArtFiles[`floor${floor}:table`] = `art/tables/${id}/table.png`;
   tableSceneArtFiles[`floor${floor}:bossTable`] = `art/tables/${id}/boss_table.png`;
-  tableSceneArtFiles[`floor${floor}:bossPortrait`] = `art/tables/${id}/boss_portrait.png`;
   tableSceneArtFiles[`floor${floor}:decoration`] = `art/tables/${id}/decoration.png`;
 });
 
@@ -3033,27 +3032,28 @@ function drawTable() {
     ], true);
   });
   if (scene.background) {
-    drawRawAssetCover(scene.background, felt.x + 6, felt.y + 6, felt.w - 12, felt.h - 12, .44);
-    fill("rgba(5,4,8,.34)", felt.x, felt.y, felt.w, felt.h, 22);
+    drawRawAssetCover(scene.background, felt.x + 6, felt.y + 6, felt.w - 12, felt.h - 12, .9);
+    fill("rgba(5,4,8,.12)", felt.x, felt.y, felt.w, felt.h, 22);
   }
-  drawEncounterBossArt(felt, scene);
   strokeRound(felt.x, felt.y, felt.w, felt.h, 22, game.enemy.color || "#4f744f", 8);
   strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
   strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, "rgba(220,180,70,.08)", 1);
-  ctx.save();
-  ctx.globalAlpha = .11;
-  ctx.strokeStyle = "#eee7d7";
-  ctx.lineWidth = 1;
-  for (let y = felt.y + 82; y < felt.y + felt.h - 30; y += 62) {
-    ctx.beginPath();
-    ctx.moveTo(felt.x + 34, y);
-    ctx.lineTo(felt.x + felt.w - 34, y + 16);
-    ctx.stroke();
-  }
-  ctx.restore();
-  if (isHanddrawnArt() && handAssetReady("texture")) {
-    for (let i = 0; i < 3; i++) {
-      drawHandAsset("texture", felt.x + 58 + i * 34, felt.y + 120 + i * 145, Math.min(520, felt.w - 116), 120, "rgba(238,231,215,.12)", .32);
+  if (!scene.table) {
+    ctx.save();
+    ctx.globalAlpha = .11;
+    ctx.strokeStyle = "#eee7d7";
+    ctx.lineWidth = 1;
+    for (let y = felt.y + 82; y < felt.y + felt.h - 30; y += 62) {
+      ctx.beginPath();
+      ctx.moveTo(felt.x + 34, y);
+      ctx.lineTo(felt.x + felt.w - 34, y + 16);
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (isHanddrawnArt() && handAssetReady("texture")) {
+      for (let i = 0; i < 3; i++) {
+        drawHandAsset("texture", felt.x + 58 + i * 34, felt.y + 120 + i * 145, Math.min(520, felt.w - 116), 120, "rgba(238,231,215,.12)", .32);
+      }
     }
   }
   ctx.save();
@@ -3080,7 +3080,6 @@ function tableSceneAssets() {
     boss,
     background: tableSceneAsset(`${floorKey}:background`),
     table: tableSceneAsset(`${floorKey}:${boss ? "bossTable" : "table"}`),
-    bossPortrait: boss ? tableSceneAsset(`${floorKey}:bossPortrait`) : "",
     decoration: tableSceneAsset(`${floorKey}:decoration`)
   };
 }
@@ -3090,31 +3089,16 @@ function tableSceneAsset(key) {
   return handAssetReady(assetKey) ? assetKey : "";
 }
 
-function drawEncounterBossArt(felt, scene) {
-  if (!scene.bossPortrait) return;
-  const portrait = viewport.portrait;
-  const h = portrait ? 230 : 260;
-  const w = h;
-  const x = felt.x + felt.w / 2 - w / 2;
-  const y = felt.y + (portrait ? 14 : 0);
-  const glow = game.enemy?.color || C.gold;
-  ctx.save();
-  ctx.globalAlpha = .18;
-  shadow(0, 0, 32, glow, () => fill(glow, x + w * .18, y + h * .08, w * .64, h * .78, w * .32));
-  ctx.restore();
-  drawRawAssetContain(scene.bossPortrait, x, y, w, h, .9);
-}
-
 function drawEncounterTableArt(felt, scene) {
   if (!scene.table) return;
   const portrait = viewport.portrait;
-  const targetW = Math.min(felt.w * (portrait ? .92 : .74), portrait ? 650 : 760);
-  const targetH = portrait ? 300 : 320;
+  const targetW = Math.min(felt.w * (portrait ? .96 : .9), portrait ? 700 : 1260);
+  const targetH = portrait ? 390 : 520;
   const x = felt.x + felt.w / 2 - targetW / 2;
-  const y = felt.y + (portrait ? 118 : 120);
-  drawRawAssetContain(scene.table, x, y, targetW, targetH, scene.boss ? .86 : .72);
+  const y = felt.y + (portrait ? 96 : 86);
+  drawRawAssetContain(scene.table, x, y, targetW, targetH, scene.boss ? .98 : .94);
   if (scene.decoration) {
-    drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .55);
+    drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
 }
 
