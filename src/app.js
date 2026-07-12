@@ -776,7 +776,8 @@ function createFloorMap(floorIndex, options = {}) {
     const balanced = counts.map((count) => clamp(Math.round(Number(count) || 1), 1, 4));
     let previous = 1; // The starter table is a single-table column.
     for (let i = 0; i < balanced.length; i++) {
-      if (balanced[i] > previous + 1) balanced[i] = previous + 1;
+      const maxNext = previous <= 1 ? 2 : 4;
+      if (balanced[i] > maxNext) balanced[i] = maxNext;
       previous = balanced[i];
     }
     return balanced;
@@ -798,7 +799,7 @@ function createFloorMap(floorIndex, options = {}) {
         if (count >= 4) return false;
         const nextValue = count + 1;
         const previous = i === 0 ? 1 : counts[i - 1];
-        return nextValue <= previous + 1;
+        return nextValue <= (previous <= 1 ? 2 : 4);
       });
       if (upgradeIndex < 0) break;
       counts[upgradeIndex] += 1;
@@ -3659,23 +3660,35 @@ function drawLeaderboardPanel(x, y, w, h) {
 
 function drawTable() {
   const felt = viewport.portrait
-    ? { x: 12, y: 18, w: layoutW() - 24, h: Math.max(920, layoutH() - 238) }
+    ? { x: 0, y: 0, w: layoutW(), h: layoutH() }
     : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
   const scene = tableSceneAssets();
   const theme = feltTheme();
   const ui = activeFloorUi();
-  shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
-    gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
-      [0, theme[0]], [.52, theme[1]], [1, theme[2]]
-    ], true);
-  });
-  if (scene.background) {
+  if (viewport.portrait && scene.background) {
+    drawRawAssetCover(scene.background, 0, 0, layoutW(), layoutH(), .96);
+    fill("rgba(5,4,8,.20)", 0, 0, layoutW(), layoutH());
+  } else if (viewport.portrait) {
+    gradientRound(0, 0, layoutW(), layoutH(), 0, [[0, theme[0]], [.52, theme[1]], [1, theme[2]]], true);
+  }
+  if (viewport.portrait) {
+    fill("rgba(5,4,8,.18)", 0, 0, layoutW(), layoutH());
+  } else {
+    shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
+      gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
+        [0, theme[0]], [.52, theme[1]], [1, theme[2]]
+      ], true);
+    });
+  }
+  if (scene.background && !viewport.portrait) {
     drawRawAssetCover(scene.background, felt.x + 6, felt.y + 6, felt.w - 12, felt.h - 12, .9);
     fill("rgba(5,4,8,.12)", felt.x, felt.y, felt.w, felt.h, 22);
   }
-  strokeRound(felt.x, felt.y, felt.w, felt.h, 22, ui.border || game.enemy.color || "#4f744f", 8);
-  strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
-  strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, hexToRgba(ui.accent, .1), 1);
+  if (!viewport.portrait) {
+    strokeRound(felt.x, felt.y, felt.w, felt.h, 22, ui.border || game.enemy.color || "#4f744f", 8);
+    strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
+    strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, hexToRgba(ui.accent, .1), 1);
+  }
   if (!scene.table) {
     ctx.save();
     ctx.globalAlpha = .11;
@@ -3730,10 +3743,10 @@ function tableSceneAsset(key) {
 function drawEncounterTableArt(felt, scene) {
   if (!scene.table && scene.boss) return null;
   const portrait = viewport.portrait;
-  const targetW = Math.min(felt.w * (portrait ? 1.02 : .9), portrait ? 760 : 1260);
+  const targetW = Math.min(felt.w * (portrait ? 1.08 : .9), portrait ? 800 : 1260);
   const targetH = portrait ? 540 : 520;
   const x = felt.x + felt.w / 2 - targetW / 2;
-  const y = felt.y + (felt.h - targetH) / 2 + (portrait ? 8 : 18);
+  const y = portrait ? felt.y + Math.max(245, layoutH() * .19) : felt.y + (felt.h - targetH) / 2 + 18;
   let tableRect = null;
   if (scene.boss) {
     tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
@@ -3873,15 +3886,6 @@ function drawDealer(felt, tableRect = null) {
 
 function drawPortraitDealerHud(felt, tableRect = null) {
   const e = game.enemy;
-  const ui = activeFloorUi();
-  const headerX = felt.x + 30;
-  const headerY = felt.y + 28;
-  const headerW = Math.min(felt.w - 210, 430);
-  const rule = houseRules()[0] || e.description || "Standard dungeon blackjack rules";
-  textFit(e.name, headerX, headerY, headerW, 24, ui.titleWarm);
-  wrapTextSized(rule, headerX, headerY + 30, headerW, 17, 15, C.muted, 2);
-  buttons.push({ x: headerX - 12, y: headerY - 18, w: headerW + 24, h: 78, onClick: () => rulesOpen = true });
-
   const dealerX = felt.x + felt.w / 2 - 100;
   drawHand(game.dealer, dealerX, felt.y + 90, false);
   const shown = game.dealer.some((c) => !c.up) ? `${visibleTotal(game.dealer)}+?` : handTotal({ cards: game.dealer });
@@ -3896,16 +3900,21 @@ function drawPortraitDealerHud(felt, tableRect = null) {
 
 function drawEnemyLifeOnTable(enemy, tableRect) {
   if (!enemy || !tableRect) return;
-  const barW = Math.max(210, tableRect.w * .58);
+  const ui = activeFloorUi();
+  const barW = Math.max(250, tableRect.w * .64);
   const barH = 18;
   const x = tableRect.x + tableRect.w / 2 - barW / 2;
-  const y = tableRect.y + tableRect.h * .39;
+  const y = tableRect.y + tableRect.h * .37;
+  const rule = houseRules()[0] || enemy.description || "Standard dungeon blackjack rules";
   shadow(0, 0, 18, hexToRgba(enemy.color || C.gold, .42), () => {
-    fill("rgba(5,4,8,.7)", x - 12, y - 12, barW + 24, 54, 16);
+    fill("rgba(5,4,8,.74)", x - 18, y - 72, barW + 36, 118, 18);
   });
+  textFit(enemy.name, x, y - 43, barW, 24, ui.titleWarm, "center");
+  textFit(rule, x, y - 18, barW, 15, C.muted, "center");
   if (enemy.isBoss) drawBossHealthBar(enemy, x, y, barW, barH);
   else meter(x, y, barW, barH, enemy.maxHp ? enemy.hp / enemy.maxHp : 0, C.red, C.gold);
   text(`${enemy.hp}/${enemy.maxHp}`, x + barW / 2, y + 42, 18, C.text, "center");
+  buttons.push({ x: x - 18, y: y - 72, w: barW + 36, h: 118, onClick: () => rulesOpen = true });
 }
 
 function bossPhaseColor(index) {
@@ -4782,7 +4791,7 @@ function drawSeats(felt) {
     const columnW = felt.w / 2;
     const seatW = portrait ? 315 : Math.min(370, columnW - 50);
     const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 50 + (idx % 2) * columnW;
-    const y = portrait ? felt.y + 372 + Math.floor(idx / 2) * 156 : felt.y + 365 + Math.floor(idx / 2) * 170;
+    const y = portrait ? layoutH() - mobileGameplayDockHeight() - 252 + Math.floor(idx / 2) * 124 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
     const isReady = game.phase === "betting" && seat.ready;
     if (isActive) {
@@ -4911,7 +4920,7 @@ function drawMobileGameplayDock() {
   const x = 24;
   const w = layoutW() - 48;
   const ui = activeFloorUi();
-  const dockH = game.phase === "player" && game.foresightUsesLeft > 0 ? 360 : game.phase === "player" ? 318 : game.phase === "betting" ? 300 : 178;
+  const dockH = mobileGameplayDockHeight();
   const y = layoutH() - dockH - 18;
   shadow(0, -10, 44, "rgba(0,0,0,.48)", () => {
     gradientRound(x, y, w, dockH, 22, [[0, "rgba(10,8,14,.46)"], [.35, hexToRgba(ui.panelTop, .82)], [1, hexToRgba(ui.panelBottom, .95)]], true);
@@ -4926,17 +4935,44 @@ function drawMobileGameplayDock() {
   text(`HP ${game.hp}/${game.maxHp}`, x + w - hpW / 2 - 24, statY + 20, 16, C.text, "center");
   addButton(x + w - 130, y + 48, 104, 46, "Menu", () => menuOpen = true);
 
-  const phaseY = y + 82;
+  const phaseY = y + 66;
   gradientRound(x + 18, phaseY - 26, w - 160, 48, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
   strokeRound(x + 18, phaseY - 26, w - 160, 48, 12, hexToRgba(ui.border, .24), 1);
   textFit(phaseTitle(), x + 36, phaseY + 4, w - 196, 24, C.text, "center");
 
-  drawActionButtons(x + 24, y + 118);
+  drawActionButtons(x + 24, y + 94);
 
-  const infoY = y + dockH - 38;
-  textFit(game.relics.length ? `${game.relics.length} relic${game.relics.length === 1 ? "" : "s"} — tap` : "No relics yet", x + 26, infoY, 220, 16, ui.title);
-  buttons.push({ x: x + 18, y: infoY - 28, w: 230, h: 48, onClick: () => { relicsOpen = true; relicPage = 0; } });
-  drawLogPreview(x + 284, infoY, w - 310, 38, 15);
+  const trayY = y + dockH - 74;
+  drawMobileRelicIconTray(x + 22, trayY, 238, 54);
+  drawLogPreview(x + 286, trayY + 25, w - 312, 42, 15);
+}
+
+function mobileGameplayDockHeight() {
+  if (game.phase === "player" && game.foresightUsesLeft > 0) return 430;
+  if (game.phase === "player") return 382;
+  if (game.phase === "betting") return 360;
+  if (game.phase === "insurance") return 238;
+  return 230;
+}
+
+function drawMobileRelicIconTray(x, y, w, h) {
+  const ui = activeFloorUi();
+  fill("rgba(5,4,8,.56)", x, y, w, h, 14);
+  strokeRound(x, y, w, h, 14, hexToRgba(ui.border, .42), 1.5);
+  const relics = game.relics || [];
+  if (!relics.length) {
+    text("Relics", x + w / 2, y + 33, 16, C.muted, "center");
+  } else {
+    const iconSize = 38;
+    const gap = 8;
+    const shown = relics.slice(-5);
+    const startX = x + 14;
+    shown.forEach((relic, i) => {
+      drawRelicIcon(relic, startX + i * (iconSize + gap) + iconSize / 2, y + h / 2, iconSize, relic.rarityColor || C.gold);
+    });
+    if (relics.length > shown.length) text(`+${relics.length - shown.length}`, x + w - 22, y + 34, 15, ui.title, "center");
+  }
+  buttons.push({ x, y, w, h, onClick: () => { relicsOpen = true; relicPage = 0; } });
 }
 
 function drawRelicPanel(x, y, w) {
