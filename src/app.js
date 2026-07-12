@@ -3452,7 +3452,7 @@ function drawEncounterTableArt(felt, scene) {
   } else {
     tableRect = containRectForAsset("tableBase:grunt", x, y, targetW, targetH);
     drawGruntDealerBehindTable(felt, tableRect);
-    const shifted = drawPaletteShiftedAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
+    const shifted = drawLayeredTableAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
     if (!shifted && scene.table) {
       tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
       drawRawAssetContain(scene.table, x, y, targetW, targetH, .94);
@@ -3839,7 +3839,7 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const lockedAlpha = node.locked ? .78 : 1;
   if (node.kind === "table") drawMapGruntBehindTableNode(node, p, w, h, lockedAlpha);
   const drewNodeAsset = node.kind === "table"
-    ? drawPaletteShiftedAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x - w * .42, y - h * .22, w * 1.84, h * 1.2, lockedAlpha)
+    ? drawLayeredTableAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x - w * .42, y - h * .22, w * 1.84, h * 1.2, lockedAlpha)
     : !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
   ctx.save();
   ctx.globalAlpha = lockedAlpha;
@@ -5510,7 +5510,7 @@ function rgbFromHex(hex) {
 }
 
 function paletteCacheKey(palette) {
-  return [palette?.dark, palette?.main, palette?.accent].join("|");
+  return [palette?.dark, palette?.main, palette?.accent, palette?.accent2].join("|");
 }
 
 function mixRgb(a, b, amount) {
@@ -5562,6 +5562,82 @@ function paletteShiftedHandAsset(key, palette) {
   return off;
 }
 
+function layeredTableAsset(key, palette) {
+  if (key !== "tableBase:grunt") return paletteShiftedHandAsset(key, palette);
+  const base = paletteShiftedHandAsset(key, palette);
+  if (!base) return null;
+  const cacheKey = `layered-table|${key}|${paletteCacheKey(palette)}|${base.width}x${base.height}`;
+  if (paletteShiftedAssetCache.has(cacheKey)) return paletteShiftedAssetCache.get(cacheKey);
+  const off = document.createElement("canvas");
+  off.width = base.width;
+  off.height = base.height;
+  const octx = off.getContext("2d");
+  octx.drawImage(base, 0, 0);
+  const accent = palette?.accent || C.gold;
+  const accent2 = palette?.accent2 || lighten(palette?.main || C.gold, .22);
+  const dark = palette?.dark || "#111111";
+  const seed = Math.abs(hashString(paletteCacheKey(palette) || "table"));
+
+  octx.save();
+  octx.globalCompositeOperation = "source-atop";
+
+  // Accent layer: subtle floor-colored inlays and rail glints.
+  octx.globalAlpha = .18;
+  octx.strokeStyle = accent;
+  octx.lineWidth = Math.max(5, Math.round(off.width * .006));
+  for (let i = -2; i < 6; i++) {
+    const y = off.height * (.19 + i * .115);
+    octx.beginPath();
+    octx.moveTo(off.width * .12, y);
+    octx.bezierCurveTo(off.width * .36, y - off.height * .045, off.width * .64, y + off.height * .045, off.width * .88, y);
+    octx.stroke();
+  }
+  octx.globalAlpha = .22;
+  octx.strokeStyle = accent2;
+  octx.lineWidth = Math.max(3, Math.round(off.width * .004));
+  for (let i = 0; i < 4; i++) {
+    const inset = off.width * (.18 + i * .035);
+    octx.beginPath();
+    octx.ellipse(off.width / 2, off.height * (.43 + i * .012), off.width * .34 - inset * .18, off.height * .22 - i * off.height * .012, 0, Math.PI * .05, Math.PI * .95);
+    octx.stroke();
+  }
+
+  // Texture layer: low-opacity felt grain and floor-specific scuffs.
+  octx.globalAlpha = .075;
+  octx.fillStyle = "#ffffff";
+  for (let i = 0; i < 240; i++) {
+    const x = ((seed + i * 173) % 997) / 997 * off.width;
+    const y = ((seed * 7 + i * 97) % 991) / 991 * off.height;
+    const w = 1 + ((seed + i * 13) % 5);
+    octx.fillRect(x, y, w, 1);
+  }
+  octx.globalAlpha = .09;
+  octx.strokeStyle = dark;
+  octx.lineWidth = 1;
+  for (let i = 0; i < 22; i++) {
+    const x = ((seed * 3 + i * 211) % 1000) / 1000 * off.width;
+    const y = ((seed * 5 + i * 137) % 1000) / 1000 * off.height;
+    octx.beginPath();
+    octx.moveTo(x, y);
+    octx.lineTo(x + off.width * (.035 + (i % 4) * .012), y + off.height * (.006 - (i % 3) * .004));
+    octx.stroke();
+  }
+
+  // Highlight/shadow layer: keep the generated art dimensional after color work.
+  octx.globalAlpha = .14;
+  const shine = octx.createLinearGradient(0, 0, 0, off.height);
+  shine.addColorStop(0, "#ffffff");
+  shine.addColorStop(.34, "rgba(255,255,255,0)");
+  shine.addColorStop(.72, "rgba(0,0,0,0)");
+  shine.addColorStop(1, dark);
+  octx.fillStyle = shine;
+  octx.fillRect(0, 0, off.width, off.height);
+  octx.restore();
+
+  paletteShiftedAssetCache.set(cacheKey, off);
+  return off;
+}
+
 function drawPaletteShiftedAsset(key, palette, x, y, w, h, alpha = 1) {
   const asset = paletteShiftedHandAsset(key, palette);
   if (!asset) return false;
@@ -5571,6 +5647,26 @@ function drawPaletteShiftedAsset(key, palette, x, y, w, h, alpha = 1) {
   ctx.drawImage(asset, x, y, w, h);
   ctx.restore();
   return true;
+}
+
+function drawLayeredTableAsset(key, palette, x, y, w, h, alpha = 1) {
+  const asset = layeredTableAsset(key, palette);
+  if (!asset) return false;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(asset, x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawLayeredTableAssetContain(key, palette, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const size = handAssetSize(key);
+  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  return drawLayeredTableAsset(key, palette, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, alpha);
 }
 
 function drawPaletteShiftedAssetContain(key, palette, x, y, w, h, alpha = 1) {
