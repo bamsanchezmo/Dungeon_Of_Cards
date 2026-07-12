@@ -46,6 +46,20 @@ Shared fallback assets can go in `art/floors/shared/` as `start_marker.png`, `el
 
 The game tries floor-specific art first, shared fallback art second, and procedural drawing last.
 
+## In-game table scene art
+
+Use `art/tables/` for visuals shown after sitting at a table.
+
+Each floor table folder can contain:
+
+- `background.png`
+- `table.png`
+- `boss_table.png`
+- `boss_portrait.png`
+- `decoration.png`
+
+Floor 1 already includes generated starter table assets in `art/tables/floor_01_lobby_tables/`.
+
 ## Audio
 
 - `audio/music/` — looping music tracks.

@@ -94,6 +94,16 @@ floorArtIds.forEach((id, index) => {
   mapNodeArtFiles[`floor${floor}:decoration`] = `art/floors/${id}/decoration.png`;
 });
 
+const tableSceneArtFiles = {};
+floorArtIds.forEach((id, index) => {
+  const floor = String(index + 1).padStart(2, "0");
+  tableSceneArtFiles[`floor${floor}:background`] = `art/tables/${id}/background.png`;
+  tableSceneArtFiles[`floor${floor}:table`] = `art/tables/${id}/table.png`;
+  tableSceneArtFiles[`floor${floor}:bossTable`] = `art/tables/${id}/boss_table.png`;
+  tableSceneArtFiles[`floor${floor}:bossPortrait`] = `art/tables/${id}/boss_portrait.png`;
+  tableSceneArtFiles[`floor${floor}:decoration`] = `art/tables/${id}/decoration.png`;
+});
+
 const C = {
   bg: "#120e16",
   panel: "#201a2a",
@@ -268,6 +278,9 @@ for (const [name, file] of Object.entries(relicAssetFiles)) {
 }
 for (const [key, file] of Object.entries(mapNodeArtFiles)) {
   handdrawnAssetFiles[`map:${key}`] = file;
+}
+for (const [key, file] of Object.entries(tableSceneArtFiles)) {
+  handdrawnAssetFiles[`tableScene:${key}`] = file;
 }
 const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
@@ -3012,12 +3025,18 @@ function drawTable() {
   const felt = viewport.portrait
     ? { x: 24, y: 42, w: layoutW() - 48, h: 730 }
     : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
+  const scene = tableSceneAssets();
   const theme = feltTheme();
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
       [0, theme[0]], [.52, theme[1]], [1, theme[2]]
     ], true);
   });
+  if (scene.background) {
+    drawRawAssetCover(scene.background, felt.x + 6, felt.y + 6, felt.w - 12, felt.h - 12, .44);
+    fill("rgba(5,4,8,.34)", felt.x, felt.y, felt.w, felt.h, 22);
+  }
+  drawEncounterBossArt(felt, scene);
   strokeRound(felt.x, felt.y, felt.w, felt.h, 22, game.enemy.color || "#4f744f", 8);
   strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
   strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, "rgba(220,180,70,.08)", 1);
@@ -3046,10 +3065,57 @@ function drawTable() {
   ctx.globalAlpha = .07;
   text("DUNGEON OF CARDS", felt.x + felt.w / 2, felt.y + felt.h - 34, viewport.portrait ? 22 : 25, C.gold, "center", "serif");
   ctx.restore();
+  drawEncounterTableArt(felt, scene);
   drawDeck(felt.x + felt.w - 125, felt.y + 50);
   drawDealer(felt);
   drawSeats(felt);
   drawSidePanel();
+}
+
+function tableSceneAssets() {
+  const floorKey = floorAssetKey(Number(game?.floor) || 0);
+  const activeNode = getMapNode(game?.activeEncounterId);
+  const boss = activeNode?.kind === "boss";
+  return {
+    boss,
+    background: tableSceneAsset(`${floorKey}:background`),
+    table: tableSceneAsset(`${floorKey}:${boss ? "bossTable" : "table"}`),
+    bossPortrait: boss ? tableSceneAsset(`${floorKey}:bossPortrait`) : "",
+    decoration: tableSceneAsset(`${floorKey}:decoration`)
+  };
+}
+
+function tableSceneAsset(key) {
+  const assetKey = `tableScene:${key}`;
+  return handAssetReady(assetKey) ? assetKey : "";
+}
+
+function drawEncounterBossArt(felt, scene) {
+  if (!scene.bossPortrait) return;
+  const portrait = viewport.portrait;
+  const h = portrait ? 230 : 260;
+  const w = h;
+  const x = felt.x + felt.w / 2 - w / 2;
+  const y = felt.y + (portrait ? 14 : 0);
+  const glow = game.enemy?.color || C.gold;
+  ctx.save();
+  ctx.globalAlpha = .18;
+  shadow(0, 0, 32, glow, () => fill(glow, x + w * .18, y + h * .08, w * .64, h * .78, w * .32));
+  ctx.restore();
+  drawRawAssetContain(scene.bossPortrait, x, y, w, h, .9);
+}
+
+function drawEncounterTableArt(felt, scene) {
+  if (!scene.table) return;
+  const portrait = viewport.portrait;
+  const targetW = Math.min(felt.w * (portrait ? .92 : .74), portrait ? 650 : 760);
+  const targetH = portrait ? 300 : 320;
+  const x = felt.x + felt.w / 2 - targetW / 2;
+  const y = felt.y + (portrait ? 118 : 120);
+  drawRawAssetContain(scene.table, x, y, targetW, targetH, scene.boss ? .86 : .72);
+  if (scene.decoration) {
+    drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .55);
+  }
 }
 
 function drawDealer(felt) {
