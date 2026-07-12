@@ -103,3 +103,22 @@ MP3 is the intended replacement format. The old OGG placeholders can still act a
 - `audio/music/boss_10_floor_10.mp3`
 
 The game currently loads specific filenames from `src/app.js`; easiest replacement path is to overwrite the matching file with new art/audio.
+
+## Floor card backs
+
+Use `art/cards/floor_backs/` for per-floor face-down card backs.
+
+The game expects:
+
+- `floor_01_card_back.png`
+- `floor_02_card_back.png`
+- `floor_03_card_back.png`
+- `floor_04_card_back.png`
+- `floor_05_card_back.png`
+- `floor_06_card_back.png`
+- `floor_07_card_back.png`
+- `floor_08_card_back.png`
+- `floor_09_card_back.png`
+- `floor_10_card_back.png`
+
+The editable generated source grid is `art/cards/floor_backs/source/floor_card_backs_grid.png`.

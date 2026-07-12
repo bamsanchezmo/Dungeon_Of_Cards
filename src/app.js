@@ -239,6 +239,9 @@ const handdrawnAssetFiles = {
   glyphQuestion: "art/glyphs/glyph_question.png"
 };
 for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `art/glyphs/glyph_${ch}.png`;
+for (let i = 1; i <= FLOORS; i++) {
+  handdrawnAssetFiles[`floor${String(i).padStart(2, "0")}CardBack`] = `art/cards/floor_backs/floor_${String(i).padStart(2, "0")}_card_back.png`;
+}
 const relicAssetFiles = {
   "Lucky Coin": "lucky_coin.png",
   "Double Crown": "double_crown.png",
@@ -291,6 +294,7 @@ for (const [key, file] of Object.entries(tableSceneArtFiles)) {
 }
 const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
+const chromaKeyedAssetCache = new Map();
 loadHanddrawnAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
@@ -4906,6 +4910,7 @@ function loadHanddrawnAssets() {
     img.src = `./assets/${file}`;
     img.onload = () => {
       tintedHanddrawnCache.clear();
+      chromaKeyedAssetCache.delete(key);
       draw();
     };
     handdrawnImages[key] = img;
@@ -4915,6 +4920,10 @@ function loadHanddrawnAssets() {
 function handAssetReady(key) {
   const img = handdrawnImages[key];
   return !!img && img.complete && img.naturalWidth > 0;
+}
+
+function shouldChromaKeyAsset(key) {
+  return /^floor\d{2}CardBack$/.test(String(key));
 }
 
 function handCardAssetsReady() {
@@ -4939,6 +4948,34 @@ function tintedHandAsset(key, color) {
   return off;
 }
 
+function chromaKeyedHandAsset(key) {
+  const img = handdrawnImages[key];
+  if (!img || !img.naturalWidth) return null;
+  if (!shouldChromaKeyAsset(key)) return img;
+  const cacheKey = `${key}|${img.naturalWidth}x${img.naturalHeight}`;
+  if (chromaKeyedAssetCache.has(cacheKey)) return chromaKeyedAssetCache.get(cacheKey);
+  const off = document.createElement("canvas");
+  off.width = img.naturalWidth;
+  off.height = img.naturalHeight;
+  const octx = off.getContext("2d");
+  octx.drawImage(img, 0, 0);
+  const imageData = octx.getImageData(0, 0, off.width, off.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const strongestNonGreen = Math.max(r, b);
+    if (g > 120 && g - strongestNonGreen > 45 && r < 125 && b < 125) {
+      const edge = clamp((g - strongestNonGreen - 45) / 80, 0, 1);
+      data[i + 3] = Math.round(data[i + 3] * (1 - edge));
+    }
+  }
+  octx.putImageData(imageData, 0, 0);
+  chromaKeyedAssetCache.set(cacheKey, off);
+  return off;
+}
+
 function drawHandAsset(key, x, y, w, h, color = "#000", alpha = 1) {
   if (!handAssetReady(key)) return false;
   const asset = tintedHandAsset(key, color);
@@ -4953,10 +4990,12 @@ function drawHandAsset(key, x, y, w, h, color = "#000", alpha = 1) {
 
 function drawRawAsset(key, x, y, w, h, alpha = 1) {
   if (!handAssetReady(key)) return false;
+  const asset = chromaKeyedHandAsset(key);
+  if (!asset) return false;
   ctx.save();
   ctx.globalAlpha *= alpha;
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(handdrawnImages[key], x, y, w, h);
+  ctx.drawImage(asset, x, y, w, h);
   ctx.restore();
   return true;
 }
@@ -5024,6 +5063,27 @@ function suitAssetKey(suit) {
   return { S: "suitS", H: "suitH", D: "suitD", C: "suitC" }[suit] || "suitS";
 }
 
+function currentFloorCardBackKey() {
+  const floor = clamp((Number(game?.floor) || 0) + 1, 1, FLOORS);
+  return `floor${String(floor).padStart(2, "0")}CardBack`;
+}
+
+function drawFloorCardBack(x, y, w = CARD_W, h = CARD_H) {
+  const key = currentFloorCardBackKey();
+  const assetKey = handAssetReady(key) ? key : "backDiamond";
+  if (!handAssetReady(assetKey)) return false;
+  const asset = chromaKeyedHandAsset(assetKey);
+  if (!asset) return false;
+  shadow(0, 7, 13, "rgba(0,0,0,.36)", () => {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(asset, x, y, w, h);
+    ctx.restore();
+  });
+  strokeRound(x, y, w, h, 9, "rgba(220,180,70,.55)", 1.4);
+  return true;
+}
+
 function relicAssetKey(relic) {
   const name = relic?.baseName && relicAssetFiles[relic.baseName] ? relic.baseName : relic?.name;
   return relicAssetFiles[name] ? `relic:${name}` : "";
@@ -5048,6 +5108,7 @@ function drawHanddrawnCardFace(card, x, y, highlight = false) {
     shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
   }
   if (card.up === false) {
+    if (drawFloorCardBack(x, y)) return;
     shadow(0, 7, 13, "rgba(0,0,0,.36)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#4a2f66"], [1, "#23133a"]], true));
     gradientRound(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, [[0, "#654482"], [1, "#38244e"]], true);
     for (let col = 0; col < 4; col++) {
@@ -5176,6 +5237,7 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
     shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
   }
   if (card.up === false) {
+    if (drawFloorCardBack(x, y)) return;
     shadow(0, 7, 13, "rgba(0,0,0,.36)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#4a2f66"], [1, "#23133a"]], true));
     gradientRound(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, [[0, "#654482"], [1, "#38244e"]], true);
     ctx.fillStyle = "#6e508c";
