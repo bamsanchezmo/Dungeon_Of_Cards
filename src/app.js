@@ -3887,11 +3887,12 @@ function drawDungeonMap() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   let mapX = portrait ? 24 : 42;
-  const mapY = portrait ? 150 : 126;
+  const mapY = portrait ? 112 : 126;
   let mapW = portrait ? lw - 48 : lw - 380;
-  let mapH = portrait ? Math.min(940, Math.max(700, lh - 620)) : lh - 204;
+  let mapH = portrait ? lh - mapY - 12 : lh - 204;
   if (portrait) {
-    mapW = Math.min(lw - 48, mapH * 9 / 16);
+    mapW = Math.min(lw - 16, mapH * 9 / 16);
+    mapH = Math.min(mapH, mapW * 16 / 9);
     mapX = (lw - mapW) / 2;
   }
   const panelX = portrait ? 24 : lw - 315;
@@ -3909,7 +3910,8 @@ function drawDungeonMap() {
   drawMapHeader(lw, portrait);
   drawMapConnections(mapX, mapY, mapW, mapH);
   game.map.nodes.forEach((node) => drawPolishedMapNode(node, mapX, mapY, mapW, mapH));
-  drawPolishedMapPanel(panelX, panelY, panelW, panelH);
+  if (portrait) drawPortraitMapHud(mapX, mapY, mapW, mapH);
+  else drawPolishedMapPanel(panelX, panelY, panelW, panelH);
   if (game.developerTest) drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panelY, panelW);
 }
 
@@ -4328,6 +4330,88 @@ function mapNodeDrawableAsset(node) {
   return "";
 }
 
+function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
+  const selected = getMapNode(inspectedNodeId) || reachableMapNodes()[0] || getMapNode(game.currentNodeId);
+  if (!selected) return;
+  const lw = layoutW();
+  const lh = layoutH();
+  const ui = activeFloorUi();
+  const solo = game.seats.filter((s) => !s.spectating).length <= 1;
+  const buttonH = 70;
+  const buttonW = Math.min(260, (lw - 70) / 2);
+  const leftX = 24;
+  const rightX = lw - 24 - buttonW;
+  const buttonY = lh - 24 - buttonH;
+  const stripH = 96;
+  const stripX = 22;
+  const stripW = lw - 44;
+  const stripY = buttonY - stripH - 14;
+  const status = selected.reachable ? "Reachable" : selected.cleared ? "Cleared" : selected.current ? "Current" : "Preview";
+  const reward = selected.reward;
+  const rewardColor = reward?.rarityColor || selected.rarity?.color || ui.titleWarm;
+
+  shadow(0, 16, 34, "rgba(0,0,0,.55)", () => {
+    gradientRound(stripX, stripY, stripW, stripH, 18, [[0, "rgba(9,7,13,.9)"], [1, hexToRgba(ui.panelBottom, .92)]], true);
+  });
+  strokeRound(stripX, stripY, stripW, stripH, 18, hexToRgba(ui.border, .55), 2);
+  fill(ui.panelWash, stripX + 12, stripY + 12, 112, stripH - 24, 14);
+  text(status, stripX + 68, stripY + 43, 18, selected.reachable || selected.cleared ? C.green : C.muted, "center");
+  if (selected.kind === "table" || selected.kind === "boss") {
+    text(`Threat ${selected.threat}/5`, stripX + 68, stripY + 68, 15, C.text, "center");
+  } else {
+    text(selected.kind === "elevator" ? "Next floor" : "Start", stripX + 68, stripY + 68, 15, C.text, "center");
+  }
+  textFit(selected.label, stripX + 140, stripY + 34, stripW - 160, 24, ui.titleWarm);
+  textFit(reward ? `${mapRewardSubtitle(reward)}: ${reward.name}` : selected.encounter?.description || "Choose a reachable table.", stripX + 140, stripY + 66, stripW - 160, 17, reward ? rewardColor : C.muted);
+
+  const canEnter = selected.reachable && selected.kind !== "elevator";
+  if (solo) {
+    addButton(leftX, buttonY, buttonW, buttonH, "Details", () => openMapNodeDetail(selected), true, true);
+    addButton(rightX, buttonY, buttonW, buttonH, canEnter ? "Enter" : selected.cleared ? "Cleared" : "Inspect", () => action(`enterMap:${selected.id}`), true, canEnter);
+    return;
+  }
+
+  const votes = game.mapVotes || {};
+  const myVote = votes[localPlayerId] === selected.id;
+  const ready = !!game.mapReady?.[localPlayerId];
+  const readyCount = game.seats.filter((seat) => game.mapReady?.[seat.id]).length;
+  const activeCount = Math.max(1, game.seats.filter((seat) => !seat.spectating).length);
+  text(`${readyCount}/${activeCount} ready`, lw / 2, buttonY - 8, 16, C.muted, "center");
+  addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${selected.id}`), true, canEnter);
+  addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+}
+
+function openMapNodeDetail(node) {
+  if (!node) return;
+  const ui = activeFloorUi();
+  if (node.reward) {
+    const rewardColor = node.reward.rarityColor || node.rarity?.color || ui.titleWarm;
+    mapInfoDetail = {
+      title: node.reward.name,
+      subtitle: mapRewardSubtitle(node.reward),
+      color: rewardColor,
+      body: node.reward.description,
+      relic: node.reward.type === "relic" ? node.reward : null
+    };
+    return;
+  }
+  if (node.encounter) {
+    mapInfoDetail = {
+      title: node.encounter.name,
+      subtitle: `Threat ${node.threat}/5`,
+      color: ui.titleWarm,
+      body: `${node.encounter.description} Higher threat tables hit harder, pay better rewards, and usually have nastier house rules.`
+    };
+    return;
+  }
+  mapInfoDetail = {
+    title: node.kind === "elevator" ? "Elevator" : "Route Start",
+    subtitle: node.label,
+    color: ui.titleWarm,
+    body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight."
+  };
+}
+
 function drawPolishedMapPanel(x, y, w, h) {
   const portrait = viewport.portrait;
   const selected = getMapNode(inspectedNodeId) || reachableMapNodes()[0] || getMapNode(game.currentNodeId);
@@ -4590,10 +4674,11 @@ function drawMapVotePanel(x, y, w, h, node) {
 function mapPoint(node, mapX, mapY, mapW, mapH) {
   if (isPortraitMap()) {
     const padX = Math.min(96, mapW * .18);
-    const padY = Math.min(92, mapH * .1);
+    const padTop = Math.min(92, mapH * .1);
+    const padBottom = Math.min(260, Math.max(190, mapH * .18));
     return {
       x: mapX + padX + (1 - node.y) * Math.max(1, mapW - padX * 2),
-      y: mapY + padY + (1 - node.x) * Math.max(1, mapH - padY * 2)
+      y: mapY + padTop + (1 - node.x) * Math.max(1, mapH - padTop - padBottom)
     };
   }
   return { x: mapX + node.x * mapW, y: mapY + node.y * mapH };
