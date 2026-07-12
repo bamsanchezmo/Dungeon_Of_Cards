@@ -31,30 +31,30 @@ const rarityTiers = [
 ];
 
 const musicTracks = {
-  menu: "menu_theme.ogg",
+  menu: "menu_theme.mp3",
   floors: [
-    "floor_01_lobby_tables.ogg",
-    "floor_02_slots_and_side_bets.ogg",
-    "floor_03_security_checkpoint.ogg",
-    "floor_04_bone_lounge.ogg",
-    "floor_05_vault_hall.ogg",
-    "floor_06_mirror_casino.ogg",
-    "floor_07_dragon_tables.ogg",
-    "floor_08_clockwork_pit.ogg",
-    "floor_09_black_felt.ogg",
-    "floor_10_penthouse.ogg"
+    "floor_01_lobby_tables.mp3",
+    "floor_02_slots_and_side_bets.mp3",
+    "floor_03_security_checkpoint.mp3",
+    "floor_04_bone_lounge.mp3",
+    "floor_05_vault_hall.mp3",
+    "floor_06_mirror_casino.mp3",
+    "floor_07_dragon_tables.mp3",
+    "floor_08_clockwork_pit.mp3",
+    "floor_09_black_felt.mp3",
+    "floor_10_penthouse.mp3"
   ],
   bosses: [
-    "boss_01_floor_01.ogg",
-    "boss_02_floor_02.ogg",
-    "boss_03_floor_03.ogg",
-    "boss_04_floor_04.ogg",
-    "boss_05_floor_05.ogg",
-    "boss_06_floor_06.ogg",
-    "boss_07_floor_07.ogg",
-    "boss_08_floor_08.ogg",
-    "boss_09_floor_09.ogg",
-    "boss_10_floor_10.ogg"
+    "boss_01_floor_01.mp3",
+    "boss_02_floor_02.mp3",
+    "boss_03_floor_03.mp3",
+    "boss_04_floor_04.mp3",
+    "boss_05_floor_05.mp3",
+    "boss_06_floor_06.mp3",
+    "boss_07_floor_07.mp3",
+    "boss_08_floor_08.mp3",
+    "boss_09_floor_09.mp3",
+    "boss_10_floor_10.mp3"
   ]
 };
 
@@ -120,6 +120,7 @@ let heartbeatAudio = null;
 let audioCtx = null;
 let audioSource = null;
 let currentMusicPath = "";
+let currentMusicFallbackPath = "";
 let musicFilter = null;
 let musicDistortion = null;
 let musicGain = null;
@@ -2392,6 +2393,7 @@ function startAudio() {
     audio.preservesPitch = true;
     audio.mozPreservesPitch = true;
     audio.webkitPreservesPitch = true;
+    audio.addEventListener("error", handleMusicError);
   }
   if (!deathWarpAudio) {
     deathWarpAudio = new Audio("./assets/audio/sfx/death_warp.wav");
@@ -2416,6 +2418,10 @@ function musicPath(filename) {
   return `./assets/audio/music/${filename}`;
 }
 
+function fallbackMusicPathFor(path) {
+  return path.endsWith(".mp3") ? path.slice(0, -4) + ".ogg" : "";
+}
+
 function desiredMusicPath() {
   if (!game || appScene === "splash" || appScene === "menu") return musicPath(musicTracks.menu);
   const floorIndex = clamp(Number(game.floor) || 0, 0, musicTracks.floors.length - 1);
@@ -2425,12 +2431,28 @@ function desiredMusicPath() {
   return musicPath(file || musicTracks.menu);
 }
 
+function handleMusicError() {
+  if (!audio || currentMusicFallbackPath) return;
+  const fallbackPath = fallbackMusicPathFor(currentMusicPath);
+  if (!fallbackPath) return;
+  const shouldPlay = musicStarted && !audio.muted && !document.hidden;
+  currentMusicFallbackPath = fallbackPath;
+  audio.pause();
+  audio.src = fallbackPath;
+  audio.currentTime = 0;
+  audio.loop = true;
+  audio.volume = .35;
+  audio.load();
+  if (shouldPlay) audio.play().catch(() => {});
+}
+
 function switchMusicIfNeeded() {
   if (!audio || musicDeathMode) return;
   const nextPath = desiredMusicPath();
   if (currentMusicPath === nextPath) return;
   const shouldPlay = musicStarted && !audio.paused && !audio.muted && !document.hidden;
   currentMusicPath = nextPath;
+  currentMusicFallbackPath = "";
   audio.pause();
   audio.src = nextPath;
   audio.currentTime = 0;
