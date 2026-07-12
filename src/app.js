@@ -3886,14 +3886,18 @@ function drawDungeonMap() {
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
-  const mapX = portrait ? 24 : 42;
+  let mapX = portrait ? 24 : 42;
   const mapY = portrait ? 150 : 126;
-  const mapW = portrait ? lw - 48 : lw - 380;
-  const mapH = portrait ? Math.min(720, lh - 650) : lh - 204;
+  let mapW = portrait ? lw - 48 : lw - 380;
+  let mapH = portrait ? Math.min(940, Math.max(700, lh - 620)) : lh - 204;
+  if (portrait) {
+    mapW = Math.min(lw - 48, mapH * 9 / 16);
+    mapX = (lw - mapW) / 2;
+  }
   const panelX = portrait ? 24 : lw - 315;
   const panelY = portrait ? mapY + mapH + 24 : 126;
   const panelW = portrait ? lw - 48 : 275;
-  const panelH = portrait ? Math.max(520, lh - panelY - 28) : mapH;
+  const panelH = portrait ? Math.max(390, lh - panelY - 28) : mapH;
   const ui = activeFloorUi();
 
   shadow(0, 28, 70, "rgba(0,0,0,.5)", () => {
@@ -3910,6 +3914,10 @@ function drawDungeonMap() {
 }
 
 function drawMapCarpet(x, y, w, h) {
+  if (isPortraitMap() && drawRawAssetCoverRotated(game.map.backgroundAsset, x + 10, y + 10, w - 20, h - 20, .92, -Math.PI / 2)) {
+    fill("rgba(5,4,8,.18)", x, y, w, h, 24);
+    return;
+  }
   if (drawRawAssetCover(game.map.backgroundAsset, x + 10, y + 10, w - 20, h - 20, .92)) {
     fill("rgba(5,4,8,.18)", x, y, w, h, 24);
     drawRawAssetContain(game.map.decorationAsset, x + w * .36, y + h * .12, w * .28, h * .22, .72);
@@ -4584,7 +4592,7 @@ function mapPoint(node, mapX, mapY, mapW, mapH) {
     const padX = Math.min(96, mapW * .18);
     const padY = Math.min(92, mapH * .1);
     return {
-      x: mapX + padX + node.y * Math.max(1, mapW - padX * 2),
+      x: mapX + padX + (1 - node.y) * Math.max(1, mapW - padX * 2),
       y: mapY + padY + node.x * Math.max(1, mapH - padY * 2)
     };
   }
@@ -6159,6 +6167,26 @@ function drawRawAssetCover(key, x, y, w, h, alpha = 1) {
   ctx.globalAlpha *= alpha;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawRawAssetCoverRotated(key, x, y, w, h, alpha = 1, angle = -Math.PI / 2) {
+  if (!handAssetReady(key)) return false;
+  const img = handdrawnImages[key];
+  const drawW = h;
+  const drawH = w;
+  const scale = Math.max(drawW / Math.max(1, img.naturalWidth), drawH / Math.max(1, img.naturalHeight));
+  const sw = drawW / scale;
+  const sh = drawH / scale;
+  const sx = (img.naturalWidth - sw) / 2;
+  const sy = (img.naturalHeight - sh) / 2;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.rotate(angle);
+  ctx.drawImage(img, sx, sy, sw, sh, -drawW / 2, -drawH / 2, drawW, drawH);
   ctx.restore();
   return true;
 }
