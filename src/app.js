@@ -8,13 +8,13 @@ const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const MIN_BET = 1;
 const MAX_BET = 500;
-// Match the generated floor card-back art ratio: 280x420, or 2:3.
-// Keep all gameplay outlines, highlights, face art, and deck stacks on that
-// same ratio so image assets are not stretched inside the card frame.
-const CARD_ART_W = 280;
-const CARD_ART_H = 420;
+// Match the actual generated floor card-back asset size: 280x420, or 2:3.
+// The card is displayed smaller in gameplay, but every front, back, glow, and
+// outline uses this asset-derived shape instead of a separate padded frame.
+const CARD_ASSET_W = 280;
+const CARD_ASSET_H = 420;
 const CARD_W = 90;
-const CARD_H = Math.round(CARD_W * CARD_ART_H / CARD_ART_W);
+const CARD_H = Math.round(CARD_W * CARD_ASSET_H / CARD_ASSET_W);
 const MAX_PLAYERS = 4;
 const hostId = "host";
 const LOAN_AMOUNT = 100;
@@ -4787,14 +4787,17 @@ function carouselVisualIndex(seatId, selected) {
   return lerp(anim.from, anim.to, eased);
 }
 
-function drawCardOutlineGlow(x = 0, y = 0) {
+function drawCardGoldOutline(x = 0, y = 0, w = CARD_W, h = CARD_H, strong = false) {
   ctx.save();
-  ctx.shadowColor = "rgba(255,218,91,.9)";
-  ctx.shadowBlur = 18;
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "rgba(255,232,130,.88)";
-  strokeRound(x - 3, y - 3, CARD_W + 6, CARD_H + 6, 12, "rgba(255,232,130,.88)", 4);
+  ctx.shadowColor = strong ? "rgba(255,218,91,.95)" : "rgba(255,205,83,.58)";
+  ctx.shadowBlur = strong ? 18 : 10;
+  strokeRound(x, y, w, h, 9, strong ? "rgba(255,232,130,.96)" : "rgba(220,180,70,.74)", strong ? 3.4 : 1.9);
+  strokeRound(x + 3, y + 3, w - 6, h - 6, 6, "rgba(255,244,177,.34)", 1);
   ctx.restore();
+}
+
+function drawCardOutlineGlow(x = 0, y = 0) {
+  drawCardGoldOutline(x, y, CARD_W, CARD_H, true);
 }
 
 function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true, animationBase = null) {
@@ -5085,7 +5088,7 @@ function drawFloorCardBack(x, y, w = CARD_W, h = CARD_H) {
     ctx.drawImage(asset, x, y, w, h);
     ctx.restore();
   });
-  strokeRound(x, y, w, h, 9, "rgba(220,180,70,.55)", 1.4);
+  drawCardGoldOutline(x, y, w, h, false);
   return true;
 }
 
@@ -5110,7 +5113,7 @@ function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
 
 function drawHanddrawnCardFace(card, x, y, highlight = false) {
   if (highlight) {
-    shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
+    drawCardOutlineGlow(x, y);
   }
   if (card.up === false) {
     if (drawFloorCardBack(x, y)) return;
@@ -5123,11 +5126,10 @@ function drawHanddrawnCardFace(card, x, y, highlight = false) {
         drawHandAsset("backDiamond", dx, dy, 13, 17, "#d4b35e", .55);
       }
     }
-    strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
+    drawCardGoldOutline(x, y);
     return;
   }
   shadow(0, 7, 12, "rgba(0,0,0,.28)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#fff2cb"], [.55, C.parchment], [1, "#cdbb8f"]], true));
-  strokeRound(x, y, CARD_W, CARD_H, 9, "#3c3228", 2);
   strokeRound(x + 4, y + 4, CARD_W - 8, CARD_H - 8, 6, "rgba(255,255,255,.22)", 1);
   const red = card.suit === "H" || card.suit === "D";
   const color = red ? "#9e1f24" : "#12121b";
@@ -5136,6 +5138,7 @@ function drawHanddrawnCardFace(card, x, y, highlight = false) {
   drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W / 2, y + CARD_H / 2 + 12, 46, color, "center");
   drawHandRank(card.rank, x + CARD_W - 9, y + CARD_H - 48, card.rank === "10" ? 15 : 18, color, "right");
   drawHandAssetFit(suitAssetKey(card.suit), x + CARD_W - 18, y + CARD_H - 17, 13, color, "center");
+  drawCardGoldOutline(x, y);
 }
 
 function drawHanddrawnChips(x, y, amount) {
@@ -5183,7 +5186,7 @@ function drawHanddrawnChips(x, y, amount) {
 }
 
 function drawCardFace(card, x, y, highlight = false) {
-  if (highlight) fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12);
+  if (highlight) drawCardOutlineGlow(x, y);
   if (card.up === false) {
     round(x, y, CARD_W, CARD_H, 9, "#321e46");
     round(x + 8, y + 8, CARD_W - 16, CARD_H - 16, 7, "#4b3269");
@@ -5201,17 +5204,17 @@ function drawCardFace(card, x, y, highlight = false) {
         ctx.fill();
       }
     }
-    strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
+    drawCardGoldOutline(x, y);
     return;
   }
   round(x, y, CARD_W, CARD_H, 9, C.parchment);
-  strokeRound(x, y, CARD_W, CARD_H, 9, "#3c3228", 2);
   const red = card.suit === "H" || card.suit === "D";
   const color = red ? "#aa2323" : "#191923";
   const suit = { S: "♠", H: "♥", D: "♦", C: "♣" }[card.suit];
   text(card.rank, x + 10, y + 28, card.rank === "10" ? 22 : 26, color, "left", "serif");
   text(suit, x + CARD_W / 2, y + 82, 52, color, "center", "serif");
   text(card.rank, x + CARD_W - 10, y + CARD_H - 10, card.rank === "10" ? 20 : 24, color, "right", "serif");
+  drawCardGoldOutline(x, y);
 }
 
 function drawDeck(x, y) {
@@ -5239,7 +5242,7 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
     return;
   }
   if (highlight) {
-    shadow(0, 0, 18, "rgba(220,180,70,.55)", () => fill(C.gold, x - 5, y - 5, CARD_W + 10, CARD_H + 10, 12));
+    drawCardOutlineGlow(x, y);
   }
   if (card.up === false) {
     if (drawFloorCardBack(x, y)) return;
@@ -5259,11 +5262,10 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
         ctx.fill();
       }
     }
-    strokeRound(x, y, CARD_W, CARD_H, 9, C.goldDim, 2);
+    drawCardGoldOutline(x, y);
     return;
   }
   shadow(0, 7, 12, "rgba(0,0,0,.28)", () => gradientRound(x, y, CARD_W, CARD_H, 9, [[0, "#fff2cb"], [.55, C.parchment], [1, "#cdbb8f"]], true));
-  strokeRound(x, y, CARD_W, CARD_H, 9, "#3c3228", 2);
   strokeRound(x + 4, y + 4, CARD_W - 8, CARD_H - 8, 6, "rgba(255,255,255,.22)", 1);
   const red = card.suit === "H" || card.suit === "D";
   const color = red ? "#aa2323" : "#191923";
@@ -5273,6 +5275,7 @@ drawCardFace = function drawCardFace(card, x, y, highlight = false) {
   text(suit, x + CARD_W / 2, y + CARD_H / 2 + 18, 44, color, "center", "serif");
   text(card.rank, x + CARD_W - 8, y + CARD_H - 10, card.rank === "10" ? 18 : 21, color, "right", "serif");
   text(suit, x + CARD_W - 18, y + CARD_H - 32, 14, color, "center", "serif");
+  drawCardGoldOutline(x, y);
 };
 
 drawChips = function drawChips(x, y, amount, scale = 1) {
