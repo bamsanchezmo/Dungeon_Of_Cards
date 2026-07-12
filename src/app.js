@@ -708,9 +708,9 @@ function createFloorMap(floorIndex) {
   };
   const tableYs = (count) => {
     if (count <= 1) return [.50];
-    if (count === 2) return [.36, .64];
-    if (count === 3) return [.29, .50, .71];
-    return [.24, .415, .585, .76];
+    if (count === 2) return [.30, .70];
+    if (count === 3) return [.24, .50, .76];
+    return [.20, .40, .60, .80];
   };
   const makeColumn = (columnIndex, x, nextIds = null) => {
     const count = columnCount();
@@ -3861,13 +3861,14 @@ function drawDeveloperTableNavigatorControls() {
 function drawMapConnections(mapX, mapY, mapW, mapH) {
   ctx.save();
   ctx.lineCap = "round";
-  const selectedRouteId = game.mapVotes?.[localPlayerId] || inspectedNodeId;
+  const selectedRouteId = game.mapVotes?.[localPlayerId] || game.selectedNodeId || "";
   const ui = activeFloorUi();
   for (const node of game.map.nodes) {
     const from = mapPoint(node, mapX, mapY, mapW, mapH);
     for (const nextId of node.next || []) {
       const next = getMapNode(nextId);
       if (!next) continue;
+      if (!shouldDrawMapEdge(node, next, selectedRouteId)) continue;
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
       const selectedReachableEdge = nextId === selectedRouteId && next.reachable && (node.current || node.cleared);
       const clearedEdge = node.cleared && next.cleared;
@@ -3881,6 +3882,16 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
     }
   }
   ctx.restore();
+}
+
+function shouldDrawMapEdge(fromNode, toNode, selectedRouteId) {
+  if (fromNode.cleared && toNode.cleared) return true;
+  if (selectedRouteId && (fromNode.current || fromNode.cleared) && (fromNode.next || []).includes(selectedRouteId)) {
+    return toNode.id === selectedRouteId;
+  }
+  if (fromNode.current || fromNode.cleared) return toNode.reachable || toNode.cleared;
+  if (selectedRouteId && fromNode.id !== selectedRouteId && !fromNode.cleared) return false;
+  return !fromNode.locked && !toNode.locked;
 }
 
 function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
@@ -3899,7 +3910,7 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const border = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? ui.title : node.reachable ? hexToRgba(threatColor || C.parchment, .82) : "rgba(238,231,215,.46)";
   const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : threatColor || node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
-  const lockedAlpha = node.locked ? .5 : 1;
+  const lockedAlpha = node.locked ? .82 : 1;
   const drewNodeAsset = node.kind === "table"
     ? drawMapTableGroup(node, p, w, h, lockedAlpha)
     : !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
@@ -3919,7 +3930,10 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   }
   ctx.globalAlpha = 1;
   const strokeWidth = selectedReachable || selectedFuture ? 5 : node.reachable || node.cleared || node.current ? 4 : 3;
-  if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, strokeWidth);
+  if (node.kind === "boss") {
+    if (drewNodeAsset) drawBossMotifSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture);
+    else polygonStroke(p.x, p.y, w / 2, 8, border, strokeWidth);
+  }
   else if (node.kind === "table") drawMapTableSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture);
   else if (node.kind !== "table") strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
   const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
@@ -3957,6 +3971,18 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
 
 function mapTableDisplayRect(p, w, h) {
   return containRectForAsset("tableBase:grunt", p.x - w * .725, p.y - h * .38, w * 1.45, h * .95);
+}
+
+function drawBossMotifSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture) {
+  if (!selected && !node.reachable && !node.cleared && !node.current) return;
+  const ui = activeFloorUi();
+  const size = Math.max(w, h) * 1.12;
+  const color = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.96)" : selected ? "rgba(218,225,232,.72)" : node.reachable ? hexToRgba(ui.accent, .62) : "";
+  if (!color) return;
+  const strong = selected || selectedReachable || selectedFuture;
+  shadow(0, 0, strong ? 26 : 12, hexToRgba(color, strong ? .78 : .4), () => {
+    strokeRound(p.x - size / 2, p.y - size / 2, size, size, 18, color, strong ? 4 : 2.5);
+  });
 }
 
 function mapTableHitRect(p, w, h) {
