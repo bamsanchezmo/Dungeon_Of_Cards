@@ -188,6 +188,7 @@ let handCarouselAnim = {};
 let handCarouselActiveIndex = {};
 let rulesOpen = false;
 let relicsOpen = false;
+let logOpen = false;
 let relicPage = 0;
 let inspectedNodeId = "";
 let mapInfoDetail = null;
@@ -268,12 +269,16 @@ const relicAssetFiles = {
   "Croesus' Purse": "croesus_purse.png",
   "Hollow Crown": "hollow_crown.png",
   "Sovereign's Chalice": "sovereigns_chalice.png",
-  "Auditor's Quill": "phoenix_feather.png",
-  "Bone-Hand Charm": "charlies_hand.png",
-  "Notary's Crown": "double_crown.png",
-  "Crown of Ten Kings": "hollow_crown.png",
-  "Soulforged Fang": "dragons_tooth.png",
-  "Coin of the Fates": "lucky_coin.png"
+  "Auditor's Quill": "auditors_quill.png",
+  "Bone-Hand Charm": "bone_hand_charm.png",
+  "Notary's Crown": "notarys_crown.png",
+  "Crown of Ten Kings": "crown_of_ten_kings.png",
+  "Soulforged Fang": "soulforged_fang.png",
+  "Rabbit's Foot": "rabbits_foot.png",
+  "Four-Leaf Clover": "four_leaf_clover.png",
+  "Dice of the Damned": "dice_of_the_damned.png",
+  "Coin of the Fates": "coin_of_the_fates.png",
+  "Sepulcher Key": "sepulcher_key.png"
 };
 for (const [name, file] of Object.entries(relicAssetFiles)) {
   handdrawnAssetFiles[`relic:${name}`] = `art/relics/${file}`;
@@ -2835,6 +2840,7 @@ function draw() {
   if (statsPlayerId) drawStatsOverlay();
   if (rulesOpen) drawRulesOverlay();
   if (relicsOpen) drawRelicsOverlay();
+  if (logOpen) drawLogOverlay();
   if (mapInfoDetail) drawMapInfoOverlay();
   if (game?.relicPopup) drawRelicRewardPopup();
   drawFeedbackAnimations();
@@ -3356,13 +3362,14 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
   const hideAssetLabel = drewNodeAsset && (node.kind === "start" || node.kind === "table");
   if (node.kind === "boss") {
-    const badgeW = Math.max(58, w * .86);
+    const badgeW = Math.max(88, w * 1.08);
     const badgeH = portrait ? 30 : 26;
+    const badgeY = y - badgeH / 2 - (portrait ? 8 : 6);
     shadow(0, 0, 18, "rgba(0,0,0,.55)", () => {
-      gradientRound(p.x - badgeW / 2, p.y - badgeH / 2, badgeW, badgeH, badgeH / 2, [[0, "rgba(255,232,150,.95)"], [1, "rgba(177,112,30,.95)"]], true);
+      gradientRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, [[0, "rgba(255,232,150,.95)"], [1, "rgba(177,112,30,.95)"]], true);
     });
-    strokeRound(p.x - badgeW / 2, p.y - badgeH / 2, badgeW, badgeH, badgeH / 2, "rgba(255,248,210,.8)", 2);
-    text("BOSS", p.x, p.y + (portrait ? 8 : 7), portrait ? 17 : 14, C.black, "center", "serif");
+    strokeRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, "rgba(255,248,210,.8)", 2);
+    text("Floor Boss", p.x, badgeY + (portrait ? 21 : 18), portrait ? 15 : 13, C.black, "center", "serif");
   } else if (label && !hideAssetLabel) {
     text(label, p.x, p.y + 8, 24, C.black, "center", "serif");
   }
@@ -3757,7 +3764,7 @@ function drawSidePanel() {
   drawRelicPanel(x + 22, 500, 226);
   fill("rgba(238,231,215,.06)", x + 22, 646, 226, 1);
   text("Log", x + 22, 674, 18, C.gold);
-  game.log.slice(0, 3).forEach((line, i) => text(line, x + 22, 700 + i * 20, 13, C.muted));
+  drawLogPreview(x + 22, 700, 226, 44, 13);
 }
 
 function drawBottomPanel() {
@@ -3793,7 +3800,7 @@ function drawBottomPanel() {
   fill("rgba(238,231,215,.06)", leftX, y + 560, w - 48, 1);
   drawRelicPanel(leftX, y + 598, 320);
   text("Log", x + 392, y + 598, 24, C.gold);
-  game.log.slice(0, 5).forEach((line, i) => text(line, x + 392, y + 636 + i * 29, 19, C.muted));
+  drawLogPreview(x + 392, y + 636, w - 440, 52, 19);
 }
 
 function drawRelicPanel(x, y, w) {
@@ -3833,7 +3840,17 @@ function drawTouchLandscapePanel() {
   text(relicSummary, x + 24, 598, 20, C.muted);
   buttons.push({ x: x + 18, y: 530, w: w - 36, h: 94, onClick: () => { relicsOpen = true; relicPage = 0; } });
   const latest = game.log[0] || "";
-  text(fitLabel(latest, w - 48, 18), x + 24, 700, 18, C.muted);
+  text("Log", x + 24, 676, 22, C.gold);
+  drawLogPreview(x + 24, 700, w - 48, 48, 18);
+}
+
+function drawLogPreview(x, y, w, h, size) {
+  const latest = game.log?.[0] || "No activity yet.";
+  fill("rgba(238,231,215,.045)", x - 8, y - 22, w + 16, h, 8);
+  strokeRound(x - 8, y - 22, w + 16, h, 8, "rgba(238,231,215,.1)", 1);
+  text(fitLabel(latest, w, size), x, y, size, C.muted);
+  text("Click for full log", x, y + Math.max(18, size + 8), Math.max(11, size - 4), C.gold);
+  buttons.push({ x: x - 8, y: y - 22, w: w + 16, h, onClick: () => { logOpen = true; } });
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
@@ -5003,7 +5020,7 @@ function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
     fill("#0e0a12", cx - size / 2, cy - size / 2, size, size, Math.max(8, size * .18));
     strokeRound(cx - size / 2, cy - size / 2, size, size, Math.max(8, size * .18), "rgba(220,180,70,.3)", 1.5);
   }
-  drawHandAssetFit(key, cx, cy, size * .78, color, "center", .96);
+  drawRawAssetContain(key, cx - size * .39, cy - size * .39, size * .78, size * .78, .96);
   return true;
 }
 
@@ -5735,4 +5752,26 @@ function drawRelicsOverlay() {
   addButton(x + 40, y + h - 68, 120, 44, "Previous", () => relicPage--, false, relicPage > 0);
   text(`${relicPage + 1}/${pages}`, lw / 2, y + h - 40, 17, C.muted, "center");
   addButton(x + w - 160, y + h - 68, 120, 44, relicPage + 1 < pages ? "Next" : "Close", () => relicPage + 1 < pages ? relicPage++ : relicsOpen = false);
+}
+
+function drawLogOverlay() {
+  buttons = [];
+  const lw = layoutW(), lh = layoutH(), portrait = viewport.portrait;
+  const x = portrait ? 30 : lw / 2 - 390;
+  const y = portrait ? 90 : 86;
+  const w = portrait ? lw - 60 : 780;
+  const h = portrait ? Math.min(760, lh - 180) : Math.min(620, lh - 150);
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  gradientRound(x, y, w, h, 20, [[0, hexToRgba(activeFloorColor(), .34)], [.45, "#17101f"], [1, "#10161a"]], true);
+  strokeRound(x, y, w, h, 20, hexToRgba(activeFloorColor(), .62), 2);
+  text("ACTIVITY LOG", x + w / 2, y + 58, portrait ? 32 : 28, C.gold, "center", "serif");
+  const lines = game.log?.length ? game.log : ["No activity yet."];
+  const rowH = portrait ? 42 : 34;
+  const startY = y + 108;
+  const maxRows = Math.floor((h - 190) / rowH);
+  lines.slice(0, maxRows).forEach((line, i) => {
+    if (i % 2 === 0) fill("rgba(238,231,215,.045)", x + 34, startY + i * rowH - 24, w - 68, rowH - 4, 8);
+    text(fitLabel(line, w - 92, portrait ? 18 : 15), x + 48, startY + i * rowH, portrait ? 18 : 15, i === 0 ? C.text : C.muted);
+  });
+  addButton(x + w / 2 - 110, y + h - 74, 220, 50, "Close", () => { logOpen = false; }, true);
 }
