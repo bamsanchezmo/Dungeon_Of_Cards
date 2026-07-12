@@ -3221,8 +3221,8 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
       if (!next) continue;
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
       const active = node.cleared || node.current;
-      ctx.strokeStyle = active ? "rgba(220,180,70,.72)" : "rgba(238,231,215,.16)";
-      ctx.lineWidth = active ? 5 : 3;
+      ctx.strokeStyle = active ? "rgba(220,180,70,.76)" : "rgba(238,231,215,.32)";
+      ctx.lineWidth = active ? 5 : 3.5;
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       const midX = (from.x + to.x) / 2;
@@ -3242,12 +3242,13 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const x = p.x - w / 2;
   const y = p.y - h / 2;
   const selected = inspectedNodeId === node.id || game.mapVotes?.[localPlayerId] === node.id;
-  const border = node.cleared ? C.green : node.reachable ? C.gold : selected ? C.parchment : "rgba(238,231,215,.22)";
+  const border = node.cleared ? C.green : node.reachable ? C.gold : selected ? C.parchment : "rgba(238,231,215,.46)";
   const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
-  const drewNodeAsset = !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, node.locked ? .5 : 1);
+  const lockedAlpha = node.locked ? .78 : 1;
+  const drewNodeAsset = !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
   ctx.save();
-  ctx.globalAlpha = node.locked ? .48 : 1;
+  ctx.globalAlpha = lockedAlpha;
   if (!drewNodeAsset) {
     shadow(0, selected ? 0 : 16, selected ? 34 : 22, selected ? fillColor : "rgba(0,0,0,.48)", () => {
       if (node.kind === "start") {
@@ -3260,6 +3261,7 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
       }
     });
   }
+  ctx.globalAlpha = 1;
   if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, selected || node.reachable ? 5 : 3);
   else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, selected || node.reachable ? 5 : 3);
   const label = node.kind === "elevator" ? "E" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
