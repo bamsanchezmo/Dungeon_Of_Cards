@@ -4793,29 +4793,35 @@ function drawSeats(felt) {
   game.seats.forEach((seat, idx) => {
     const portrait = viewport.portrait;
     const columnW = felt.w / 2;
-    const seatW = portrait ? 315 : Math.min(370, columnW - 50);
-    const x = portrait ? felt.x + 46 + (idx % 2) * 350 : felt.x + 50 + (idx % 2) * columnW;
-    const y = portrait ? layoutH() - mobileGameplayDockHeight() - 252 + Math.floor(idx / 2) * 124 : felt.y + 365 + Math.floor(idx / 2) * 170;
+    const slot = portrait ? portraitSeatRect(idx) : null;
+    const seatW = portrait ? slot.w - 24 : Math.min(370, columnW - 50);
+    const x = portrait ? slot.x + 18 : felt.x + 50 + (idx % 2) * columnW;
+    const y = portrait ? slot.y + 44 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
     const isReady = game.phase === "betting" && seat.ready;
+    if (portrait) {
+      ctx.save();
+      pathRound(slot.x, slot.y, slot.w, slot.h, 14);
+      ctx.clip();
+    }
     if (isActive) {
       shadow(0, 0, 26, "rgba(220,180,70,.42)", () => {
-        gradientRound(x - 18, y - 42, seatW, 150, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
+        gradientRound(x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
       });
     } else if (isReady) {
       shadow(0, 0, 22, "rgba(90,180,110,.35)", () => {
-        fill("rgba(20,50,34,.48)", x - 18, y - 42, seatW, 150, 14);
+        fill("rgba(20,50,34,.48)", x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14);
       });
     } else {
-      fill("rgba(5,8,7,.28)", x - 18, y - 42, seatW, 150, 14);
+      fill("rgba(5,8,7,.28)", x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14);
     }
-    strokeRound(x - 18, y - 42, seatW, 150, 14, isActive ? C.gold : isReady ? C.green : "rgba(238,231,215,.11)", isActive || isReady ? 3 : 1);
+    strokeRound(x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14, isActive ? C.gold : isReady ? C.green : "rgba(238,231,215,.11)", isActive || isReady ? 3 : 1);
     const rank = playerRankIcon(seat);
     const displayName = `${rank}${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`;
     const nameColor = seatInDebt(seat) ? C.red : isActive ? C.gold : C.text;
     text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, nameColor);
     text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
-    if (seat.hands.length > 1) buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 42, onClick: () => statsPlayerId = seat.id });
+    if (seat.hands.length > 1) buttons.push({ x: x - 12, y: y - 36, w: seatW, h: 42, onClick: () => statsPlayerId = seat.id });
     if (seat.hands.length) {
       const activeIndex = clamp(seat.active ?? 0, 0, seat.hands.length - 1);
       const shouldFollowActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
@@ -4847,21 +4853,21 @@ function drawSeats(felt) {
           ctx.save();
           ctx.globalAlpha = isFocused ? 1 : clamp(.72 - depth * .18, .42, .68);
           const scale = isFocused ? 1 : clamp(.86 - depth * .12, .68, .82);
-          const handX = centerX + offset * (portrait ? 94 : 108);
-          const handY = y + 8 + depth * 24;
+          const handX = centerX + offset * (portrait ? 76 : 108);
+          const handY = y + (portrait ? 2 : 8) + depth * (portrait ? 14 : 24);
           ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
           ctx.rotate(offset * -.11);
           ctx.scale(scale, scale);
-          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(210, seatW - 72), true, { x: handX, y: handY });
+          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(portrait ? 174 : 210, seatW - 72), true, { x: handX, y: handY });
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
-        handStatusBadge(x + seatW / 2, y + 148, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
-        buttons.push({ x: x - 18, y: y - 4, w: seatW, h: 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
+        handStatusBadge(x + seatW / 2, y + (portrait ? slot.h - 30 : 148), `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
+        buttons.push({ x: x - 12, y: y - 4, w: seatW, h: portrait ? slot.h - 44 : 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
       } else {
         const hand = seat.hands[0];
-        drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 40));
-        handStatusBadge(x + 45, y + 148, handLabel(hand), handColor(hand), hand);
+        drawHand(hand.cards, x, y + (portrait ? 2 : 10), isActive, Math.min(portrait ? 180 : 220, seatW - 40));
+        handStatusBadge(x + 45, y + (portrait ? slot.h - 30 : 148), handLabel(hand), handColor(hand), hand);
       }
     } else {
       drawChips(x + 38, y + 50, seat.bet);
@@ -4871,8 +4877,27 @@ function drawSeats(felt) {
         text(`${seatBankroll(seat)}g${debt ? ` / D${debt}g` : ""}`, x + seatW - 42, y + 72, portrait ? 17 : 14, debt ? C.red : C.gold, "right");
       }
     }
-    if (seat.hands.length <= 1) buttons.push({ x: x - 18, y: y - 42, w: seatW, h: 150, onClick: () => statsPlayerId = seat.id });
+    if (seat.hands.length <= 1) buttons.push({ x: x - 12, y: y - 36, w: seatW, h: portrait ? slot.h - 10 : 150, onClick: () => statsPlayerId = seat.id });
+    if (portrait) ctx.restore();
   });
+}
+
+function portraitSeatRect(index) {
+  const marginX = 20;
+  const gapX = 12;
+  const gapY = 10;
+  const dockTop = layoutH() - mobileGameplayDockHeight() - 18;
+  const areaBottom = dockTop - 14;
+  const areaH = 292;
+  const areaTop = Math.max(650, areaBottom - areaH);
+  const cellW = (layoutW() - marginX * 2 - gapX) / 2;
+  const cellH = (areaBottom - areaTop - gapY) / 2;
+  return {
+    x: marginX + (index % 2) * (cellW + gapX),
+    y: areaTop + Math.floor(index / 2) * (cellH + gapY),
+    w: cellW,
+    h: cellH
+  };
 }
 
 function drawSidePanel() {
@@ -4950,19 +4975,19 @@ function drawMobileGameplayDock() {
   textFit(phaseTitle(), phaseX + phaseW / 2, phaseY + 4, phaseW - 28, 22, C.text, "center");
   ctx.restore();
 
-  drawActionButtons(x + 24, y + 94);
+  drawActionButtons(x + 24, y + 108);
 
-  const trayY = y + dockH - 74;
+  const trayY = y + dockH - 76;
   drawMobileRelicIconTray(x + 22, trayY, 238, 54);
   drawLogPreview(x + 286, trayY + 25, w - 312, 42, 15);
 }
 
 function mobileGameplayDockHeight() {
-  if (game.phase === "player" && game.foresightUsesLeft > 0) return 430;
-  if (game.phase === "player") return 382;
-  if (game.phase === "betting") return 360;
-  if (game.phase === "insurance") return 238;
-  return 230;
+  if (game.phase === "player" && game.foresightUsesLeft > 0) return 450;
+  if (game.phase === "player") return 404;
+  if (game.phase === "betting") return 382;
+  if (game.phase === "insurance") return 258;
+  return 246;
 }
 
 function drawMobileRelicIconTray(x, y, w, h) {
