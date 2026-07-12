@@ -3680,9 +3680,9 @@ function drawTable() {
   ctx.globalAlpha = .07;
   text("DUNGEON OF CARDS", felt.x + felt.w / 2, felt.y + felt.h - 34, viewport.portrait ? 22 : 25, ui.titleWarm, "center", "serif");
   ctx.restore();
-  drawEncounterTableArt(felt, scene);
+  const tableRect = drawEncounterTableArt(felt, scene);
   drawDeck(felt.x + felt.w - 125, felt.y + 50);
-  drawDealer(felt);
+  drawDealer(felt, tableRect);
   drawSeats(felt);
   drawSidePanel();
 }
@@ -3705,7 +3705,7 @@ function tableSceneAsset(key) {
 }
 
 function drawEncounterTableArt(felt, scene) {
-  if (!scene.table && scene.boss) return;
+  if (!scene.table && scene.boss) return null;
   const portrait = viewport.portrait;
   const targetW = Math.min(felt.w * (portrait ? .96 : .9), portrait ? 700 : 1260);
   const targetH = portrait ? 390 : 520;
@@ -3728,6 +3728,7 @@ function drawEncounterTableArt(felt, scene) {
   if (scene.decoration) {
     drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
+  return tableRect;
 }
 
 function gruntAssetKeyForEnemy(enemy) {
@@ -3811,9 +3812,13 @@ function drawTablePlaqueMotif(tableRect, targetCtx = ctx) {
   return true;
 }
 
-function drawDealer(felt) {
+function drawDealer(felt, tableRect = null) {
   const portrait = viewport.portrait;
   const ui = activeFloorUi();
+  if (portrait) {
+    drawPortraitDealerHud(felt, tableRect);
+    return;
+  }
   const dealerX = felt.x + felt.w / 2 - (portrait ? 100 : 120);
   const badgeX = felt.x + felt.w / 2;
   const barX = felt.x + 22;
@@ -3841,6 +3846,43 @@ function drawDealer(felt) {
   else meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
   buttons.push({ x: barX, y: barY, w: barW, h: 78, onClick: () => rulesOpen = true });
+}
+
+function drawPortraitDealerHud(felt, tableRect = null) {
+  const e = game.enemy;
+  const ui = activeFloorUi();
+  const headerX = felt.x + 30;
+  const headerY = felt.y + 28;
+  const headerW = Math.min(felt.w - 210, 430);
+  const rule = houseRules()[0] || e.description || "Standard dungeon blackjack rules";
+  textFit(e.name, headerX, headerY, headerW, 24, ui.titleWarm);
+  wrapTextSized(rule, headerX, headerY + 30, headerW, 17, 15, C.muted, 2);
+  buttons.push({ x: headerX - 12, y: headerY - 18, w: headerW + 24, h: 78, onClick: () => rulesOpen = true });
+
+  const dealerX = felt.x + felt.w / 2 - 100;
+  drawHand(game.dealer, dealerX, felt.y + 90, false);
+  const shown = game.dealer.some((c) => !c.up) ? `${visibleTotal(game.dealer)}+?` : handTotal({ cards: game.dealer });
+  badge(felt.x + felt.w / 2, felt.y + 238, game.dealer.length ? `Total ${shown}` : "Waiting", C.muted);
+  drawEnemyLifeOnTable(e, tableRect || {
+    x: felt.x + felt.w * .14,
+    y: felt.y + felt.h * .36,
+    w: felt.w * .72,
+    h: felt.h * .34
+  });
+}
+
+function drawEnemyLifeOnTable(enemy, tableRect) {
+  if (!enemy || !tableRect) return;
+  const barW = Math.max(210, tableRect.w * .58);
+  const barH = 18;
+  const x = tableRect.x + tableRect.w / 2 - barW / 2;
+  const y = tableRect.y + tableRect.h * .39;
+  shadow(0, 0, 18, hexToRgba(enemy.color || C.gold, .42), () => {
+    fill("rgba(5,4,8,.7)", x - 12, y - 12, barW + 24, 54, 16);
+  });
+  if (enemy.isBoss) drawBossHealthBar(enemy, x, y, barW, barH);
+  else meter(x, y, barW, barH, enemy.maxHp ? enemy.hp / enemy.maxHp : 0, C.red, C.gold);
+  text(`${enemy.hp}/${enemy.maxHp}`, x + barW / 2, y + 42, 18, C.text, "center");
 }
 
 function bossPhaseColor(index) {
