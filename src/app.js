@@ -3557,7 +3557,9 @@ function drawFloorTransition() {
 
   const shaftX = x + panelW / 2;
   const shaftTop = y + (portrait ? 160 : 145);
-  const shaftH = panelH - (portrait ? 250 : 210);
+  const footerY = y + panelH - 45;
+  const shaftBottom = footerY - (portrait ? 96 : 82);
+  const shaftH = Math.max(220, shaftBottom - shaftTop);
   strokeRound(shaftX - 78, shaftTop - 24, 156, shaftH + 48, 28, "rgba(238,231,215,.18)", 2);
   fill("rgba(0,0,0,.28)", shaftX - 62, shaftTop - 10, 124, shaftH + 20, 22);
   const floorY = (floor) => shaftTop + shaftH - ((floor - 1) / Math.max(1, FLOORS - 1)) * shaftH;
@@ -3584,7 +3586,7 @@ function drawFloorTransition() {
   ctx.globalAlpha = 1;
   const glow = Math.sin(progress * Math.PI) * .85 + .15;
   shadow(0, 0, 28, hexToRgba(C.gold, .45 * glow), () => strokeRound(shaftX - 96, elevatorY - 47, 192, 94, 32, C.gold, 4));
-  text("New tables. New rules. Higher stakes.", x + panelW / 2, y + panelH - 45, portrait ? 20 : 18, C.muted, "center");
+  text("New tables. New rules. Higher stakes.", x + panelW / 2, footerY, portrait ? 20 : 18, C.muted, "center");
 }
 
 function drawMapHeader(lw, portrait) {
