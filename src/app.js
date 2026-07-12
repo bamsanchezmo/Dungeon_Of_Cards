@@ -827,10 +827,12 @@ function createFloorMap(floorIndex, options = {}) {
     Math.max(0, Number(options.minDifficultyScore) || 0)
   );
   const finalColumnCount = columnCounts.length;
+  const encounterStartX = .22;
+  const encounterEndX = .75;
+  const routeColumnX = (columnIndex, count) => lerp(encounterStartX, encounterEndX, (columnIndex + 1) / Math.max(2, count + 1));
   let nextIds = ["boss"];
   for (let i = finalColumnCount - 1; i >= 0; i--) {
-    const t = finalColumnCount <= 1 ? .5 : i / Math.max(1, finalColumnCount - 1);
-    const x = lerp(.36, .62, t);
+    const x = routeColumnX(i, finalColumnCount);
     const column = makeColumn(i, finalColumnCount, x, columnCounts[i], nextIds);
     routeColumns.unshift(column);
     nextIds = column.ids;
@@ -848,9 +850,9 @@ function createFloorMap(floorIndex, options = {}) {
     decorationAsset: `map:${floorKey}:decoration`,
     nodes: [
       node("start", "Start", "start", .07, .50, ["start-1"]),
-      node("start-1", "Starter Table", "table", .22, .50, branchNextIds(0, 1, routeColumns[0]?.ids || ["boss"]), 0),
+      node("start-1", "Starter Table", "table", encounterStartX, .50, branchNextIds(0, 1, routeColumns[0]?.ids || ["boss"]), 0),
       ...routeColumns.flatMap((column) => column.nodes),
-      node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"], bossThreat),
+      node("boss", floorBossName(floorIndex), "boss", encounterEndX, .50, ["elevator"], bossThreat),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
   };
