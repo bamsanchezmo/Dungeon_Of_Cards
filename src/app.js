@@ -49,12 +49,12 @@ const threatColors = [
 // x/y are relative to the drawn table rect: 0 = left/top, .5 = center, 1 = right/bottom.
 // Change x/y here to move the motif on both gameplay tables and floor-map tables.
 const TABLE_MOTIF_PLACEMENT = {
-  x: .5,
-  y: .705,
-  sizeW: .12,
-  sizeH: .225,
-  max: 148,
-  portraitMax: 112,
+  x: .499,
+  y: .695,
+  sizeW: .157,
+  sizeH: .293,
+  max: 220,
+  portraitMax: 170,
   alpha: .8
 };
 
@@ -3883,6 +3883,7 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   ctx.globalAlpha = 1;
   const strokeWidth = selectedReachable || selectedFuture ? 5 : node.reachable || node.cleared || node.current ? 4 : 3;
   if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, strokeWidth);
+  else if (node.kind === "table") drawMapTableSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture);
   else if (node.kind !== "table") strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
   const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
   const hideAssetLabel = drewNodeAsset && (node.kind === "start" || node.kind === "table");
@@ -3915,17 +3916,34 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   buttons.push({ x, y, w, h: h + 50, onClick: () => { inspectedNodeId = node.id; } });
 }
 
+function mapTableDisplayRect(p, w, h) {
+  return containRectForAsset("tableBase:grunt", p.x - w * .725, p.y - h * .38, w * 1.45, h * .95);
+}
+
+function drawMapTableSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture) {
+  const rect = mapTableDisplayRect(p, w, h);
+  const ui = activeFloorUi();
+  const color = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.96)" : selected ? "rgba(218,225,232,.72)" : node.reachable ? hexToRgba(ui.accent, .62) : "";
+  if (!color) return;
+  const strong = selectedReachable || selectedFuture || selected;
+  shadow(0, 0, strong ? 22 : 10, hexToRgba(color, strong ? .7 : .38), () => {
+    strokeRound(rect.x - w * .1, rect.y - h * .12, rect.w + w * .2, rect.h + h * .28, 14, color, strong ? 4 : 2.5);
+  });
+}
+
 function drawMapTableGroup(node, p, w, h, alpha = 1) {
-  const tableRect = containRectForAsset("tableBase:grunt", p.x - w * .92, p.y - h * .24, w * 1.84, h * 1.2);
-  const pad = Math.max(w, h) * .62;
-  const groupX = Math.floor(Math.min(tableRect.x, p.x - w * .85) - pad);
-  const groupY = Math.floor(p.y - h * 1.12 - pad * .28);
-  const groupW = Math.ceil(Math.max(tableRect.w, w * 1.7) + pad * 2);
-  const groupH = Math.ceil(tableRect.h + h * 1.28 + pad * .72);
+  const tableRect = mapTableDisplayRect(p, w, h);
+  const pad = Math.max(w, h) * .86;
+  const groupX = Math.floor(Math.min(tableRect.x, p.x - w * .66) - pad);
+  const groupY = Math.floor(p.y - h * 1.45 - pad * .48);
+  const groupW = Math.ceil(Math.max(tableRect.w, w * 1.32) + pad * 2);
+  const groupH = Math.ceil(tableRect.h + h * 1.38 + pad * 1.05);
+  const quality = 2;
   const off = document.createElement("canvas");
-  off.width = Math.max(1, groupW);
-  off.height = Math.max(1, groupH);
+  off.width = Math.max(1, Math.ceil(groupW * quality));
+  off.height = Math.max(1, Math.ceil(groupH * quality));
   const octx = off.getContext("2d");
+  octx.scale(quality, quality);
   drawMapGruntToContext(octx, node, { x: p.x - groupX, y: p.y - groupY }, w, h, 1);
   const tableAsset = layeredTableAsset("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0));
   if (tableAsset) {
@@ -3943,7 +3961,7 @@ function drawMapTableGroup(node, p, w, h, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(off, groupX, groupY);
+  ctx.drawImage(off, groupX, groupY, groupW, groupH);
   ctx.restore();
   return true;
 }
@@ -3957,10 +3975,10 @@ function drawMapGruntToContext(targetCtx, node, p, w, h, alpha = 1) {
   if (!handAssetReady(key)) return false;
   const size = handAssetSize(key);
   const threatColor = difficultyGlowColor(node.threat);
-  const targetH = h * (viewport.portrait ? 1.34 : 1.26);
+  const targetH = h * (viewport.portrait ? 1.02 : .96);
   const targetW = targetH * size.w / Math.max(1, size.h);
   const x = p.x - targetW / 2;
-  const y = p.y - h * 1.34;
+  const y = p.y - h * 1.18;
   const asset = chromaKeyedHandAsset(key);
   if (!asset) return false;
   targetCtx.save();
