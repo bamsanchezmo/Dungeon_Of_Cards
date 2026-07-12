@@ -243,7 +243,13 @@ const handdrawnAssetFiles = {
   glyphDollar: "art/glyphs/glyph_dollar.png",
   glyphBang: "art/glyphs/glyph_bang.png",
   glyphQuestion: "art/glyphs/glyph_question.png",
-  "tableBase:grunt": "art/table_bases/grunt_table_master.png"
+  "tableBase:grunt": "art/table_bases/grunt_table_master.png",
+  "grunt:bookie": "art/dealers/grunts/grunt_bookie.png",
+  "grunt:bouncer": "art/dealers/grunts/grunt_bouncer.png",
+  "grunt:cardsharp": "art/dealers/grunts/grunt_cardsharp.png",
+  "grunt:cheater": "art/dealers/grunts/grunt_cheater.png",
+  "grunt:croupier": "art/dealers/grunts/grunt_croupier.png",
+  "grunt:dealer": "art/dealers/grunts/grunt_dealer.png"
 };
 for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `art/glyphs/glyph_${ch}.png`;
 for (let i = 1; i <= FLOORS; i++) {
@@ -957,6 +963,7 @@ function createMapEnemy(floorIndex, kind, threat, id) {
     ...template,
     name: tableEnemyName(template.name, threat),
     title: `Floor ${floorIndex + 1} - Grunt Table`,
+    threat,
     hp,
     maxHp: hp,
     dealerPeek: template.dealerPeek !== false
@@ -3436,6 +3443,7 @@ function drawEncounterTableArt(felt, scene) {
     drawRawAssetContain(scene.table, x, y, targetW, targetH, .98);
   } else {
     tableRect = containRectForAsset("tableBase:grunt", x, y, targetW, targetH);
+    drawGruntDealerBehindTable(felt, tableRect);
     const shifted = drawPaletteShiftedAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
     if (!shifted && scene.table) {
       tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
@@ -3446,6 +3454,58 @@ function drawEncounterTableArt(felt, scene) {
   if (scene.decoration) {
     drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
+}
+
+function gruntAssetKeyForEnemy(enemy) {
+  const name = String(enemy?.name || "").toLowerCase();
+  if (/(cardsharp|stranger|magician|oracle)/.test(name)) return "grunt:cardsharp";
+  if (/(book|bank|auditor|notary|pawn|toll|collector)/.test(name)) return "grunt:bookie";
+  if (/(croupier|dealer|jester|mirror|twin)/.test(name)) return "grunt:croupier";
+  if (/(bouncer|sheriff|warden|marshal|executor|pit boss|inquisitor)/.test(name)) return "grunt:bouncer";
+  if (/(cheater|vampire|lich|plague|graveyard|cursed|hollow|carrion|sovereign|coin-eater)/.test(name)) return "grunt:cheater";
+  const fallback = ["grunt:cardsharp", "grunt:bookie", "grunt:bouncer", "grunt:croupier", "grunt:dealer", "grunt:cheater"];
+  return fallback[Math.abs(hashString(name || "dealer")) % fallback.length];
+}
+
+function difficultyGlowColor(threat = 1) {
+  return [
+    "#54d66a",
+    "#42a5ff",
+    "#b65cff",
+    "#ff9f2f",
+    "#ff4e72"
+  ][clamp(Math.round(threat) - 1, 0, 4)] || C.gold;
+}
+
+function drawGruntDealerBehindTable(felt, tableRect) {
+  const enemy = game?.enemy;
+  if (!enemy || enemy.isBoss) return false;
+  const key = gruntAssetKeyForEnemy(enemy);
+  if (!handAssetReady(key)) return false;
+  const portrait = viewport.portrait;
+  const size = handAssetSize(key);
+  const glow = difficultyGlowColor(enemy.threat || getMapNode(game?.activeEncounterId)?.threat || 1);
+  const targetH = Math.min(tableRect.h * (portrait ? .9 : .92), portrait ? 285 : 390);
+  const targetW = targetH * size.w / Math.max(1, size.h);
+  const x = felt.x + felt.w / 2 - targetW / 2;
+  const y = tableRect.y - targetH * .33;
+  const asset = chromaKeyedHandAsset(key);
+  if (!asset) return false;
+  ctx.save();
+  ctx.globalAlpha = .78;
+  ctx.shadowColor = hexToRgba(glow, .92);
+  ctx.shadowBlur = portrait ? 20 : 30;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(asset, x, y, targetW, targetH);
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = .34;
+  ctx.strokeStyle = hexToRgba(glow, .8);
+  ctx.lineWidth = portrait ? 3 : 4;
+  ctx.beginPath();
+  ctx.ellipse(x + targetW / 2, y + targetH * .48, targetW * .34, targetH * .46, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+  return true;
 }
 
 function containRectForAsset(key, x, y, w, h) {
@@ -5365,6 +5425,7 @@ function shouldChromaKeyAsset(key) {
   const assetKey = String(key);
   if (/^floor\d{2}CardBack$/.test(assetKey)) return true;
   if (assetKey === "tableBase:grunt") return true;
+  if (/^grunt:/.test(assetKey)) return true;
   if (/^tableMotif:floor\d{2}$/.test(assetKey)) return true;
   if (/^(map|tableScene):floor\d{2}:(table|bossTable|bossPortrait|elevator|decoration)$/.test(assetKey)) return true;
   return false;
