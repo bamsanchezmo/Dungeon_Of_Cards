@@ -5581,45 +5581,54 @@ function layeredTableAsset(key, palette) {
   octx.save();
   octx.globalCompositeOperation = "source-atop";
 
-  // Accent layer: subtle floor-colored inlays and rail glints.
-  octx.globalAlpha = .18;
-  octx.strokeStyle = accent;
-  octx.lineWidth = Math.max(5, Math.round(off.width * .006));
-  for (let i = -2; i < 6; i++) {
-    const y = off.height * (.19 + i * .115);
-    octx.beginPath();
-    octx.moveTo(off.width * .12, y);
-    octx.bezierCurveTo(off.width * .36, y - off.height * .045, off.width * .64, y + off.height * .045, off.width * .88, y);
-    octx.stroke();
-  }
-  octx.globalAlpha = .22;
-  octx.strokeStyle = accent2;
-  octx.lineWidth = Math.max(3, Math.round(off.width * .004));
-  for (let i = 0; i < 4; i++) {
-    const inset = off.width * (.18 + i * .035);
-    octx.beginPath();
-    octx.ellipse(off.width / 2, off.height * (.43 + i * .012), off.width * .34 - inset * .18, off.height * .22 - i * off.height * .012, 0, Math.PI * .05, Math.PI * .95);
-    octx.stroke();
-  }
+  // Accent layer: readable floor-colored felt inlays and plaque tint.
+  octx.globalAlpha = .34;
+  octx.fillStyle = accent;
+  octx.beginPath();
+  octx.ellipse(off.width / 2, off.height * .43, off.width * .36, off.height * .205, 0, Math.PI * .08, Math.PI * .92);
+  octx.lineTo(off.width * .63, off.height * .49);
+  octx.bezierCurveTo(off.width * .56, off.height * .53, off.width * .44, off.height * .53, off.width * .37, off.height * .49);
+  octx.closePath();
+  octx.fill();
 
-  // Texture layer: low-opacity felt grain and floor-specific scuffs.
-  octx.globalAlpha = .075;
-  octx.fillStyle = "#ffffff";
-  for (let i = 0; i < 240; i++) {
-    const x = ((seed + i * 173) % 997) / 997 * off.width;
-    const y = ((seed * 7 + i * 97) % 991) / 991 * off.height;
-    const w = 1 + ((seed + i * 13) % 5);
-    octx.fillRect(x, y, w, 1);
-  }
-  octx.globalAlpha = .09;
-  octx.strokeStyle = dark;
+  octx.globalAlpha = .28;
+  octx.fillStyle = accent2;
+  octx.beginPath();
+  octx.roundRect(off.width * .415, off.height * .665, off.width * .17, off.height * .12, off.width * .018);
+  octx.fill();
+
+  octx.globalAlpha = .46;
+  octx.strokeStyle = accent2;
+  octx.lineWidth = Math.max(5, Math.round(off.width * .006));
+  octx.beginPath();
+  octx.ellipse(off.width / 2, off.height * .43, off.width * .37, off.height * .215, 0, Math.PI * .07, Math.PI * .93);
+  octx.stroke();
+
+  octx.globalAlpha = .38;
+  octx.strokeStyle = accent;
+  octx.lineWidth = Math.max(4, Math.round(off.width * .005));
+  octx.beginPath();
+  octx.moveTo(off.width * .43, off.height * .665);
+  octx.lineTo(off.width * .57, off.height * .665);
+  octx.stroke();
+
+  // Texture layer: clean low-opacity felt weave, not scratches/dirt.
+  octx.globalAlpha = .045;
+  octx.strokeStyle = "#ffffff";
   octx.lineWidth = 1;
-  for (let i = 0; i < 22; i++) {
-    const x = ((seed * 3 + i * 211) % 1000) / 1000 * off.width;
-    const y = ((seed * 5 + i * 137) % 1000) / 1000 * off.height;
+  const weaveGap = Math.max(10, Math.round(off.width * .014));
+  for (let y = Math.round(off.height * .21) + (seed % weaveGap); y < off.height * .67; y += weaveGap) {
     octx.beginPath();
-    octx.moveTo(x, y);
-    octx.lineTo(x + off.width * (.035 + (i % 4) * .012), y + off.height * (.006 - (i % 3) * .004));
+    octx.moveTo(off.width * .17, y);
+    octx.lineTo(off.width * .83, y + Math.sin(y * .025) * 2);
+    octx.stroke();
+  }
+  octx.globalAlpha = .035;
+  octx.strokeStyle = dark;
+  for (let x = Math.round(off.width * .18) + (seed % weaveGap); x < off.width * .82; x += weaveGap) {
+    octx.beginPath();
+    octx.moveTo(x, off.height * .23);
+    octx.lineTo(x + Math.sin(x * .018) * 2, off.height * .62);
     octx.stroke();
   }
 
