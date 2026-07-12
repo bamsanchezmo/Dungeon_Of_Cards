@@ -3387,9 +3387,8 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   if (node.kind === "table" || node.kind === "boss") {
     const tagW = Math.min(116, Math.max(74, w + 24));
     const tagH = portrait ? 42 : 34;
-    const compactChoiceColumn = ["top-2a", "top-2b", "bottom-2a", "bottom-2b"].includes(node.id);
-    const tagX = compactChoiceColumn ? x + w + 12 : p.x - tagW / 2;
-    const tagY = compactChoiceColumn ? p.y - tagH / 2 : y + h + 7;
+    const tagX = p.x - tagW / 2;
+    const tagY = y + h + 7;
     const textX = tagX + tagW / 2;
     fill("rgba(0,0,0,.52)", tagX, tagY, tagW, tagH, 9);
     strokeRound(tagX, tagY, tagW, tagH, 9, "rgba(238,231,215,.12)", 1);
