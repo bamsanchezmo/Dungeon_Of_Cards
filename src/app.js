@@ -700,16 +700,11 @@ function createFloorMap(floorIndex) {
   };
   const columnCount = () => {
     const floorBias = clamp(floorIndex / Math.max(1, FLOORS - 1), 0, 1);
-    const roll = Math.random() + floorBias * .55;
-    if (roll < .38) return 1;
-    if (roll < .78) return 2;
-    if (roll < 1.18) return 3;
-    return 4;
+    const fourChance = .18 + floorBias * .56;
+    return Math.random() < fourChance ? 4 : 2;
   };
   const tableYs = (count) => {
-    if (count <= 1) return [.50];
     if (count === 2) return [.30, .70];
-    if (count === 3) return [.24, .50, .76];
     return [.20, .40, .60, .80];
   };
   const makeColumn = (columnIndex, x, nextIds = null) => {
@@ -718,7 +713,7 @@ function createFloorMap(floorIndex) {
     const ys = tableYs(count);
     const nodes = ids.map((id, i) => {
       const stagger = count >= 4 ? (i % 2 === 0 ? -.018 : .018) : count === 3 && i === 1 ? .014 : 0;
-      const next = nextIds ? nextIds : [];
+      const next = nextIds ? branchNextIds(i, count, nextIds) : [];
       const label = columnNames[columnIndex]?.[i] || `Table ${columnIndex + 1}-${i + 1}`;
       const threatBoost = Math.max(0, columnIndex) + (count >= 4 && (i === 0 || i === count - 1) ? 0 : i % 2);
       return node(id, label, "table", x + stagger, ys[i], next, threatBoost);
@@ -738,7 +733,7 @@ function createFloorMap(floorIndex) {
     decorationAsset: `map:${floorKey}:decoration`,
     nodes: [
       node("start", "Start", "start", .07, .50, ["start-1"]),
-      node("start-1", "Starter Table", "table", .22, .50, col1.ids, 0),
+      node("start-1", "Starter Table", "table", .22, .50, branchNextIds(0, 1, col1.ids), 0),
       ...col1.nodes,
       ...col2.nodes,
       ...col3.nodes,
@@ -747,6 +742,20 @@ function createFloorMap(floorIndex) {
     ]
   };
   return map;
+}
+
+function branchNextIds(index, count, nextIds) {
+  if (!nextIds?.length) return [];
+  if (nextIds.length <= 2) return [...nextIds];
+  const maxChoices = 2;
+  if (count <= 1) {
+    const start = Math.floor((nextIds.length - maxChoices) / 2);
+    return nextIds.slice(start, start + maxChoices);
+  }
+  const t = index / Math.max(1, count - 1);
+  const anchor = Math.round(t * (nextIds.length - 1));
+  const start = clamp(anchor - (index % 2), 0, Math.max(0, nextIds.length - maxChoices));
+  return nextIds.slice(start, start + maxChoices);
 }
 
 function createFloorRewardPicker() {
