@@ -3909,8 +3909,12 @@ function drawEnemyLifeOnTable(enemy, tableRect) {
   shadow(0, 0, 18, hexToRgba(enemy.color || C.gold, .42), () => {
     fill("rgba(5,4,8,.74)", x - 18, y - 72, barW + 36, 118, 18);
   });
-  textFit(enemy.name, x, y - 43, barW, 24, ui.titleWarm, "center");
-  textFit(rule, x, y - 18, barW, 15, C.muted, "center");
+  ctx.save();
+  pathRound(x - 12, y - 66, barW + 24, 64, 14);
+  ctx.clip();
+  textFit(enemy.name, x + barW / 2, y - 43, barW - 24, 22, ui.titleWarm, "center");
+  textFit(rule, x + barW / 2, y - 18, barW - 24, 14, C.muted, "center");
+  ctx.restore();
   if (enemy.isBoss) drawBossHealthBar(enemy, x, y, barW, barH);
   else meter(x, y, barW, barH, enemy.maxHp ? enemy.hp / enemy.maxHp : 0, C.red, C.gold);
   text(`${enemy.hp}/${enemy.maxHp}`, x + barW / 2, y + 42, 18, C.text, "center");
@@ -4936,9 +4940,15 @@ function drawMobileGameplayDock() {
   addButton(x + w - 130, y + 48, 104, 46, "Menu", () => menuOpen = true);
 
   const phaseY = y + 66;
-  gradientRound(x + 18, phaseY - 26, w - 160, 48, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
-  strokeRound(x + 18, phaseY - 26, w - 160, 48, 12, hexToRgba(ui.border, .24), 1);
-  textFit(phaseTitle(), x + 36, phaseY + 4, w - 196, 24, C.text, "center");
+  const phaseX = x + 18;
+  const phaseW = w - 160;
+  gradientRound(phaseX, phaseY - 26, phaseW, 48, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
+  strokeRound(phaseX, phaseY - 26, phaseW, 48, 12, hexToRgba(ui.border, .24), 1);
+  ctx.save();
+  pathRound(phaseX + 6, phaseY - 22, phaseW - 12, 40, 10);
+  ctx.clip();
+  textFit(phaseTitle(), phaseX + phaseW / 2, phaseY + 4, phaseW - 28, 22, C.text, "center");
+  ctx.restore();
 
   drawActionButtons(x + 24, y + 94);
 
