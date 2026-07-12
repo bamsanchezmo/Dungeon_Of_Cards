@@ -749,14 +749,17 @@ function createFloorMap(floorIndex, options = {}) {
     const density = clamp(floorBias * .72 + columnBias * .28, 0, 1);
     const roll = Math.random();
     const oneChance = .34 * (1 - density);
-    const fourChance = .12 + density * .62;
+    const fourChance = .08 + density * .42;
+    const threeChance = .16 + density * .26;
     if (roll < oneChance) return 1;
     if (roll > 1 - fourChance) return 4;
+    if (roll > 1 - fourChance - threeChance) return 3;
     return 2;
   };
   const tableYs = (count) => {
     if (count <= 1) return [.50];
     if (count === 2) return [.30, .70];
+    if (count === 3) return [.23, .50, .77];
     return [.20, .40, .60, .80];
   };
   const scoreForCounts = (counts) => {
@@ -769,19 +772,39 @@ function createFloorMap(floorIndex, options = {}) {
     }, 0);
     return starterScore + routeScore;
   };
+  const balancedColumnCounts = (counts) => {
+    const balanced = counts.map((count) => clamp(Math.round(Number(count) || 1), 1, 4));
+    let previous = 1; // The starter table is a single-table column.
+    for (let i = 0; i < balanced.length; i++) {
+      if (balanced[i] > previous + 1) balanced[i] = previous + 1;
+      previous = balanced[i];
+    }
+    return balanced;
+  };
   const growCountsToMinimum = (counts, minTableCount, minDifficultyScore) => {
+    counts = balancedColumnCounts(counts);
     const currentTableCount = () => 1 + counts.reduce((sum, count) => sum + count, 0);
     const nextCount = (columnIndex, totalColumns) => columnCount(columnIndex, totalColumns);
+    let guard = 0;
     while (currentTableCount() < minTableCount || scoreForCounts(counts) < minDifficultyScore) {
+      guard++;
+      if (guard > 18) break;
       if (counts.length < 3) {
         counts.push(Math.max(1, nextCount(counts.length, Math.max(1, counts.length + 1))));
+        counts = balancedColumnCounts(counts);
         continue;
       }
-      const upgradeIndex = counts.findIndex((count) => count < 4);
+      const upgradeIndex = counts.findIndex((count, i) => {
+        if (count >= 4) return false;
+        const nextValue = count + 1;
+        const previous = i === 0 ? 1 : counts[i - 1];
+        return nextValue <= previous + 1;
+      });
       if (upgradeIndex < 0) break;
-      counts[upgradeIndex] = counts[upgradeIndex] <= 1 ? 2 : 4;
+      counts[upgradeIndex] += 1;
+      counts = balancedColumnCounts(counts);
     }
-    return counts;
+    return balancedColumnCounts(counts);
   };
   const makeColumn = (columnIndex, totalColumns, x, count, nextIds = null) => {
     const ids = Array.from({ length: count }, (_, i) => `c${columnIndex}-${i + 1}`);
