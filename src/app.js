@@ -635,10 +635,11 @@ function createFloorMap(floorIndex) {
   const palette = floorThemeColor(floorIndex);
   const bossColor = bossTableColor(floorIndex);
   const floorKey = floorAssetKey(floorIndex);
+  const rewardPicker = createFloorRewardPicker();
   const node = (id, label, kind, x, y, next = [], threatBoost = 0) => {
     const threat = kind === "boss" ? Math.min(5, 2 + Math.ceil(floor / 3)) : clamp(1 + Math.floor(floorIndex / 2) + threatBoost, 1, 5);
     const rarity = rarityForFloor(floorIndex, threatBoost + (kind === "boss" ? 2 : 0));
-    const reward = kind === "start" || kind === "elevator" ? null : createRewardRelic(floorIndex, rarity, id);
+    const reward = kind === "start" || kind === "elevator" ? null : createRewardRelic(rarity, rewardPicker());
     const encounter = kind === "table" || kind === "boss" ? createMapEnemy(floorIndex, kind, threat, id) : null;
     const color = kind === "boss" ? bossColor : reward?.rarityColor || palette;
     const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
@@ -666,6 +667,28 @@ function createFloorMap(floorIndex) {
     ]
   };
   return map;
+}
+
+function createFloorRewardPicker() {
+  const owned = new Set((game?.relics || []).map((r) => r.baseName || r.name));
+  const usedNames = new Set();
+  const usedFamilies = new Set();
+  const shuffledPool = shuffle(relicPool.filter((r) => !owned.has(r.name)).map((r) => ({ ...r })));
+  const fallbackPool = shuffledPool.length ? shuffledPool : shuffle(relicPool.map((r) => ({ ...r })));
+
+  return () => {
+    let candidates = fallbackPool.filter((r) => !usedNames.has(r.name));
+    if (!candidates.length) candidates = fallbackPool;
+
+    const distinct = candidates.filter((r) => !relicFamilies(r).some((family) => usedFamilies.has(family)));
+    const pool = distinct.length ? distinct : candidates;
+    const minOverlap = Math.min(...pool.map((r) => relicFamilyOverlap(r, usedFamilies)));
+    const best = pool.filter((r) => relicFamilyOverlap(r, usedFamilies) === minOverlap);
+    const pick = { ...best[Math.floor(Math.random() * best.length)] };
+    usedNames.add(pick.name);
+    relicFamilies(pick).forEach((family) => usedFamilies.add(family));
+    return pick;
+  };
 }
 
 function floorBossName(floorIndex) {
@@ -770,8 +793,8 @@ function rarityForFloor(floorIndex, boost = 0) {
   return rarityTiers[index];
 }
 
-function createRewardRelic(floorIndex, rarity, salt = "") {
-  const base = relicPool[Math.abs(hashString(`${floorIndex}:${salt}`)) % relicPool.length];
+function createRewardRelic(rarity, baseRelic = null) {
+  const base = baseRelic || relicPool[Math.floor(Math.random() * relicPool.length)];
   const scaled = { ...base, baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color };
   for (const [key, value] of Object.entries(scaled)) {
     if (typeof value === "number" && !["foresightUses"].includes(key)) {
