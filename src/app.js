@@ -431,6 +431,15 @@ function calibratedHp(floor) {
   return 130 + (floor - 2) * 44;
 }
 
+function calibratedBossHp(floorIndex, playerCount = game?.seats?.length || 1) {
+  const floor = floorIndex + 1;
+  const base = [
+    320, 430, 560, 710, 900,
+    1120, 1375, 1660, 1980, 2400
+  ][Math.min(floorIndex, FLOORS - 1)] || (300 + floor * 190);
+  return Math.max(1, Math.ceil(base * houseHpMultiplier(playerCount)));
+}
+
 document.querySelector("#closeSignal").addEventListener("click", () => hideSignal());
 document.querySelector("#copyOffer").addEventListener("click", () => copy(hostOffer.value));
 document.querySelector("#shareOffer").addEventListener("click", () => shareSignal("Join my Dungeon of Cards lobby", hostOffer.value));
@@ -628,6 +637,10 @@ function rescaleEnemyForPlayers() {
   const ratio = game.enemy.maxHp ? game.enemy.hp / game.enemy.maxHp : 1;
   game.enemy.maxHp = nextMax;
   game.enemy.hp = ratio <= 0 ? 0 : Math.max(1, Math.min(nextMax, Math.ceil(nextMax * ratio)));
+  if (game.enemy.isBoss) {
+    const floorIndex = Math.max(0, (game.floor || 1) - 1);
+    game.enemy.roundDamageCap = Math.max(75, Math.ceil(game.enemy.maxHp * (floorIndex < 3 ? .30 : floorIndex < 7 ? .26 : .22)));
+  }
 }
 
 function createFloorMap(floorIndex) {
@@ -720,7 +733,7 @@ const bossPhasePool = [
   { id: "lossPainBig", name: "Bleeding Stakes", text: "Losing hands deal +50% HP damage.", rules: { lossHpMult: 1.5 }, minFloor: 5 },
   { id: "armored", name: "House Shield", text: "Boss takes 20% less damage.", rules: { bossDamageMult: .8 } },
   { id: "ironVault", name: "Iron Vault", text: "Boss takes 35% less damage.", rules: { bossDamageMult: .65 }, minFloor: 6 },
-  { id: "blackjackWeak", name: "Blackjack Weakness", text: "Blackjack deals +35% boss damage.", rules: { blackjackDamageMult: 1.35 } },
+  { id: "blackjackWeak", name: "Blackjack Weakness", text: "Blackjack deals +35% boss damage.", rules: { blackjackDamageMult: 1.35 }, minFloor: 2 },
   { id: "jackpot", name: "Jackpot Fever", text: "Wins deal +20% boss damage; losses deal +20% HP damage.", rules: { winDamageMult: 1.2, lossHpMult: 1.2 } },
   { id: "standTall", name: "Stand Tall", text: "Standing below 15 is forbidden.", rules: { minStandTotal: 15 }, minFloor: 2 },
   { id: "noHighHit", name: "Frozen Nerves", text: "Hitting on 18+ is forbidden.", rules: { maxHitTotal: 17 }, minFloor: 4 },
@@ -731,7 +744,7 @@ const bossPhasePool = [
 ];
 
 const bossSignaturePhases = [
-  { name: "Bramble Odds", text: "Boss takes +25% damage from 21 exactly.", rules: { exact21DamageMult: 1.25 } },
+  { name: "Bramble Shield", text: "Boss takes 15% less damage.", rules: { bossDamageMult: .85 } },
   { name: "Reels Spinning", text: "Wins deal +20% damage, but losses hurt +20%.", rules: { winDamageMult: 1.2, lossHpMult: 1.2 } },
   { name: "Security Lockdown", text: "Doubling down is forbidden.", rules: { noDouble: true } },
   { name: "Bone Debt", text: "Losing hands deal +25% HP damage.", rules: { lossHpMult: 1.25 } },
@@ -905,9 +918,10 @@ function createMapEnemy(floorIndex, kind, threat, id) {
     boss.isBoss = true;
     boss.bossPhase = 0;
     boss.bossPhases = bossPhasesForFloor(floorIndex);
-    const hpBoost = floorIndex >= 8 ? 2.25 : floorIndex >= 5 ? 2 : 1.75;
-    boss.maxHp = Math.max(boss.maxHp || boss.hp || 1, Math.ceil((boss.maxHp || boss.hp || 1) * hpBoost));
+    boss.baseHp = calibratedBossHp(floorIndex, 1);
+    boss.maxHp = calibratedBossHp(floorIndex);
     boss.hp = boss.maxHp;
+    boss.roundDamageCap = Math.max(75, Math.ceil(boss.maxHp * (floorIndex < 3 ? .30 : floorIndex < 7 ? .26 : .22)));
     boss.description = `${boss.description} Boss phases at 66% and 33% HP.`;
     return boss;
   }
@@ -1593,7 +1607,9 @@ function settleRound() {
   const bankruptSeat = updateFreeForAllBankruptcy(results);
   if (net > 0) {
     const bonus = relicSum("damageBonus");
-    const damage = Math.max(1, Math.round(bossDamage + bonus));
+    const rawDamage = Math.max(1, Math.round(bossDamage + bonus));
+    const damageCap = game.enemy?.isBoss ? Number(game.enemy.roundDamageCap || 0) : 0;
+    const damage = damageCap ? Math.min(rawDamage, damageCap) : rawDamage;
     game.enemy.hp = Math.max(0, game.enemy.hp - damage);
     applyBossPhaseRules(false);
     const heal = relicSum("heal") * Math.max(1, winHands);
@@ -5744,6 +5760,7 @@ function houseRules() {
   if (e.isBoss && Array.isArray(e.bossPhases)) {
     const phase = e.bossPhases[clamp(Number(e.bossPhase) || 0, 0, e.bossPhases.length - 1)];
     if (phase) rules.push(`Boss phase ${Number(e.bossPhase || 0) + 1}: ${phase.name} — ${phase.text}`);
+    if (e.roundDamageCap) rules.push(`Boss can take at most ${e.roundDamageCap} damage per round`);
   }
   if (e.tiesLose) rules.push("Ties count as dealer wins");
   if (e.bjPays65) rules.push("Blackjack pays only 6:5");
