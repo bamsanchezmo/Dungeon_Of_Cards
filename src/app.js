@@ -3463,9 +3463,19 @@ function drawTablePlaqueMotif(tableRect) {
   const key = `tableMotif:floor${floor}`;
   if (!handAssetReady(key)) return false;
   const cx = tableRect.x + tableRect.w * .5;
-  const cy = tableRect.y + tableRect.h * .695;
-  const size = Math.min(tableRect.w * .095, tableRect.h * .17, viewport.portrait ? 62 : 74);
-  return drawRawAssetContain(key, cx - size / 2, cy - size / 2, size, size, .92);
+  const cy = tableRect.y + tableRect.h * .69;
+  const size = Math.min(tableRect.w * .16, tableRect.h * .29, viewport.portrait ? 96 : 124);
+  const x = cx - size / 2;
+  const y = cy - size / 2;
+  const glowColor = floorCardPalette(Number(game?.floor) || 0).accent;
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.filter = `drop-shadow(0 2px 4px rgba(0,0,0,.34)) drop-shadow(0 0 10px ${hexToRgba(glowColor, .18)})`;
+  drawRawAssetContain(key, x, y, size, size, .18);
+  ctx.restore();
+  drawRawAssetContainBlended(key, x, y, size, size, .68, "soft-light", "saturate(.45) contrast(.92)");
+  drawRawAssetContainBlended(key, x, y, size, size, .24, "source-over", "saturate(.62) contrast(.82) brightness(.9)");
+  return true;
 }
 
 function drawDealer(felt) {
@@ -5528,6 +5538,24 @@ function drawRawAssetContain(key, x, y, w, h, alpha = 1) {
   const dw = size.w * scale;
   const dh = size.h * scale;
   return drawRawAsset(key, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, alpha);
+}
+
+function drawRawAssetContainBlended(key, x, y, w, h, alpha = 1, mode = "source-over", filter = "none") {
+  if (!handAssetReady(key)) return false;
+  const asset = chromaKeyedHandAsset(key);
+  if (!asset) return false;
+  const size = handAssetSize(key);
+  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.globalCompositeOperation = mode;
+  ctx.filter = filter;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(asset, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  ctx.restore();
+  return true;
 }
 
 function drawRawAssetCover(key, x, y, w, h, alpha = 1) {
