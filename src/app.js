@@ -30,6 +30,34 @@ const rarityTiers = [
   { key: "mythic", name: "Mythic", color: "#ff4e72", scale: 3.8 }
 ];
 
+const musicTracks = {
+  menu: "menu_theme.ogg",
+  floors: [
+    "floor_01_lobby_tables.ogg",
+    "floor_02_slots_and_side_bets.ogg",
+    "floor_03_security_checkpoint.ogg",
+    "floor_04_bone_lounge.ogg",
+    "floor_05_vault_hall.ogg",
+    "floor_06_mirror_casino.ogg",
+    "floor_07_dragon_tables.ogg",
+    "floor_08_clockwork_pit.ogg",
+    "floor_09_black_felt.ogg",
+    "floor_10_penthouse.ogg"
+  ],
+  bosses: [
+    "boss_01_floor_01.ogg",
+    "boss_02_floor_02.ogg",
+    "boss_03_floor_03.ogg",
+    "boss_04_floor_04.ogg",
+    "boss_05_floor_05.ogg",
+    "boss_06_floor_06.ogg",
+    "boss_07_floor_07.ogg",
+    "boss_08_floor_08.ogg",
+    "boss_09_floor_09.ogg",
+    "boss_10_floor_10.ogg"
+  ]
+};
+
 const C = {
   bg: "#120e16",
   panel: "#201a2a",
@@ -91,6 +119,7 @@ let deathWarpAudio = null;
 let heartbeatAudio = null;
 let audioCtx = null;
 let audioSource = null;
+let currentMusicPath = "";
 let musicFilter = null;
 let musicDistortion = null;
 let musicGain = null;
@@ -2355,7 +2384,8 @@ function voteRelic(playerId, index) {
 
 function startAudio() {
   if (!audio) {
-    audio = new Audio("./assets/audio/music/Velvet_Blackjack.ogg");
+    currentMusicPath = desiredMusicPath();
+    audio = new Audio(currentMusicPath);
     audio.loop = true;
     audio.volume = .35;
     audio.playbackRate = 1;
@@ -2375,10 +2405,39 @@ function startAudio() {
   }
   if (!audioCtx) audioCtx = new AudioContext();
   setupMusicChain();
+  switchMusicIfNeeded();
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   if (!musicStarted) {
     audio.play().then(() => musicStarted = true).catch(() => {});
   }
+}
+
+function musicPath(filename) {
+  return `./assets/audio/music/${filename}`;
+}
+
+function desiredMusicPath() {
+  if (!game || appScene === "splash" || appScene === "menu") return musicPath(musicTracks.menu);
+  const floorIndex = clamp(Number(game.floor) || 0, 0, musicTracks.floors.length - 1);
+  const activeNode = getMapNode(game.activeEncounterId);
+  const inBossTable = game.phase !== "map" && activeNode?.kind === "boss";
+  const file = inBossTable ? musicTracks.bosses[floorIndex] : musicTracks.floors[floorIndex];
+  return musicPath(file || musicTracks.menu);
+}
+
+function switchMusicIfNeeded() {
+  if (!audio || musicDeathMode) return;
+  const nextPath = desiredMusicPath();
+  if (currentMusicPath === nextPath) return;
+  const shouldPlay = musicStarted && !audio.paused && !audio.muted && !document.hidden;
+  currentMusicPath = nextPath;
+  audio.pause();
+  audio.src = nextPath;
+  audio.currentTime = 0;
+  audio.loop = true;
+  audio.volume = .35;
+  audio.load();
+  if (shouldPlay) audio.play().catch(() => {});
 }
 
 function playClip(clip, volume = .22) {
@@ -2478,6 +2537,7 @@ function updateMusicMood(now = performance.now()) {
     musicDeathMode = true;
     return;
   }
+  switchMusicIfNeeded();
   if (!musicDeathMode) return;
   stopDeathAudioClips();
   audio.playbackRate = 1;
