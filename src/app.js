@@ -45,6 +45,19 @@ const threatColors = [
   "#ff4e72"
 ];
 
+// Single placement knob for the floor/boss motif inset on grunt tables.
+// x/y are relative to the drawn table rect: 0 = left/top, .5 = center, 1 = right/bottom.
+// Change x/y here to move the motif on both gameplay tables and floor-map tables.
+const TABLE_MOTIF_PLACEMENT = {
+  x: .5,
+  y: .705,
+  sizeW: .12,
+  sizeH: .225,
+  max: 148,
+  portraitMax: 112,
+  alpha: .8
+};
+
 const musicTracks = {
   menu: "menu_theme.mp3",
   floors: [
@@ -3512,22 +3525,35 @@ function containRectForAsset(key, x, y, w, h) {
   return { x: x + (w - dw) / 2, y: y + (h - dh) / 2, w: dw, h: dh };
 }
 
-function drawTablePlaqueMotif(tableRect) {
+function drawTablePlaqueMotif(tableRect, targetCtx = ctx) {
   if (!tableRect) return false;
   const floor = String(clamp((Number(game?.floor) || 0) + 1, 1, FLOORS)).padStart(2, "0");
   const key = `tableMotif:floor${floor}`;
   if (!handAssetReady(key)) return false;
   // Matches the blank rounded-square plaque baked into the recolorable table master.
-  const cx = tableRect.x + tableRect.w * .5;
-  const cy = tableRect.y + tableRect.h * .705;
-  const size = Math.min(tableRect.w * .12, tableRect.h * .225, viewport.portrait ? 112 : 148);
+  const cx = tableRect.x + tableRect.w * TABLE_MOTIF_PLACEMENT.x;
+  const cy = tableRect.y + tableRect.h * TABLE_MOTIF_PLACEMENT.y;
+  const size = Math.min(
+    tableRect.w * TABLE_MOTIF_PLACEMENT.sizeW,
+    tableRect.h * TABLE_MOTIF_PLACEMENT.sizeH,
+    viewport.portrait ? TABLE_MOTIF_PLACEMENT.portraitMax : TABLE_MOTIF_PLACEMENT.max
+  );
   const x = cx - size / 2;
   const y = cy - size / 2;
-  ctx.save();
-  ctx.globalCompositeOperation = "source-over";
-  ctx.filter = "saturate(.72) contrast(.88) brightness(.92)";
-  drawRawAssetContain(key, x, y, size, size, .8);
-  ctx.restore();
+  const asset = chromaKeyedHandAsset(key);
+  if (!asset) return false;
+  const assetW = asset.width || asset.naturalWidth || 1;
+  const assetH = asset.height || asset.naturalHeight || 1;
+  const scale = Math.min(size / Math.max(1, assetW), size / Math.max(1, assetH));
+  const dw = assetW * scale;
+  const dh = assetH * scale;
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = "source-over";
+  targetCtx.globalAlpha *= TABLE_MOTIF_PLACEMENT.alpha;
+  targetCtx.filter = "saturate(.72) contrast(.88) brightness(.92)";
+  targetCtx.imageSmoothingEnabled = true;
+  targetCtx.drawImage(asset, x + (size - dw) / 2, y + (size - dh) / 2, dw, dh);
+  targetCtx.restore();
   return true;
 }
 
@@ -3907,6 +3933,12 @@ function drawMapTableGroup(node, p, w, h, alpha = 1) {
     octx.imageSmoothingEnabled = true;
     octx.drawImage(tableAsset, tableRect.x - groupX, tableRect.y - groupY, tableRect.w, tableRect.h);
     octx.restore();
+    drawTablePlaqueMotif({
+      x: tableRect.x - groupX,
+      y: tableRect.y - groupY,
+      w: tableRect.w,
+      h: tableRect.h
+    }, octx);
   }
   ctx.save();
   ctx.globalAlpha = alpha;
