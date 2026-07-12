@@ -5019,7 +5019,8 @@ function suitAssetKey(suit) {
 }
 
 function relicAssetKey(relic) {
-  return relicAssetFiles[relic.name] ? `relic:${relic.name}` : "";
+  const name = relic?.baseName && relicAssetFiles[relic.baseName] ? relic.baseName : relic?.name;
+  return relicAssetFiles[name] ? `relic:${name}` : "";
 }
 
 function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
