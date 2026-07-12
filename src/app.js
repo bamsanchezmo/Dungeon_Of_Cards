@@ -3178,11 +3178,11 @@ function drawDungeonMap() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   const mapX = portrait ? 24 : 42;
-  const mapY = portrait ? 150 : 92;
+  const mapY = portrait ? 150 : 126;
   const mapW = portrait ? lw - 48 : lw - 380;
-  const mapH = portrait ? Math.min(720, lh - 650) : lh - 170;
+  const mapH = portrait ? Math.min(720, lh - 650) : lh - 204;
   const panelX = portrait ? 24 : lw - 315;
-  const panelY = portrait ? mapY + mapH + 24 : 92;
+  const panelY = portrait ? mapY + mapH + 24 : 126;
   const panelW = portrait ? lw - 48 : 275;
   const panelH = portrait ? Math.max(520, lh - panelY - 28) : mapH;
 
@@ -3226,10 +3226,21 @@ function drawMapCarpet(x, y, w, h) {
 }
 
 function drawMapHeader(lw, portrait) {
-  text(`FLOOR ${game.floor + 1}/${FLOORS}`, lw / 2, portrait ? 58 : 42, portrait ? 30 : 26, C.gold, "center", "serif");
-  text(game.map.theme, lw / 2, portrait ? 94 : 74, portrait ? 24 : 20, C.text, "center");
+  const titleY = portrait ? 58 : 34;
+  const themeY = portrait ? 94 : 64;
+  const statY = portrait ? 125 : 96;
+  text(`FLOOR ${game.floor + 1}/${FLOORS}`, lw / 2, titleY, portrait ? 30 : 26, C.gold, "center", "serif");
+  text(game.map.theme, lw / 2, themeY, portrait ? 24 : 20, C.text, "center");
   const summary = `Gold ${game.gold}g  •  HP ${game.hp}/${game.maxHp}  •  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`;
-  text(summary, lw / 2, portrait ? 125 : 100, portrait ? 18 : 15, C.muted, "center");
+  if (portrait) {
+    text(summary, lw / 2, statY, 18, C.muted, "center");
+  } else {
+    const pillW = Math.min(520, Math.max(360, lw * .32));
+    const pillX = lw / 2 - pillW / 2;
+    fill("rgba(8,6,12,.72)", pillX, statY - 21, pillW, 32, 16);
+    strokeRound(pillX, statY - 21, pillW, 32, 16, hexToRgba(activeFloorColor(), .55), 1.5);
+    text(summary, lw / 2, statY, 15, C.text, "center");
+  }
   addButton(lw - (portrait ? 142 : 124), portrait ? 40 : 28, portrait ? 112 : 90, portrait ? 54 : 38, "Menu", () => menuOpen = true);
 }
 
