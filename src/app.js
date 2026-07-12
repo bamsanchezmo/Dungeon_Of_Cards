@@ -4080,6 +4080,7 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
   ctx.lineCap = "round";
   const selectedRouteId = game.mapVotes?.[localPlayerId] || game.selectedNodeId || "";
   const ui = activeFloorUi();
+  const vertical = isPortraitMap();
   for (const node of game.map.nodes) {
     const from = mapPoint(node, mapX, mapY, mapW, mapH);
     for (const nextId of node.next || []) {
@@ -4097,15 +4098,16 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
           : hexToRgba(ui.accent, .78);
       const alpha = selectedReachableEdge ? .98 : clearedEdge ? .82 : .62;
       const width = selectedReachableEdge ? 6.25 : clearedEdge ? 5.25 : 4.25;
-      drawMapRouteCurve(from, to, midX, "rgba(0,0,0,.72)", width + 6.5, .95);
-      drawMapRouteCurve(from, to, midX, hexToRgba(ui.accent, selectedReachableEdge ? .72 : clearedEdge ? .42 : .34), width + 3.5, .9, selectedReachableEdge ? 18 : 11);
-      drawMapRouteCurve(from, to, midX, hexToRgba(color, alpha), width, 1);
+      const midAxis = vertical ? (from.y + to.y) / 2 : midX;
+      drawMapRouteCurve(from, to, midAxis, "rgba(0,0,0,.72)", width + 6.5, .95, 0, vertical);
+      drawMapRouteCurve(from, to, midAxis, hexToRgba(ui.accent, selectedReachableEdge ? .72 : clearedEdge ? .42 : .34), width + 3.5, .9, selectedReachableEdge ? 18 : 11, vertical);
+      drawMapRouteCurve(from, to, midAxis, hexToRgba(color, alpha), width, 1, 0, vertical);
     }
   }
   ctx.restore();
 }
 
-function drawMapRouteCurve(from, to, midX, color, width, alpha = 1, glow = 0) {
+function drawMapRouteCurve(from, to, midAxis, color, width, alpha = 1, glow = 0, vertical = false) {
   ctx.save();
   ctx.globalAlpha *= alpha;
   ctx.strokeStyle = color;
@@ -4116,7 +4118,8 @@ function drawMapRouteCurve(from, to, midX, color, width, alpha = 1, glow = 0) {
   }
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
-  ctx.bezierCurveTo(midX, from.y, midX, to.y, to.x, to.y);
+  if (vertical) ctx.bezierCurveTo(from.x, midAxis, to.x, midAxis, to.x, to.y);
+  else ctx.bezierCurveTo(midAxis, from.y, midAxis, to.y, to.x, to.y);
   ctx.stroke();
   ctx.restore();
 }
@@ -4134,7 +4137,7 @@ function shouldDrawMapEdge(fromNode, toNode, selectedRouteId) {
 function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const p = mapPoint(node, mapX, mapY, mapW, mapH);
   const portrait = viewport.portrait;
-  const size = portrait ? 82 : 70;
+  const size = portrait ? 72 : 70;
   const w = node.kind === "elevator" ? size * .86 : node.kind === "boss" ? size * 1.18 : size;
   const h = node.kind === "elevator" ? size * 2.08 : node.kind === "boss" ? size * 1.18 : size;
   const x = p.x - w / 2;
@@ -4577,7 +4580,19 @@ function drawMapVotePanel(x, y, w, h, node) {
 }
 
 function mapPoint(node, mapX, mapY, mapW, mapH) {
+  if (isPortraitMap()) {
+    const padX = Math.min(96, mapW * .18);
+    const padY = Math.min(92, mapH * .1);
+    return {
+      x: mapX + padX + node.y * Math.max(1, mapW - padX * 2),
+      y: mapY + padY + node.x * Math.max(1, mapH - padY * 2)
+    };
+  }
   return { x: mapX + node.x * mapW, y: mapY + node.y * mapH };
+}
+
+function isPortraitMap() {
+  return !!viewport.portrait;
 }
 
 function drawSeats(felt) {
