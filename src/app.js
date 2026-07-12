@@ -241,7 +241,8 @@ const handdrawnAssetFiles = {
   glyphPercent: "art/glyphs/glyph_percent.png",
   glyphDollar: "art/glyphs/glyph_dollar.png",
   glyphBang: "art/glyphs/glyph_bang.png",
-  glyphQuestion: "art/glyphs/glyph_question.png"
+  glyphQuestion: "art/glyphs/glyph_question.png",
+  "tableBase:grunt": "art/table_bases/grunt_table_master.png"
 };
 for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `art/glyphs/glyph_${ch}.png`;
 for (let i = 1; i <= FLOORS; i++) {
@@ -300,6 +301,7 @@ for (const [key, file] of Object.entries(tableSceneArtFiles)) {
 const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
 const chromaKeyedAssetCache = new Map();
+const paletteShiftedAssetCache = new Map();
 loadHanddrawnAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
@@ -802,6 +804,23 @@ function floorThemeName(floorIndex) {
 
 function floorThemeColor(floorIndex) {
   return ["#4e8a57", "#7f8f9c", "#5872b8", "#b8a06a", "#d1a23c", "#8e78d4", "#d66a32", "#65b8d6", "#2d3448", C.gold][Math.min(floorIndex, 9)];
+}
+
+const floorCardPalettes = [
+  { dark: "#10180f", main: "#2f7f45", accent: "#d9b84a" },
+  { dark: "#121820", main: "#5f7585", accent: "#d6e0e7" },
+  { dark: "#151127", main: "#485da8", accent: "#c3cffb" },
+  { dark: "#21190f", main: "#8b7650", accent: "#e0c17a" },
+  { dark: "#17100a", main: "#8a6221", accent: "#e2b64a" },
+  { dark: "#161224", main: "#574a87", accent: "#c7b7ff" },
+  { dark: "#1d0f0a", main: "#8e351b", accent: "#f0a04a" },
+  { dark: "#101b20", main: "#2e7186", accent: "#91d8e8" },
+  { dark: "#080a10", main: "#242b3b", accent: "#a9b4c8" },
+  { dark: "#18110a", main: "#9d7830", accent: "#f3d36b" }
+];
+
+function floorCardPalette(floorIndex) {
+  return floorCardPalettes[clamp(Number(floorIndex) || 0, 0, floorCardPalettes.length - 1)] || floorCardPalettes[0];
 }
 
 function bossTableColor(floorIndex) {
@@ -3401,13 +3420,18 @@ function tableSceneAsset(key) {
 }
 
 function drawEncounterTableArt(felt, scene) {
-  if (!scene.table) return;
+  if (!scene.table && scene.boss) return;
   const portrait = viewport.portrait;
   const targetW = Math.min(felt.w * (portrait ? .96 : .9), portrait ? 700 : 1260);
   const targetH = portrait ? 390 : 520;
   const x = felt.x + felt.w / 2 - targetW / 2;
   const y = felt.y + (portrait ? 96 : 86);
-  drawRawAssetContain(scene.table, x, y, targetW, targetH, scene.boss ? .98 : .94);
+  if (scene.boss) {
+    drawRawAssetContain(scene.table, x, y, targetW, targetH, .98);
+  } else {
+    const shifted = drawPaletteShiftedAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
+    if (!shifted && scene.table) drawRawAssetContain(scene.table, x, y, targetW, targetH, .94);
+  }
   if (scene.decoration) {
     drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
@@ -5286,6 +5310,7 @@ function loadHanddrawnAssets() {
     img.onload = () => {
       tintedHanddrawnCache.clear();
       chromaKeyedAssetCache.delete(key);
+      paletteShiftedAssetCache.clear();
       draw();
     };
     handdrawnImages[key] = img;
@@ -5300,6 +5325,7 @@ function handAssetReady(key) {
 function shouldChromaKeyAsset(key) {
   const assetKey = String(key);
   if (/^floor\d{2}CardBack$/.test(assetKey)) return true;
+  if (assetKey === "tableBase:grunt") return true;
   if (/^(map|tableScene):floor\d{2}:(table|bossTable|bossPortrait|elevator|decoration)$/.test(assetKey)) return true;
   return false;
 }
@@ -5352,6 +5378,86 @@ function chromaKeyedHandAsset(key) {
   octx.putImageData(imageData, 0, 0);
   chromaKeyedAssetCache.set(cacheKey, off);
   return off;
+}
+
+function rgbFromHex(hex) {
+  const clean = String(hex || "").replace("#", "").trim();
+  const value = clean.length === 3
+    ? clean.split("").map((ch) => ch + ch).join("")
+    : clean.padEnd(6, "0").slice(0, 6);
+  return {
+    r: parseInt(value.slice(0, 2), 16) || 0,
+    g: parseInt(value.slice(2, 4), 16) || 0,
+    b: parseInt(value.slice(4, 6), 16) || 0
+  };
+}
+
+function paletteCacheKey(palette) {
+  return [palette?.dark, palette?.main, palette?.accent].join("|");
+}
+
+function paletteShiftedHandAsset(key, palette) {
+  if (!handAssetReady(key)) return null;
+  const source = chromaKeyedHandAsset(key);
+  if (!source) return null;
+  const cacheKey = `${key}|${paletteCacheKey(palette)}|${source.width || source.naturalWidth}x${source.height || source.naturalHeight}`;
+  if (paletteShiftedAssetCache.has(cacheKey)) return paletteShiftedAssetCache.get(cacheKey);
+  const w = source.width || source.naturalWidth;
+  const h = source.height || source.naturalHeight;
+  const off = document.createElement("canvas");
+  off.width = w;
+  off.height = h;
+  const octx = off.getContext("2d");
+  octx.drawImage(source, 0, 0);
+  const imageData = octx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  const colors = {
+    dark: rgbFromHex(palette?.dark || "#111111"),
+    main: rgbFromHex(palette?.main || floorThemeColor(Number(game?.floor) || 0)),
+    accent: rgbFromHex(palette?.accent || C.gold)
+  };
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 4) continue;
+    const lum = data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114;
+    let base;
+    let strength;
+    if (lum < 80) {
+      base = colors.dark;
+      strength = .72 + lum / 80 * .34;
+    } else if (lum < 178) {
+      base = colors.main;
+      strength = .62 + (lum - 80) / 98 * .62;
+    } else {
+      base = colors.accent;
+      strength = .7 + (lum - 178) / 77 * .42;
+    }
+    data[i] = clamp(Math.round(base.r * strength), 0, 255);
+    data[i + 1] = clamp(Math.round(base.g * strength), 0, 255);
+    data[i + 2] = clamp(Math.round(base.b * strength), 0, 255);
+  }
+  octx.putImageData(imageData, 0, 0);
+  paletteShiftedAssetCache.set(cacheKey, off);
+  return off;
+}
+
+function drawPaletteShiftedAsset(key, palette, x, y, w, h, alpha = 1) {
+  const asset = paletteShiftedHandAsset(key, palette);
+  if (!asset) return false;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(asset, x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawPaletteShiftedAssetContain(key, palette, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const size = handAssetSize(key);
+  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  return drawPaletteShiftedAsset(key, palette, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, alpha);
 }
 
 function drawHandAsset(key, x, y, w, h, color = "#000", alpha = 1) {
