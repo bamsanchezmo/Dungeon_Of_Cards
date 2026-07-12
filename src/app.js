@@ -2718,6 +2718,7 @@ function draw() {
       if (game.phase === "loanOffer" && canSeeLoanOffer()) drawLoanOffer();
       if (game.phase === "victory" || game.phase === "defeat") drawEnd();
       if (game.peekCard) drawPeekOverlay();
+      if (game.developerTest) drawDeveloperTableNavigatorControls();
     }
   }
   if (statsPlayerId) drawStatsOverlay();
@@ -3025,6 +3026,7 @@ function drawDungeonMap() {
   drawMapConnections(mapX, mapY, mapW, mapH);
   game.map.nodes.forEach((node) => drawPolishedMapNode(node, mapX, mapY, mapW, mapH));
   drawPolishedMapPanel(panelX, panelY, panelW, panelH);
+  if (game.developerTest) drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panelY, panelW);
 }
 
 function drawMapCarpet(x, y, w, h) {
@@ -3054,6 +3056,74 @@ function drawMapHeader(lw, portrait) {
   const summary = `Gold ${game.gold}g  •  HP ${game.hp}/${game.maxHp}  •  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`;
   text(summary, lw / 2, portrait ? 125 : 100, portrait ? 18 : 15, C.muted, "center");
   addButton(lw - (portrait ? 142 : 124), portrait ? 40 : 28, portrait ? 112 : 90, portrait ? 54 : 38, "Menu", () => menuOpen = true);
+}
+
+function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panelY, panelW) {
+  const portrait = viewport.portrait;
+  const barX = mapX + 18;
+  const barY = mapY + 18;
+  const barW = portrait ? Math.min(mapW - 36, 520) : Math.min(mapW - 36, 600);
+  const barH = portrait ? 162 : 92;
+  shadow(0, 16, 32, "rgba(0,0,0,.38)", () => {
+    gradientRound(barX, barY, barW, barH, 16, [[0, "rgba(48,35,63,.95)"], [1, "rgba(13,10,18,.94)"]], true);
+  });
+  strokeRound(barX, barY, barW, barH, 16, "rgba(95,200,234,.65)", 2);
+  text("DEV MAP NAVIGATOR", barX + 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, "#8be3ff");
+  text(`Floor ${game.floor + 1}/${FLOORS}`, barX + barW - 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, C.gold, "right");
+  const selected = getMapNode(inspectedNodeId);
+  const hasEncounter = !!selected?.encounter;
+  const canClear = hasEncounter || !!game.activeEncounterId;
+  const buttonY = barY + (portrait ? 46 : 38);
+  const gap = 8;
+  const rowW = barW - 28;
+  if (portrait) {
+    const half = (rowW - gap) / 2;
+    addButton(barX + 14, buttonY, half, 48, "← Floor", devMapPreviousFloor, false, game.floor > 0);
+    addButton(barX + 14 + half + gap, buttonY, half, 48, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(barX + 14, buttonY + 56, half, 48, "Enter", devMapEnterSelected, true, hasEncounter);
+    addButton(barX + 14 + half + gap, buttonY + 56, half, 48, "Clear", devMapClearEncounter, false, canClear);
+  } else {
+    const buttonW = (rowW - gap * 3) / 4;
+    addButton(barX + 14, buttonY, buttonW, 42, "← Floor", devMapPreviousFloor, false, game.floor > 0);
+    addButton(barX + 14 + (buttonW + gap), buttonY, buttonW, 42, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(barX + 14 + (buttonW + gap) * 2, buttonY, buttonW, 42, "Enter", devMapEnterSelected, true, hasEncounter);
+    addButton(barX + 14 + (buttonW + gap) * 3, buttonY, buttonW, 42, "Clear", devMapClearEncounter, false, canClear);
+  }
+  if (selected?.encounter) {
+    const hintY = portrait ? panelY - 12 : mapY + mapH - 18;
+    text(`Selected: ${selected.label}`, portrait ? panelX + panelW / 2 : mapX + mapW / 2, hintY, portrait ? 15 : 13, "#8be3ff", "center");
+  }
+}
+
+function drawDeveloperTableNavigatorControls() {
+  if (!game?.developerTest) return;
+  const lw = layoutW();
+  const portrait = viewport.portrait;
+  const w = portrait ? Math.min(lw - 32, 560) : 660;
+  const h = portrait ? 150 : 78;
+  const x = lw / 2 - w / 2;
+  const y = portrait ? 18 : 18;
+  shadow(0, 16, 34, "rgba(0,0,0,.44)", () => {
+    gradientRound(x, y, w, h, 16, [[0, "rgba(48,35,63,.96)"], [1, "rgba(9,8,13,.95)"]], true);
+  });
+  strokeRound(x, y, w, h, 16, "rgba(95,200,234,.7)", 2);
+  const node = getMapNode(game.activeEncounterId) || getMapNode(inspectedNodeId);
+  text(`DEV TABLE TESTER • Floor ${game.floor + 1}/${FLOORS}${node ? ` • ${node.label}` : ""}`, x + 18, y + (portrait ? 27 : 25), portrait ? 16 : 13, "#8be3ff");
+  const gap = 8;
+  const rowY = y + (portrait ? 46 : 32);
+  if (portrait) {
+    const half = (w - 44) / 2;
+    addButton(x + 14, rowY, half, 44, "← Floor", devMapPreviousFloor, false, game.floor > 0);
+    addButton(x + 22 + half, rowY, half, 44, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(x + 14, rowY + 52, half, 44, "Back to Map", devMapReturnToMap, true);
+    addButton(x + 22 + half, rowY + 52, half, 44, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
+  } else {
+    const buttonW = (w - 44 - gap * 3) / 4;
+    addButton(x + 14, rowY, buttonW, 38, "← Floor", devMapPreviousFloor, false, game.floor > 0);
+    addButton(x + 14 + (buttonW + gap), rowY, buttonW, 38, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(x + 14 + (buttonW + gap) * 2, rowY, buttonW, 38, "Back to Map", devMapReturnToMap, true);
+    addButton(x + 14 + (buttonW + gap) * 3, rowY, buttonW, 38, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
+  }
 }
 
 function drawMapConnections(mapX, mapY, mapW, mapH) {
@@ -4326,6 +4396,29 @@ function devMapEnterSelected() {
   game.developerTest = true;
   developerPanelOpen = false;
   game.log.push(`Developer entered ${node.label} without route restrictions.`);
+}
+
+function devMapReturnToMap() {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  if (!game.map) return flashMsg("No map loaded");
+  const node = getMapNode(game.activeEncounterId) || getMapNode(inspectedNodeId);
+  if (node?.id) inspectedNodeId = node.id;
+  game.phase = "map";
+  game.mapVotes = {};
+  game.mapReady = {};
+  game.selectedNodeId = "";
+  game.dealer = [];
+  game.peekCard = null;
+  game.peekTimer = 0;
+  game.seats.forEach((seat) => {
+    seat.ready = false;
+    seat.hands = [];
+    seat.finished = false;
+    seat.insuranceAnswered = false;
+  });
+  refreshReachableNodes();
+  developerPanelOpen = false;
+  notify("Returned to map without clearing the table");
 }
 
 function devMapClearEncounter() {
