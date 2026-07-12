@@ -19,6 +19,16 @@ const LOAN_WINNING_PAYMENT_RATE = .1;
 const DEATH_WARP_MS = 1000;
 const DEATH_SILENCE_MS = 900;
 const DEATH_REVERSE_FADE_MS = 5200;
+const FLOORS = 10;
+
+const rarityTiers = [
+  { key: "common", name: "Common", color: "#b9c0c7", scale: 1 },
+  { key: "uncommon", name: "Uncommon", color: "#54d66a", scale: 1.35 },
+  { key: "rare", name: "Rare", color: "#42a5ff", scale: 1.75 },
+  { key: "epic", name: "Epic", color: "#b65cff", scale: 2.25 },
+  { key: "legendary", name: "Legendary", color: "#ff9f2f", scale: 3 },
+  { key: "mythic", name: "Mythic", color: "#ff4e72", scale: 3.8 }
+];
 
 const C = {
   bg: "#120e16",
@@ -104,6 +114,7 @@ let handCarouselActiveIndex = {};
 let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
+let inspectedNodeId = "";
 let signalKind = "";
 let developerModeUnlocked = false;
 let developerPanelOpen = false;
@@ -385,7 +396,7 @@ window.addEventListener("keydown", (ev) => {
   if (key === "p") action("split");
   if (key === "r") action("surrender");
   if (key === "f") action("peek");
-  if (key === "enter") action(game?.phase === "betting" ? "ready" : "continue");
+  if (key === "enter") action(game?.phase === "map" ? "readyMap" : game?.phase === "betting" ? "ready" : "continue");
   if (key === "m") toggleMusic();
 });
 document.addEventListener("visibilitychange", () => {
@@ -457,7 +468,7 @@ function newGame(players, code = "", mode = modePreference) {
   game = {
     code,
     mode,
-    phase: "betting",
+    phase: "map",
     floor: 0,
     gold: 200 + Math.max(0, seats.length - 1) * 100,
     hp: 100 + Math.max(0, seats.length - 1) * 40,
@@ -488,8 +499,18 @@ function newGame(players, code = "", mode = modePreference) {
     loanRequiredAmount: MIN_BET,
     loanVotes: {},
     loanSignedAt: 0,
+    map: null,
+    mapVotes: {},
+    mapReady: {},
+    currentNodeId: "start",
+    selectedNodeId: "",
+    activeEncounterId: "",
+    clearedNodes: ["start"],
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
+  game.map = createFloorMap(0);
+  inspectedNodeId = "start-1";
+  refreshReachableNodes();
   appScene = "game";
 }
 
@@ -509,6 +530,116 @@ function rescaleEnemyForPlayers() {
   const ratio = game.enemy.maxHp ? game.enemy.hp / game.enemy.maxHp : 1;
   game.enemy.maxHp = nextMax;
   game.enemy.hp = ratio <= 0 ? 0 : Math.max(1, Math.min(nextMax, Math.ceil(nextMax * ratio)));
+}
+
+function createFloorMap(floorIndex) {
+  const floor = floorIndex + 1;
+  const palette = floorThemeColor(floorIndex);
+  const node = (id, label, kind, x, y, next = [], threatBoost = 0) => {
+    const threat = kind === "boss" ? Math.min(5, 2 + Math.ceil(floor / 3)) : clamp(1 + Math.floor(floorIndex / 2) + threatBoost, 1, 5);
+    const rarity = rarityForFloor(floorIndex, threatBoost + (kind === "boss" ? 2 : 0));
+    const reward = kind === "start" || kind === "elevator" ? null : createRewardRelic(floorIndex, rarity, id);
+    const encounter = kind === "table" || kind === "boss" ? createMapEnemy(floorIndex, kind, threat, id) : null;
+    return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color: reward?.rarityColor || palette };
+  };
+  const map = {
+    floor,
+    theme: floorThemeName(floorIndex),
+    color: palette,
+    nodes: [
+      node("start", "Start", "start", .07, .50, ["start-1"]),
+      node("start-1", "Starter Table", "table", .22, .50, ["top-1", "bottom-1"], 0),
+      node("top-1", "Upper Table", "table", .38, .30, ["top-2a", "top-2b"], 1),
+      node("bottom-1", "Lower Table", "table", .38, .70, ["bottom-2a", "bottom-2b"], 1),
+      node("top-2a", "Skybox Table", "table", .55, .18, ["boss"], 1),
+      node("top-2b", "Neon Table", "table", .55, .42, ["boss"], 2),
+      node("bottom-2a", "Vault Table", "table", .55, .58, ["boss"], 2),
+      node("bottom-2b", "Basement Table", "table", .55, .82, ["boss"], 1),
+      node("boss", "Mini Boss", "boss", .75, .50, ["elevator"]),
+      node("elevator", "Elevator", "elevator", .92, .50, [])
+    ]
+  };
+  return map;
+}
+
+function floorThemeName(floorIndex) {
+  return [
+    "Lobby Tables", "Slots & Side Bets", "Security Checkpoint", "Bone Lounge", "Vault Hall",
+    "Mirror Casino", "Dragon Tables", "Clockwork Pit", "Black Felt", "Penthouse"
+  ][Math.min(floorIndex, 9)];
+}
+
+function floorThemeColor(floorIndex) {
+  return ["#4e8a57", "#aa42a8", "#5872b8", "#b8a06a", "#d1a23c", "#8e78d4", "#d66a32", "#65b8d6", "#2d3448", C.gold][Math.min(floorIndex, 9)];
+}
+
+function rarityForFloor(floorIndex, boost = 0) {
+  const roll = floorIndex + boost + Math.floor(Math.random() * 2);
+  const index = clamp(Math.floor(roll / 2), 0, rarityTiers.length - 1);
+  return rarityTiers[index];
+}
+
+function createRewardRelic(floorIndex, rarity, salt = "") {
+  const base = relicPool[Math.abs(hashString(`${floorIndex}:${salt}`)) % relicPool.length];
+  const scaled = { ...base, baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color };
+  for (const [key, value] of Object.entries(scaled)) {
+    if (typeof value === "number" && !["foresightUses"].includes(key)) {
+      scaled[key] = value < 1 ? Number(Math.min(.95, value * rarity.scale).toFixed(2)) : Math.max(1, Math.round(value * rarity.scale));
+    }
+  }
+  if (scaled.foresightUses) scaled.foresightUses = Math.max(1, Math.round(scaled.foresightUses + rarity.scale - 1));
+  scaled.name = `${rarity.name} ${base.name}`;
+  scaled.description = describeRelic(scaled, base.description);
+  return scaled;
+}
+
+function describeRelic(relic, fallback) {
+  const parts = [];
+  if (relic.pushWins) parts.push("Pushes count as wins");
+  if (relic.bjPays2) parts.push("Blackjack pays 2:1");
+  if (relic.freeSurrender) parts.push("Surrender refunds the full bet");
+  if (relic.fiveCard) parts.push("5-card Charlie wins");
+  if (relic.insurance3) parts.push("Insurance pays 3:1");
+  if (relic.extraSplit) parts.push("Aces may be re-split");
+  if (relic.heal) parts.push(`Heal ${relic.heal} HP on winning hands`);
+  if (relic.refund) parts.push(`Refund ${Math.round(relic.refund * 100)}% of losing bets`);
+  if (relic.damageBonus) parts.push(`Deal +${relic.damageBonus} bonus damage on winning rounds`);
+  if (relic.chipBonus) parts.push(`Winning hands pay +${relic.chipBonus}g`);
+  if (relic.bustRefund) parts.push(`Busts refund ${Math.round(relic.bustRefund * 100)}%`);
+  if (relic.luck) parts.push(`+${relic.luck} Luck`);
+  if (relic.foresightUses) parts.push(`${relic.foresightUses} deck peek${relic.foresightUses === 1 ? "" : "s"} per run`);
+  return parts.length ? `${parts.slice(0, 2).join(". ")}.` : fallback;
+}
+
+function createMapEnemy(floorIndex, kind, threat, id) {
+  if (kind === "boss") {
+    const boss = cloneEnemy(floorIndex);
+    boss.name = floorIndex === FLOORS - 1 ? "The House" : boss.name;
+    return boss;
+  }
+  const poolStart = floorIndex < 3 ? 1 : floorIndex < 6 ? 4 : 7;
+  const template = enemyTemplates[Math.min(enemyTemplates.length - 2, poolStart + (Math.abs(hashString(id)) % 3))] || enemyTemplates[0];
+  const hp = 45 + floorIndex * 18 + threat * 16;
+  return {
+    ...template,
+    name: tableEnemyName(template.name, threat),
+    title: `Floor ${floorIndex + 1} - Grunt Table`,
+    hp,
+    maxHp: hp,
+    dealerPeek: template.dealerPeek !== false
+  };
+}
+
+function tableEnemyName(name, threat) {
+  if (threat >= 5) return `Elite ${name}`;
+  if (threat >= 4) return `High-Roller ${name}`;
+  return name;
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return hash;
 }
 
 function addPlayerSeat(id, name = "") {
@@ -629,6 +760,22 @@ function applyAction(playerId, name) {
     if (name === "declineLoan") {
       if (sharedLoanNeedsVote()) voteLoan(playerId, false);
       else declineLoan(playerId);
+    }
+    return;
+  }
+
+  if (game.phase === "map") {
+    if (name.startsWith("inspect:")) {
+      inspectedNodeId = name.slice(8);
+      return;
+    }
+    if (name.startsWith("select:")) {
+      selectMapNode(playerId, name.slice(7));
+      return;
+    }
+    if (name === "readyMap") {
+      readyMapPlayer(playerId);
+      return;
     }
     return;
   }
@@ -797,6 +944,132 @@ function stand(seatIndex) {
   const h = activeHand(game.seats[seatIndex]);
   if (h) h.status = "stand";
   advanceHand(seatIndex);
+}
+
+function selectMapNode(playerId, nodeId) {
+  refreshReachableNodes();
+  const node = getMapNode(nodeId);
+  if (!node || !node.reachable || node.kind === "start" || node.kind === "elevator") return;
+  game.mapVotes ||= {};
+  game.mapReady ||= {};
+  game.mapVotes[playerId] = nodeId;
+  game.mapReady[playerId] = false;
+  game.selectedNodeId = nodeId;
+  inspectedNodeId = nodeId;
+  const seat = game.seats.find((s) => s.id === playerId);
+  log(`${seat?.name || "A player"} votes for ${node.label}.`);
+}
+
+function readyMapPlayer(playerId) {
+  refreshReachableNodes();
+  const reachable = reachableMapNodes().filter((n) => n.kind !== "elevator");
+  if (reachable.length === 1 && !game.mapVotes?.[playerId]) {
+    selectMapNode(playerId, reachable[0].id);
+  }
+  const voted = game.mapVotes?.[playerId];
+  if (!voted || !getMapNode(voted)?.reachable) return flashMsg("Choose a reachable table first");
+  game.mapReady ||= {};
+  game.mapReady[playerId] = !game.mapReady[playerId];
+  const seat = game.seats.find((s) => s.id === playerId);
+  log(`${seat?.name || "A player"} ${game.mapReady[playerId] ? "is ready to travel" : "is reconsidering the route"}.`);
+  const voters = game.seats.filter((s) => !s.spectating);
+  if (voters.length && voters.every((s) => game.mapReady?.[s.id])) travelToVotedNode();
+}
+
+function travelToVotedNode() {
+  const counts = new Map();
+  for (const s of game.seats.filter((seat) => !seat.spectating)) {
+    const vote = game.mapVotes?.[s.id];
+    if (vote && getMapNode(vote)?.reachable) counts.set(vote, (counts.get(vote) || 0) + 1);
+  }
+  let winner = "";
+  let best = -1;
+  for (const [nodeId, count] of counts) {
+    if (count > best) {
+      winner = nodeId;
+      best = count;
+    }
+  }
+  if (!winner) return;
+  startMapEncounter(winner);
+}
+
+function startMapEncounter(nodeId) {
+  const node = getMapNode(nodeId);
+  if (!node || !node.encounter) return;
+  game.activeEncounterId = nodeId;
+  game.enemy = { ...node.encounter, hp: node.encounter.hp, maxHp: node.encounter.maxHp || node.encounter.hp };
+  game.mapVotes = {};
+  game.mapReady = {};
+  game.selectedNodeId = nodeId;
+  resetRound();
+  log(`The party sits at ${node.label}. Reward: ${node.reward?.name || "none"}.`);
+}
+
+function completeMapEncounter() {
+  const node = getMapNode(game.activeEncounterId);
+  if (!node) return;
+  game.clearedNodes = [...new Set([...(game.clearedNodes || []), node.id])];
+  game.currentNodeId = node.id;
+  if (node.reward) gainRelic(node.reward);
+  game.activeEncounterId = "";
+  if (node.kind === "boss") {
+    if (game.floor >= FLOORS - 1) {
+      game.phase = "victory";
+      log("The Penthouse boss folds. The climb is won.");
+      return;
+    }
+    game.floor++;
+    game.map = createFloorMap(game.floor);
+    game.currentNodeId = "start";
+    game.clearedNodes = ["start"];
+    inspectedNodeId = "start-1";
+    log(`Elevator doors open onto Floor ${game.floor + 1}: ${game.map.theme}.`);
+  } else {
+    const next = (node.next || []).find((id) => getMapNode(id)?.kind === "boss");
+    inspectedNodeId = next || node.next?.[0] || node.id;
+  }
+  game.phase = "map";
+  game.mapVotes = {};
+  game.mapReady = {};
+  game.selectedNodeId = "";
+  game.seats.forEach((s) => {
+    s.spectating = false;
+    s.ready = false;
+    s.finished = false;
+    s.hands = [];
+  });
+  refreshReachableNodes();
+}
+
+function gainRelic(relic) {
+  if (!relic) return;
+  game.relics.push(relic);
+  game.foresightUsesLeft += relic.foresightUses || 0;
+  lastRelicName = relic.name;
+  notify(`${relic.name}: ${relic.description}`);
+  log(`Gained relic: ${relic.name}.`);
+}
+
+function getMapNode(nodeId) {
+  return game?.map?.nodes?.find((n) => n.id === nodeId);
+}
+
+function reachableMapNodes() {
+  refreshReachableNodes();
+  return game?.map?.nodes?.filter((n) => n.reachable) || [];
+}
+
+function refreshReachableNodes() {
+  if (!game?.map) return;
+  const current = getMapNode(game.currentNodeId || "start");
+  const nextIds = new Set(current?.next || []);
+  game.map.nodes.forEach((node) => {
+    node.cleared = (game.clearedNodes || []).includes(node.id);
+    node.current = node.id === game.currentNodeId;
+    node.reachable = nextIds.has(node.id) && !node.cleared;
+    node.locked = !node.cleared && !node.current && !node.reachable;
+  });
 }
 
 function doubleDown(seatIndex) {
@@ -995,7 +1268,7 @@ function settleRound() {
   } else if (freeForAllAllOut()) {
     triggerBankruptcyDeath("Every bankroll is gone", loanSigner());
   } else {
-    game.phase = game.hp <= 0 ? "defeat" : game.enemy.hp <= 0 && game.floor === enemyTemplates.length - 1 ? "victory" : "roundOver";
+    game.phase = game.hp <= 0 ? "defeat" : "roundOver";
   }
   broadcast();
 }
@@ -1085,11 +1358,7 @@ function continueAfterRound() {
     return;
   }
   if (game.enemy.hp <= 0) {
-    game.shop = chooseRelics();
-    game.relicVotes = {};
-    ensureShopRelics();
-    game.phase = "shop";
-    log("The wandering merchant appears.");
+    completeMapEncounter();
   } else {
     resetRound();
   }
@@ -1106,11 +1375,7 @@ function buyRelic(index) {
     return flashMsg("Not enough gold");
   }
   sfx("coinDown");
-  game.relics.push(relic);
-  game.foresightUsesLeft += relic.foresightUses || 0;
-  lastRelicName = relic.name;
-  notify(`${relic.name}: ${relic.description}`);
-  log(`Gained relic: ${relic.name}.`);
+  gainRelic(relic);
   nextBattle();
 }
 
@@ -2348,12 +2613,16 @@ function draw() {
   } else if (!game || appScene === "menu") {
     drawMenu();
   } else {
-    drawTable();
-    drawFlyingCards();
-    if (game.phase === "shop") drawShop();
-    if (game.phase === "loanOffer" && canSeeLoanOffer()) drawLoanOffer();
-    if (game.phase === "victory" || game.phase === "defeat") drawEnd();
-    if (game.peekCard) drawPeekOverlay();
+    if (game.phase === "map") {
+      drawDungeonMap();
+    } else {
+      drawTable();
+      drawFlyingCards();
+      if (game.phase === "shop") drawShop();
+      if (game.phase === "loanOffer" && canSeeLoanOffer()) drawLoanOffer();
+      if (game.phase === "victory" || game.phase === "defeat") drawEnd();
+      if (game.peekCard) drawPeekOverlay();
+    }
   }
   if (statsPlayerId) drawStatsOverlay();
   if (rulesOpen) drawRulesOverlay();
@@ -2634,6 +2903,149 @@ function drawDealer(felt) {
   meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
   buttons.push({ x: barX, y: barY, w: barW, h: 78, onClick: () => rulesOpen = true });
+}
+
+function drawDungeonMap() {
+  refreshReachableNodes();
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const mapX = portrait ? 24 : 42;
+  const mapY = portrait ? 150 : 92;
+  const mapW = portrait ? lw - 48 : lw - 380;
+  const mapH = portrait ? Math.min(830, lh - 520) : lh - 170;
+  const panelX = portrait ? 24 : lw - 315;
+  const panelY = portrait ? mapY + mapH + 24 : 92;
+  const panelW = portrait ? lw - 48 : 275;
+  const panelH = portrait ? Math.max(405, lh - panelY - 28) : mapH;
+
+  shadow(0, 28, 70, "rgba(0,0,0,.5)", () => {
+    gradientRound(mapX, mapY, mapW, mapH, 24, [[0, "#20172a"], [.52, "#0f1118"], [1, "#1a241d"]], true);
+  });
+  strokeRound(mapX, mapY, mapW, mapH, 24, game.map.color, 4);
+  strokeRound(mapX + 14, mapY + 14, mapW - 28, mapH - 28, 18, "rgba(238,231,215,.08)", 1);
+  drawMapHeader(lw, portrait);
+  drawMapConnections(mapX, mapY, mapW, mapH);
+  game.map.nodes.forEach((node) => drawMapNode(node, mapX, mapY, mapW, mapH));
+  drawMapPanel(panelX, panelY, panelW, panelH);
+}
+
+function drawMapHeader(lw, portrait) {
+  text(`FLOOR ${game.floor + 1}/${FLOORS}`, lw / 2, portrait ? 58 : 42, portrait ? 30 : 26, C.gold, "center", "serif");
+  text(game.map.theme, lw / 2, portrait ? 94 : 74, portrait ? 24 : 20, C.text, "center");
+  const summary = `Gold ${game.gold}g  •  HP ${game.hp}/${game.maxHp}  •  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`;
+  text(summary, lw / 2, portrait ? 125 : 100, portrait ? 18 : 15, C.muted, "center");
+  addButton(lw - (portrait ? 142 : 124), portrait ? 40 : 28, portrait ? 112 : 90, portrait ? 54 : 38, "Menu", () => menuOpen = true);
+}
+
+function drawMapConnections(mapX, mapY, mapW, mapH) {
+  ctx.save();
+  ctx.lineCap = "round";
+  for (const node of game.map.nodes) {
+    const from = mapPoint(node, mapX, mapY, mapW, mapH);
+    for (const nextId of node.next || []) {
+      const next = getMapNode(nextId);
+      if (!next) continue;
+      const to = mapPoint(next, mapX, mapY, mapW, mapH);
+      const active = node.cleared || node.current;
+      ctx.strokeStyle = active ? "rgba(220,180,70,.72)" : "rgba(238,231,215,.16)";
+      ctx.lineWidth = active ? 5 : 3;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      const midX = (from.x + to.x) / 2;
+      ctx.bezierCurveTo(midX, from.y, midX, to.y, to.x, to.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawMapNode(node, mapX, mapY, mapW, mapH) {
+  const p = mapPoint(node, mapX, mapY, mapW, mapH);
+  const portrait = viewport.portrait;
+  const size = portrait ? 82 : 70;
+  const w = node.kind === "elevator" ? size * .9 : node.kind === "boss" ? size * 1.15 : size;
+  const h = node.kind === "elevator" ? size * 2.1 : node.kind === "boss" ? size * 1.15 : size;
+  const x = p.x - w / 2;
+  const y = p.y - h / 2;
+  const selected = inspectedNodeId === node.id || game.mapVotes?.[localPlayerId] === node.id;
+  const border = node.cleared ? C.green : node.reachable ? C.gold : selected ? C.parchment : "rgba(238,231,215,.22)";
+  const alpha = node.locked ? .5 : 1;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? game.map.color : node.color;
+  shadow(0, selected ? 0 : 14, selected ? 30 : 20, selected ? node.color || C.gold : "rgba(0,0,0,.45)", () => {
+    if (node.kind === "start") {
+      fill(fillColor, x, y, w, h, w / 2);
+    } else if (node.kind === "boss") {
+      polygon(p.x, p.y, w / 2, 8, fillColor);
+    } else {
+      gradientRound(x, y, w, h, 12, [[0, lighten(fillColor, .18)], [1, fillColor]], true);
+    }
+  });
+  if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, selected ? 5 : 3);
+  else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 12, border, selected ? 5 : 3);
+  const label = node.kind === "elevator" ? "E" : node.kind === "start" ? "▶" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
+  text(label, p.x, p.y + (node.kind === "boss" ? 6 : 8), node.kind === "boss" ? 17 : 25, node.kind === "elevator" ? "#fff" : C.black, "center", "serif");
+  if (node.kind === "table" || node.kind === "boss") {
+    text(node.rarity.name, p.x, y + h + (portrait ? 24 : 19), portrait ? 16 : 12, node.rarity.color, "center");
+    text(`★`.repeat(node.threat), p.x, y + h + (portrait ? 45 : 35), portrait ? 15 : 11, C.gold, "center");
+  } else {
+    text(node.label, p.x, y + h + (portrait ? 24 : 18), portrait ? 15 : 11, C.muted, "center");
+  }
+  ctx.restore();
+  buttons.push({ x, y, w, h: h + 48, onClick: () => { inspectedNodeId = node.id; } });
+}
+
+function drawMapPanel(x, y, w, h) {
+  const portrait = viewport.portrait;
+  const selected = getMapNode(inspectedNodeId) || reachableMapNodes()[0] || getMapNode(game.currentNodeId);
+  shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
+    gradientRound(x, y, w, h, 18, [[0, "#2a2037"], [.46, "#14101b"], [1, "#10151a"]], true);
+  });
+  strokeRound(x, y, w, h, 18, "rgba(220,180,70,.32)", 2);
+  text("Route Planner", x + w / 2, y + 42, portrait ? 28 : 22, C.gold, "center", "serif");
+  if (!selected) return;
+  const node = selected;
+  text(node.label, x + 24, y + 82, portrait ? 25 : 19, C.text);
+  text(node.reachable ? "Reachable now" : node.cleared ? "Cleared" : node.current ? "Current position" : "Future path preview", x + 24, y + 112, portrait ? 18 : 14, node.reachable ? C.green : C.muted);
+  if (node.reward) {
+    drawRelicRow(node.reward, x + 24, y + 154, w - 48, true);
+    text(`${node.rarity.name} Reward`, x + 24, y + (portrait ? 254 : 230), portrait ? 20 : 15, node.rarity.color);
+  } else {
+    text(node.kind === "elevator" ? "The elevator opens after the mini boss." : "Gather the party and start the climb.", x + 24, y + 160, portrait ? 20 : 15, C.muted);
+  }
+  if (node.encounter) {
+    const infoY = portrait ? y + 292 : y + 265;
+    fill("rgba(0,0,0,.24)", x + 24, infoY - 24, w - 48, portrait ? 128 : 118, 12);
+    strokeRound(x + 24, infoY - 24, w - 48, portrait ? 128 : 118, 12, "rgba(238,231,215,.10)", 1);
+    text(node.encounter.name, x + 42, infoY + 4, portrait ? 20 : 15, C.gold);
+    text(`Threat ${node.threat}/5`, x + 42, infoY + (portrait ? 34 : 30), portrait ? 18 : 14, C.text);
+    wrapTextSized(node.encounter.description, x + 42, infoY + (portrait ? 62 : 56), w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.muted, 2);
+  }
+  drawMapVotePanel(x, y, w, h, node);
+}
+
+function drawMapVotePanel(x, y, w, h, node) {
+  const portrait = viewport.portrait;
+  const baseY = y + h - (portrait ? 190 : 168);
+  fill("rgba(238,231,215,.06)", x + 24, baseY - 18, w - 48, 1);
+  text("Party votes", x + 24, baseY + 16, portrait ? 20 : 15, C.gold);
+  const votes = game.mapVotes || {};
+  game.seats.forEach((seat, i) => {
+    const voteNode = getMapNode(votes[seat.id]);
+    const ready = game.mapReady?.[seat.id];
+    text(`${ready ? "✓" : "○"} ${fitLabel(seat.name, 90, portrait ? 17 : 13)}: ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 25 : 20), portrait ? 17 : 13, ready ? C.green : C.muted);
+  });
+  const myVote = votes[localPlayerId] === node.id;
+  const canVote = node.reachable && node.kind !== "elevator";
+  const ready = !!game.mapReady?.[localPlayerId];
+  addButton(x + 24, y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, myVote ? "Voted" : "Vote", () => action(`select:${node.id}`), true, canVote);
+  addButton(x + 34 + Math.floor((w - 58) / 2), y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+}
+
+function mapPoint(node, mapX, mapY, mapW, mapH) {
+  return { x: mapX + node.x * mapW, y: mapY + node.y * mapH };
 }
 
 function drawSeats(felt) {
@@ -4177,6 +4589,7 @@ function phaseTitle() {
   if (game.phase === "loanOffer" && !canSeeLoanOffer()) return "Waiting";
   if (game.phase === "player" && isFreeForAll()) return "Free For All";
   return {
+    map: "Choose Route",
     betting: "Betting",
     insurance: "Insurance",
     player: game.freePlay ? "Free Play — Everyone Acts" : game.seats[game.activeSeat]?.id === localPlayerId ? "Your Turn" : `${game.seats[game.activeSeat]?.name}'s Turn`,
@@ -4307,6 +4720,41 @@ function strokeRound(x, y, w, h, r, color, line = 1) {
   ctx.lineWidth = line;
   pathRound(x, y, w, h, r);
   ctx.stroke();
+}
+
+function polygon(cx, cy, radius, sides, color) {
+  pathPolygon(cx, cy, radius, sides);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function polygonStroke(cx, cy, radius, sides, color, line = 1) {
+  pathPolygon(cx, cy, radius, sides);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = line;
+  ctx.stroke();
+}
+
+function pathPolygon(cx, cy, radius, sides) {
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const angle = -Math.PI / 2 + i * Math.PI * 2 / sides;
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy + Math.sin(angle) * radius;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function lighten(hex, amount = .15) {
+  const raw = String(hex).replace("#", "");
+  if (raw.length !== 6) return hex;
+  const n = parseInt(raw, 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) + 255 * amount));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) + 255 * amount));
+  const b = Math.min(255, Math.round((n & 255) + 255 * amount));
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function pathRound(x, y, w, h, r) {
