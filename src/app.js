@@ -3216,10 +3216,10 @@ function drawDealer(felt) {
   strokeRound(barX, barY, barW, 78, 14, hexToRgba(ui.border, .24), 1);
   shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
   text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
-  text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, ui.titleWarm);
   const meterW = portrait ? 180 : 220;
   const meterX = barX + barW - meterW - 30;
   const descriptionW = portrait ? 300 : Math.max(160, Math.min(460, barW - meterW - 150));
+  textFit(e.name, barX + 82, barY + 28, Math.max(120, meterX - barX - 102), portrait ? 23 : 22, ui.titleWarm);
   wrapTextSized(e.description, barX + 82, barY + 56, descriptionW, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
   meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
@@ -3502,7 +3502,7 @@ function drawPolishedMapPanel(x, y, w, h) {
   const contentW = w - 48;
   const status = node.reachable ? "Reachable now" : node.cleared ? "Cleared" : node.current ? "Current position" : "Future path preview";
   const statusColor = node.reachable ? C.green : node.cleared ? C.green : C.muted;
-  text(fitLabel(node.label, contentW, portrait ? 26 : 20), contentX, y + 104, portrait ? 26 : 20, C.text);
+  textFit(node.label, contentX, y + 104, contentW, portrait ? 26 : 20, C.text);
   badge(contentX + 72, y + 132, status, statusColor);
 
   const rewardY = y + (portrait ? 172 : 158);
@@ -3529,7 +3529,7 @@ function drawMapRewardCard(node, x, y, w, portrait) {
     return;
   }
   drawRelicIcon(node.reward, x + 37, y + 50, portrait ? 58 : 50, node.rarity.color);
-  text(fitLabel(node.reward.name, w - 82, portrait ? 21 : 16), x + 66, y + 34, portrait ? 21 : 16, node.rarity.color);
+  textFit(node.reward.name, x + 66, y + 34, w - 82, portrait ? 21 : 16, node.rarity.color);
   wrapTextSized(node.reward.description, x + 66, y + 60, w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.text, 2);
   buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: `${node.rarity.name} relic reward`, color: node.rarity.color, body: node.reward.description, relic: node.reward }; } });
 }
@@ -3540,7 +3540,7 @@ function drawMapEncounterCard(node, x, y, w, portrait) {
   const h = portrait ? 112 : 104;
   fill("rgba(0,0,0,.28)", x, y, w, h, 14);
   strokeRound(x, y, w, h, 14, "rgba(238,231,215,.12)", 1);
-  text(fitLabel(node.encounter.name, w - 34, portrait ? 20 : 15), x + 18, y + 31, portrait ? 20 : 15, ui.title);
+  textFit(node.encounter.name, x + 18, y + 31, w - 34, portrait ? 20 : 15, ui.title);
   text(`Threat ${node.threat}/5`, x + 18, y + (portrait ? 59 : 54), portrait ? 18 : 13, C.text);
   wrapTextSized(node.encounter.description, x + 18, y + (portrait ? 84 : 77), w - 36, portrait ? 17 : 12, portrait ? 14 : 11, C.muted, 2);
   buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.encounter.name, subtitle: `Threat ${node.threat}/5`, color: ui.title, body: `${node.encounter.description} Higher threat tables hit harder, pay better relic rarity, and usually have nastier house rules.` }; } });
@@ -3563,7 +3563,7 @@ function drawMapInfoOverlay() {
     gradientRound(x, y, w, h, 22, [[0, ui.panelTop], [.5, ui.panelMid], [1, ui.panelBottom]], true);
   });
   strokeRound(x, y, w, h, 22, mapInfoDetail.color || ui.title, 2);
-  text(mapInfoDetail.title, x + 28, y + 48, portrait ? 28 : 23, mapInfoDetail.color || ui.title, "left", "serif");
+  textFit(mapInfoDetail.title, x + 28, y + 48, hasRelicArt ? w - (portrait ? 172 : 144) : w - 56, portrait ? 28 : 23, mapInfoDetail.color || ui.title, "left", "serif");
   if (mapInfoDetail.subtitle) text(mapInfoDetail.subtitle, x + 28, y + 78, portrait ? 18 : 14, C.muted);
   if (hasRelicArt) {
     const iconSize = portrait ? 104 : 88;
@@ -3602,7 +3602,7 @@ function drawRelicRewardPopup() {
   text("TABLE CLEARED", x + w / 2, y + 51, portrait ? 26 : 20, C.muted, "center", "serif");
   text("Relic Acquired", x + w / 2, y + 82, portrait ? 32 : 26, C.gold, "center", "serif");
   drawRelicIcon(relic, x + w / 2, y + (portrait ? 158 : 142), portrait ? 96 : 82, color);
-  text(fitLabel(relic.name, w - 72, portrait ? 34 : 28), x + w / 2, y + (portrait ? 234 : 210), portrait ? 34 : 28, color, "center");
+  textFit(relic.name, x + w / 2, y + (portrait ? 234 : 210), w - 72, portrait ? 34 : 28, color, "center");
   wrapTextSized(relic.description, x + 50, y + (portrait ? 282 : 250), w - 100, portrait ? 26 : 21, portrait ? 21 : 17, C.text, 3);
   addButton(x + 38, y + h - (portrait ? 82 : 66), w - 76, portrait ? 58 : 48, "Continue", () => { game.relicPopup = null; }, true);
 }
@@ -3623,7 +3623,7 @@ function drawPartyMapControls(x, y, w, h, node, portrait) {
     const voteNode = getMapNode(votes[seat.id]);
     const ready = game.mapReady?.[seat.id];
     const prefix = ready ? "Ready" : "Open";
-    text(`${prefix}: ${fitLabel(seat.name, 80, portrait ? 16 : 12)} -> ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 24 : 19), portrait ? 16 : 12, ready ? C.green : C.muted);
+    textFit(`${prefix}: ${seat.name} -> ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 24 : 19), w - 48, portrait ? 16 : 12, ready ? C.green : C.muted);
   });
   const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
@@ -3680,19 +3680,19 @@ function drawMapPanel(x, y, w, h) {
   text("Route Planner", x + w / 2, y + 42, portrait ? 28 : 22, C.gold, "center", "serif");
   if (!selected) return;
   const node = selected;
-  text(node.label, x + 24, y + 82, portrait ? 25 : 19, C.text);
-  text(node.reachable ? "Reachable now" : node.cleared ? "Cleared" : node.current ? "Current position" : "Future path preview", x + 24, y + 112, portrait ? 18 : 14, node.reachable ? C.green : C.muted);
+  textFit(node.label, x + 24, y + 82, w - 48, portrait ? 25 : 19, C.text);
+  textFit(node.reachable ? "Reachable now" : node.cleared ? "Cleared" : node.current ? "Current position" : "Future path preview", x + 24, y + 112, w - 48, portrait ? 18 : 14, node.reachable ? C.green : C.muted);
   if (node.reward) {
     drawRelicRow(node.reward, x + 24, y + 154, w - 48, true);
-    text(`${node.rarity.name} Reward`, x + 24, y + (portrait ? 254 : 230), portrait ? 20 : 15, node.rarity.color);
+    textFit(`${node.rarity.name} Reward`, x + 24, y + (portrait ? 254 : 230), w - 48, portrait ? 20 : 15, node.rarity.color);
   } else {
-    text(node.kind === "elevator" ? "The elevator opens after the mini boss." : "Gather the party and start the climb.", x + 24, y + 160, portrait ? 20 : 15, C.muted);
+    textFit(node.kind === "elevator" ? "The elevator opens after the mini boss." : "Gather the party and start the climb.", x + 24, y + 160, w - 48, portrait ? 20 : 15, C.muted);
   }
   if (node.encounter) {
     const infoY = portrait ? y + 292 : y + 265;
     fill("rgba(0,0,0,.24)", x + 24, infoY - 24, w - 48, portrait ? 128 : 118, 12);
     strokeRound(x + 24, infoY - 24, w - 48, portrait ? 128 : 118, 12, "rgba(238,231,215,.10)", 1);
-    text(node.encounter.name, x + 42, infoY + 4, portrait ? 20 : 15, C.gold);
+    textFit(node.encounter.name, x + 42, infoY + 4, w - 84, portrait ? 20 : 15, C.gold);
     text(`Threat ${node.threat}/5`, x + 42, infoY + (portrait ? 34 : 30), portrait ? 18 : 14, C.text);
     wrapTextSized(node.encounter.description, x + 42, infoY + (portrait ? 62 : 56), w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.muted, 2);
   }
@@ -3708,7 +3708,7 @@ function drawMapVotePanel(x, y, w, h, node) {
   game.seats.forEach((seat, i) => {
     const voteNode = getMapNode(votes[seat.id]);
     const ready = game.mapReady?.[seat.id];
-    text(`${ready ? "✓" : "○"} ${fitLabel(seat.name, 90, portrait ? 17 : 13)}: ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 25 : 20), portrait ? 17 : 13, ready ? C.green : C.muted);
+    textFit(`${ready ? "✓" : "○"} ${seat.name}: ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 25 : 20), w - 48, portrait ? 17 : 13, ready ? C.green : C.muted);
   });
   const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
@@ -3932,7 +3932,7 @@ function drawLogPreview(x, y, w, h, size) {
   const latest = game.log?.[0] || "No activity yet.";
   fill("rgba(238,231,215,.045)", x - 8, y - 22, w + 16, h, 8);
   strokeRound(x - 8, y - 22, w + 16, h, 8, "rgba(238,231,215,.1)", 1);
-  text(fitLabel(latest, w, size), x, y, size, C.muted);
+  textFit(latest, x, y, w, size, C.muted);
   text("Click for full log", x, y + Math.max(18, size + 8), Math.max(11, size - 4), activeFloorUi().title);
   buttons.push({ x: x - 8, y: y - 22, w: w + 16, h, onClick: () => { logOpen = true; } });
 }
@@ -3944,7 +3944,7 @@ function drawRelicRow(relic, x, y, w, highlight = false) {
   gradientRound(x, y - 14, w, rowH, 8, highlight ? [[0, ui.panelTop], [1, ui.panelBottom]] : [[0, "#1d1624"], [1, "#100d15"]]);
   strokeRound(x, y - 14, w, rowH, 8, highlight ? ui.title : "rgba(238,231,215,.12)", 1);
   drawRelicIcon(relic, x + (portrait ? 29 : 23), y + (portrait ? 22 : 13), portrait ? 44 : 34, C.gold);
-  text(relic.name, x + (portrait ? 62 : 50), y + (portrait ? 8 : 4), portrait ? 18 : 14, C.gold);
+  textFit(relic.name, x + (portrait ? 62 : 50), y + (portrait ? 8 : 4), w - (portrait ? 74 : 58), portrait ? 18 : 14, C.gold);
   wrapTextSized(relic.description, x + (portrait ? 62 : 50), y + (portrait ? 34 : 24), w - (portrait ? 74 : 58), portrait ? 18 : 14, portrait ? 15 : 12, C.muted, 2);
 }
 
@@ -4095,7 +4095,7 @@ function drawShopRelicCard(relic, index, x, y) {
   fill("rgba(220,180,70,.08)", x + 14, y + 14, cardW - 28, portrait ? 88 : 76, 12);
   const iconSize = portrait ? 78 : 64;
   drawRelicIcon(relic, x + 20 + iconSize / 2, y + 20 + iconSize / 2, iconSize, C.gold);
-  text(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), portrait ? 27 : 20, C.gold);
+  textFit(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), cardW - (portrait ? 150 : 130), portrait ? 27 : 20, C.gold);
   wrapTextSized(relic.description, x + (portrait ? 116 : 100), y + (portrait ? 82 : 72), cardW - (portrait ? 150 : 130), portrait ? 22 : 17, portrait ? 18 : 14, C.text, 2);
   fill("rgba(7,5,10,.46)", x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10);
   strokeRound(x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10, "rgba(238,231,215,.12)", 1);
@@ -5457,7 +5457,7 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
   const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
-  text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? ui.primaryText : enabled ? C.text : C.muted, "center");
+  textFit(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), w - 12, fontSize, primary ? ui.primaryText : enabled ? C.text : C.muted, "center");
 }
 
 function badge(x, y, label, color) {
@@ -5468,7 +5468,7 @@ function badge(x, y, label, color) {
   const height = portrait ? 40 : 32;
   gradientRound(x - width / 2, y - height / 2, width, height, height / 2, [[0, "#1b1621"], [1, "#08070b"]], true);
   strokeRound(x - width / 2, y - height / 2, width, height, height / 2, color, 1.5);
-  text(label, x, y + (portrait ? 7 : 6), size, color, "center");
+  textFit(label, x, y + (portrait ? 7 : 6), width - (portrait ? 18 : 14), size, color, "center");
 }
 
 function meter(x, y, w, h, value, c1, c2) {
@@ -5703,6 +5703,21 @@ function text(str, x, y, size, color, align = "left", family = "sans-serif") {
   ctx.fillText(String(str), x, y);
 }
 
+function ellipsizeText(value, maxWidth, size, family = "sans-serif") {
+  let result = String(value ?? "");
+  ctx.font = `700 ${size}px ${family}`;
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0 || ctx.measureText(result).width <= maxWidth) return result;
+  const ellipsis = "…";
+  while (result.length > 1 && ctx.measureText(`${result}${ellipsis}`).width > maxWidth) {
+    result = result.slice(0, -1);
+  }
+  return result.length ? `${result}${ellipsis}` : ellipsis;
+}
+
+function textFit(str, x, y, maxWidth, size, color, align = "left", family = "sans-serif") {
+  text(ellipsizeText(str, maxWidth, size, family), x, y, size, color, align, family);
+}
+
 function wrapText(str, x, y, width, lineHeight, color) {
   const words = str.split(" ");
   let line = "";
@@ -5731,17 +5746,23 @@ function wrapTextSized(str, x, y, width, lineHeight, size, color, maxLines = Inf
     if (ctx.measureText(test).width > width && line) {
       lines++;
       if (lines >= maxLines) {
-        text(`${line.replace(/\.*$/, "")}...`, x, cy, size, color);
+        textFit(`${line.replace(/\.*$/, "")}…`, x, cy, width, size, color);
         return;
       }
-      text(line, x, cy, size, color);
+      textFit(line, x, cy, width, size, color);
       line = word;
       cy += lineHeight;
+    } else if (ctx.measureText(test).width > width && !line) {
+      lines++;
+      textFit(test, x, cy, width, size, color);
+      line = "";
+      cy += lineHeight;
+      if (lines >= maxLines) return;
     } else {
       line = test;
     }
   }
-  if (line && lines < maxLines) text(line, x, cy, size, color);
+  if (line && lines < maxLines) textFit(line, x, cy, width, size, color);
 }
 
 function wrapLines(str, width, size) {
@@ -5842,7 +5863,7 @@ function drawStatsOverlay() {
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
   gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true);
   strokeRound(x, y, w, h, 18, C.goldDim, 2);
-  text(`${playerRankIcon(seat)}${seat.name}`, x + 34, y + 58, viewport.portrait ? 34 : 28, seatInDebt(seat) ? C.red : C.gold, "left", "serif");
+  textFit(`${playerRankIcon(seat)}${seat.name}`, x + 34, y + 58, w - 250, viewport.portrait ? 34 : 28, seatInDebt(seat) ? C.red : C.gold, "left", "serif");
   const profit = Number(seat.profit) || 0;
   text(`Total ${profit >= 0 ? "+" : ""}${profit}g`, x + w - 34, y + 58, 23, profit >= 0 ? C.green : C.red, "right");
   const gx = x + 40, gy = y + 115, gw = w - 80, gh = h - 205;
@@ -5876,7 +5897,7 @@ function drawRulesOverlay() {
   gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#15101c"]], true);
   strokeRound(x, y, w, h, 18, game.enemy.color, 3);
   text("HOUSE RULES", lw / 2, y + 60, 31, C.gold, "center", "serif");
-  text(game.enemy.name, lw / 2, y + 101, 22, C.text, "center");
+  textFit(game.enemy.name, lw / 2, y + 101, Math.min(520, lw - 120), 22, C.text, "center");
   const rules = houseRules();
   rules.forEach((rule, i) => {
     fill("rgba(238,231,215,.055)", x + 36, y + 132 + i * 54, w - 72, 42, 8);
