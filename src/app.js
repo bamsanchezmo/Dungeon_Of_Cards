@@ -3939,7 +3939,7 @@ function drawDeveloperPanel() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   const panelW = Math.min(portrait ? 680 : 760, lw - 56);
-  const panelH = portrait ? 880 : 720;
+  const panelH = portrait ? 1040 : 720;
   const x = lw / 2 - panelW / 2;
   const y = Math.max(34, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
@@ -3951,8 +3951,8 @@ function drawDeveloperPanel() {
   const colGap = 18;
   const cols = panelW > 560 ? 2 : 1;
   const colW = (panelW - 72 - (cols - 1) * colGap) / cols;
-  const bh = portrait ? 58 : 46;
-  const rowGap = portrait ? 12 : 10;
+  const bh = portrait ? 52 : 38;
+  const rowGap = portrait ? 9 : 6;
   const startY = y + 122;
   const leftX = x + 36;
   const addDevButton = (index, label, fn, primary = false, enabled = true) => {
@@ -3963,7 +3963,7 @@ function drawDeveloperPanel() {
 
   let i = 0;
   for (const scenario of developerScenarios()) {
-    addDevButton(i++, scenario.label, scenario.run, !!scenario.primary);
+    addDevButton(i++, scenario.label, scenario.run, !!scenario.primary, scenario.enabled !== false);
   }
 
   const infoY = startY + Math.ceil(i / cols) * (bh + rowGap) + 20;
@@ -3994,7 +3994,12 @@ function developerScenarios() {
     { label: "Debt Payment Display", run: devScenarioDebtPayment },
     { label: "Ready / Kick Lobby", run: devScenarioReadyKickLobby },
     { label: "Death Audio Flow", run: devScenarioDeathAudio },
-    { label: "HP + Money Animations", run: devScenarioFeedbackAnimations }
+    { label: "HP + Money Animations", run: devScenarioFeedbackAnimations },
+    { label: "Map Navigator", run: devScenarioMapNavigator, primary: true },
+    { label: "Dev: Prev Floor", run: devMapPreviousFloor, enabled: !!game?.developerTest },
+    { label: "Dev: Next Floor", run: devMapNextFloor, enabled: !!game?.developerTest },
+    { label: "Dev: Enter Selected", run: devMapEnterSelected, enabled: !!game?.developerTest },
+    { label: "Dev: Clear Encounter", run: devMapClearEncounter, enabled: !!game?.developerTest }
   ];
 }
 
@@ -4233,6 +4238,88 @@ function devScenarioFeedbackAnimations() {
   queueHpAnimation(100, 62, 100);
   queueMoneyAnimation(75);
   game.log.push("Large HP loss and money gain animations are queued.");
+}
+
+function devScenarioMapNavigator() {
+  const seat = beginDeveloperTest("map navigator", "classic");
+  game.floor = 0;
+  game.map = createFloorMap(game.floor);
+  game.currentNodeId = "start";
+  game.clearedNodes = ["start"];
+  game.activeEncounterId = "";
+  game.mapVotes = {};
+  game.mapReady = {};
+  inspectedNodeId = "start-1";
+  game.enemy = cloneEnemy(0);
+  game.phase = "map";
+  seat.hands = [];
+  seat.ready = false;
+  refreshReachableNodes();
+  game.log.push("Dev map controls: inspect any table, Enter Selected, then Clear Encounter.");
+}
+
+function devSetFloor(floorIndex) {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  developerPanelOpen = false;
+  game.floor = clamp(floorIndex, 0, FLOORS - 1);
+  game.map = createFloorMap(game.floor);
+  game.currentNodeId = "start";
+  game.clearedNodes = ["start"];
+  game.activeEncounterId = "";
+  game.mapVotes = {};
+  game.mapReady = {};
+  inspectedNodeId = "start-1";
+  game.enemy = cloneEnemy(game.floor);
+  game.phase = "map";
+  game.dealer = [];
+  game.seats.forEach((seat) => {
+    seat.ready = false;
+    seat.hands = [];
+    seat.finished = false;
+    seat.spectating = false;
+  });
+  refreshReachableNodes();
+  notify(`Developer floor ${game.floor + 1}`);
+}
+
+function devMapPreviousFloor() {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  devSetFloor((Number(game.floor) || 0) - 1);
+}
+
+function devMapNextFloor() {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  devSetFloor((Number(game.floor) || 0) + 1);
+}
+
+function devMapEnterSelected() {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  if (game.phase !== "map") return flashMsg("Already at a table");
+  refreshReachableNodes();
+  const node = getMapNode(inspectedNodeId) || reachableMapNodes()[0];
+  if (!node || !node.encounter) return flashMsg("Select a table or boss node");
+  game.mapVotes ||= {};
+  game.mapVotes[localPlayerId] = node.id;
+  startMapEncounter(node.id);
+  game.developerTest = true;
+  developerPanelOpen = false;
+  game.log.push(`Developer entered ${node.label} without route restrictions.`);
+}
+
+function devMapClearEncounter() {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  if (game.phase === "map") {
+    const node = getMapNode(inspectedNodeId);
+    if (!node?.encounter) return flashMsg("Select a table or boss to clear");
+    game.activeEncounterId = node.id;
+  }
+  const node = getMapNode(game.activeEncounterId);
+  if (!node) return flashMsg("No active encounter to clear");
+  game.enemy.hp = 0;
+  completeMapEncounter();
+  game.developerTest = true;
+  developerPanelOpen = false;
+  notify(`Cleared ${node.label}`);
 }
 
 function setHandCarousel(seatId, next, count = Infinity) {
