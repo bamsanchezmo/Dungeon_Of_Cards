@@ -3636,7 +3636,7 @@ function drawLeaderboardPanel(x, y, w, h) {
 
 function drawTable() {
   const felt = viewport.portrait
-    ? { x: 24, y: 42, w: layoutW() - 48, h: 730 }
+    ? { x: 12, y: 18, w: layoutW() - 24, h: Math.max(920, layoutH() - 238) }
     : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
   const scene = tableSceneAssets();
   const theme = feltTheme();
@@ -3707,8 +3707,8 @@ function tableSceneAsset(key) {
 function drawEncounterTableArt(felt, scene) {
   if (!scene.table && scene.boss) return null;
   const portrait = viewport.portrait;
-  const targetW = Math.min(felt.w * (portrait ? .96 : .9), portrait ? 700 : 1260);
-  const targetH = portrait ? 390 : 520;
+  const targetW = Math.min(felt.w * (portrait ? 1.02 : .9), portrait ? 760 : 1260);
+  const targetH = portrait ? 540 : 520;
   const x = felt.x + felt.w / 2 - targetW / 2;
   const y = felt.y + (felt.h - targetH) / 2 + (portrait ? 8 : 18);
   let tableRect = null;
@@ -4189,7 +4189,7 @@ function shouldDrawMapEdge(fromNode, toNode, selectedRouteId) {
 function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const p = mapPoint(node, mapX, mapY, mapW, mapH);
   const portrait = viewport.portrait;
-  const size = portrait ? 72 : 70;
+  const size = portrait ? 64 : 70;
   const w = node.kind === "elevator" ? size * .86 : node.kind === "boss" ? size * 1.18 : size;
   const h = node.kind === "elevator" ? size * 2.08 : node.kind === "boss" ? size * 1.18 : size;
   const x = p.x - w / 2;
@@ -4254,7 +4254,8 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
     text(node.rarity.name, textX, tagY + (portrait ? 18 : 14), portrait ? 15 : 11, node.rarity.color, "center");
     text(`Threat ${node.threat}`, textX, tagY + (portrait ? 36 : 28), portrait ? 12 : 10, C.muted, "center");
   } else {
-    text(node.label, p.x, y + h + (portrait ? 24 : 18), portrait ? 15 : 11, C.muted, "center");
+    const labelY = portrait && (node.kind === "elevator" || node.kind === "start") ? y - 10 : y + h + (portrait ? 24 : 18);
+    text(node.label, p.x, labelY, portrait ? 15 : 11, C.muted, "center");
   }
   ctx.restore();
   const hitRect = node.kind === "table" ? mapTableHitRect(p, w, h) : { x, y, w, h: h + 50 };
@@ -4715,15 +4716,36 @@ function drawMapVotePanel(x, y, w, h, node) {
 
 function mapPoint(node, mapX, mapY, mapW, mapH) {
   if (isPortraitMap()) {
-    const padX = Math.min(96, mapW * .18);
-    const padTop = Math.min(92, mapH * .1);
-    const padBottom = Math.min(260, Math.max(190, mapH * .18));
+    const padX = Math.min(56, mapW * .08);
+    const padTop = Math.min(76, mapH * .075);
+    const padBottom = Math.min(150, Math.max(112, mapH * .12));
+    const progress = portraitMapProgress(node);
     return {
       x: mapX + padX + (1 - node.y) * Math.max(1, mapW - padX * 2),
-      y: mapY + padTop + (1 - node.x) * Math.max(1, mapH - padTop - padBottom)
+      y: mapY + padTop + progress * Math.max(1, mapH - padTop - padBottom)
     };
   }
   return { x: mapX + node.x * mapW, y: mapY + node.y * mapH };
+}
+
+function portraitMapProgress(node) {
+  if (!node) return .5;
+  if (node.kind === "elevator") return .025;
+  if (node.kind === "boss") return .155;
+  if (node.id === "start-1") return .86;
+  if (node.kind === "start") return .995;
+  const match = String(node.id || "").match(/^c(\d+)-/);
+  if (match) {
+    const columns = Math.max(1, (game?.map?.nodes || [])
+      .map((n) => String(n.id || "").match(/^c(\d+)-/))
+      .filter(Boolean)
+      .reduce((max, m) => Math.max(max, Number(m[1]) + 1), 0));
+    const rungTop = .28;
+    const rungBottom = .70;
+    const t = columns <= 1 ? .5 : Number(match[1]) / Math.max(1, columns - 1);
+    return lerp(rungBottom, rungTop, t);
+  }
+  return clamp(1 - (Number(node.x) || .5), .08, .92);
 }
 
 function isPortraitMap() {
@@ -4859,40 +4881,39 @@ function drawSidePanel() {
 }
 
 function drawBottomPanel() {
+  drawMobileGameplayDock();
+}
+
+function drawMobileGameplayDock() {
   const x = 24;
-  const y = 800;
   const w = layoutW() - 48;
-  const h = Math.max(720, layoutH() - y - 28);
-  const theme = activeFloorColor();
   const ui = activeFloorUi();
-  shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
-    gradientRound(x, y, w, h, 18, [
-      [0, ui.panelTop],
-      [.46, ui.panelMid],
-      [1, ui.panelBottom]
-    ], true);
+  const dockH = game.phase === "player" && game.foresightUsesLeft > 0 ? 360 : game.phase === "player" ? 318 : game.phase === "betting" ? 300 : 178;
+  const y = layoutH() - dockH - 18;
+  shadow(0, -10, 44, "rgba(0,0,0,.48)", () => {
+    gradientRound(x, y, w, dockH, 22, [[0, "rgba(10,8,14,.46)"], [.35, hexToRgba(ui.panelTop, .82)], [1, hexToRgba(ui.panelBottom, .95)]], true);
   });
-  strokeRound(x, y, w, h, 18, hexToRgba(ui.border, .6), 2);
-  text("DUNGEON OF CARDS", x + w / 2, y + 48, 30, ui.titleWarm, "center", "serif");
-  addButton(x + w - 140, y + 18, 112, 54, "Menu", () => menuOpen = true);
+  strokeRound(x, y, w, dockH, 22, hexToRgba(ui.border, .58), 2);
 
-  const leftX = x + 24;
-  const rightStatX = x + w - 250;
-  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, leftX, y + 98, 24, C.text);
-  drawGoldDebtLine(leftX, y + 134, 24);
-  meter(rightStatX, y + 96, 220, 18, game.hp / game.maxHp, C.red, C.green);
-  text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
-  if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
+  const statY = y + 28;
+  text(`F${game.floor + 1}/${enemyTemplates.length}`, x + 28, statY, 22, C.text);
+  drawGoldDebtLine(x + 96, statY, 21);
+  const hpW = 180;
+  meter(x + w - hpW - 24, statY - 13, hpW, 14, game.hp / game.maxHp, C.red, C.green);
+  text(`HP ${game.hp}/${game.maxHp}`, x + w - hpW / 2 - 24, statY + 20, 16, C.text, "center");
+  addButton(x + w - 130, y + 48, 104, 46, "Menu", () => menuOpen = true);
 
-  gradientRound(leftX, y + 192, w - 48, 58, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
-  strokeRound(leftX, y + 192, w - 48, 58, 12, hexToRgba(ui.border, .24), 1);
-  text(phaseTitle(), x + w / 2, y + 230, 29, C.text, "center");
-  drawActionButtons(leftX, y + 264);
+  const phaseY = y + 82;
+  gradientRound(x + 18, phaseY - 26, w - 160, 48, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
+  strokeRound(x + 18, phaseY - 26, w - 160, 48, 12, hexToRgba(ui.border, .24), 1);
+  textFit(phaseTitle(), x + 36, phaseY + 4, w - 196, 24, C.text, "center");
 
-  fill("rgba(238,231,215,.06)", leftX, y + 560, w - 48, 1);
-  drawRelicPanel(leftX, y + 598, 320);
-  text("Log", x + 392, y + 598, 24, ui.title);
-  drawLogPreview(x + 392, y + 636, w - 440, 52, 19);
+  drawActionButtons(x + 24, y + 118);
+
+  const infoY = y + dockH - 38;
+  textFit(game.relics.length ? `${game.relics.length} relic${game.relics.length === 1 ? "" : "s"} — tap` : "No relics yet", x + 26, infoY, 220, 16, ui.title);
+  buttons.push({ x: x + 18, y: infoY - 28, w: 230, h: 48, onClick: () => { relicsOpen = true; relicPage = 0; } });
+  drawLogPreview(x + 284, infoY, w - 310, 38, 15);
 }
 
 function drawRelicPanel(x, y, w) {
@@ -4959,20 +4980,20 @@ function drawRelicRow(relic, x, y, w, highlight = false) {
 
 function drawActionButtons(x, y) {
   if (viewport.portrait) {
-    const gap = 14;
+    const gap = 10;
     const bw = Math.floor((layoutW() - 96 - gap) / 2);
-    const bh = 64;
+    const bh = 54;
     const full = bw * 2 + gap;
     if (game.phase === "betting") {
       if (isFreeForAll() && mySeat()?.bankrupt) {
-        addButton(x, y, full, 72, "Bankrupt", () => {}, false, false);
+        addButton(x, y, full, 62, "Bankrupt", () => {}, false, false);
         return;
       }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
-      addButton(x, y + 76, bw, bh, "Min", () => action("minBet"));
-      addButton(x + bw + gap, y + 76, bw, bh, "Max", () => action("maxBet"));
-      addButton(x, y + 152, full, 72, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      addButton(x, y + 62, bw, bh, "Min", () => action("minBet"));
+      addButton(x + bw + gap, y + 62, bw, bh, "Max", () => action("maxBet"));
+      addButton(x, y + 124, full, 62, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
       return;
     }
     if (game.phase === "insurance") {
@@ -4985,16 +5006,16 @@ function drawActionButtons(x, y) {
       const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
       addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
       addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
-      addButton(x, y + 76, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
-      addButton(x + bw + gap, y + 76, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
-      addButton(x, y + 152, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+      addButton(x, y + 62, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
+      addButton(x + bw + gap, y + 62, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
+      addButton(x, y + 124, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
       if (game.foresightUsesLeft > 0) {
-        addButton(x, y + 228, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
+        addButton(x, y + 186, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
       }
       return;
     }
     if (["roundOver", "victory", "defeat"].includes(game.phase)) {
-      addButton(x, y, full, 76, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
+      addButton(x, y, full, 64, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
     }
     return;
   }
