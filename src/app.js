@@ -190,6 +190,7 @@ let rulesOpen = false;
 let relicsOpen = false;
 let relicPage = 0;
 let inspectedNodeId = "";
+let mapInfoDetail = null;
 let signalKind = "";
 let developerModeUnlocked = false;
 let developerPanelOpen = false;
@@ -640,15 +641,30 @@ function createFloorMap(floorIndex) {
       node("start-1", "Starter Table", "table", .22, .50, ["top-1", "bottom-1"], 0),
       node("top-1", "Upper Table", "table", .38, .30, ["top-2a", "top-2b"], 1),
       node("bottom-1", "Lower Table", "table", .38, .70, ["bottom-2a", "bottom-2b"], 1),
-      node("top-2a", "Skybox Table", "table", .55, .18, ["boss"], 1),
-      node("top-2b", "Neon Table", "table", .55, .42, ["boss"], 2),
-      node("bottom-2a", "Vault Table", "table", .55, .58, ["boss"], 2),
-      node("bottom-2b", "Basement Table", "table", .55, .82, ["boss"], 1),
-      node("boss", "Mini Boss", "boss", .75, .50, ["elevator"]),
+      node("top-2a", "Skybox Table", "table", .55, .16, ["boss"], 1),
+      node("top-2b", "Neon Table", "table", .55, .34, ["boss"], 2),
+      node("bottom-2a", "Vault Table", "table", .55, .66, ["boss"], 2),
+      node("bottom-2b", "Basement Table", "table", .55, .84, ["boss"], 1),
+      node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"]),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
   };
   return map;
+}
+
+function floorBossName(floorIndex) {
+  return [
+    "Bramble Bookie",
+    "Madam Jackpot",
+    "The Velvet Warden",
+    "Bone Croupier",
+    "Vault Baron",
+    "Mirror Marquis",
+    "Dragon Banker",
+    "Clockwork Pit Boss",
+    "Black Felt Marshal",
+    "The House"
+  ][Math.min(floorIndex, FLOORS - 1)];
 }
 
 function floorThemeName(floorIndex) {
@@ -730,7 +746,7 @@ function describeRelic(relic, fallback) {
 function createMapEnemy(floorIndex, kind, threat, id) {
   if (kind === "boss") {
     const boss = cloneEnemy(floorIndex);
-    boss.name = floorIndex === FLOORS - 1 ? "The House" : boss.name;
+    boss.name = floorBossName(floorIndex);
     boss.color = bossTableColor(floorIndex);
     return boss;
   }
@@ -2816,6 +2832,7 @@ function draw() {
   if (statsPlayerId) drawStatsOverlay();
   if (rulesOpen) drawRulesOverlay();
   if (relicsOpen) drawRelicsOverlay();
+  if (mapInfoDetail) drawMapInfoOverlay();
   drawFeedbackAnimations();
   if (menuOpen) {
     buttons = [];
@@ -3264,15 +3281,17 @@ function drawDeveloperTableNavigatorControls() {
 function drawMapConnections(mapX, mapY, mapW, mapH) {
   ctx.save();
   ctx.lineCap = "round";
+  const selectedRouteId = game.mapVotes?.[localPlayerId] || inspectedNodeId;
   for (const node of game.map.nodes) {
     const from = mapPoint(node, mapX, mapY, mapW, mapH);
     for (const nextId of node.next || []) {
       const next = getMapNode(nextId);
       if (!next) continue;
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
-      const active = node.cleared || node.current;
-      ctx.strokeStyle = active ? "rgba(220,180,70,.76)" : "rgba(238,231,215,.32)";
-      ctx.lineWidth = active ? 5 : 3.5;
+      const selectedReachableEdge = nextId === selectedRouteId && next.reachable && (node.current || node.cleared);
+      const clearedEdge = node.cleared && next.cleared;
+      ctx.strokeStyle = selectedReachableEdge ? "rgba(220,180,70,.86)" : clearedEdge ? "rgba(92,190,120,.58)" : "rgba(238,231,215,.32)";
+      ctx.lineWidth = selectedReachableEdge ? 5.5 : clearedEdge ? 4.5 : 3.5;
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       const midX = (from.x + to.x) / 2;
@@ -3292,7 +3311,9 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const x = p.x - w / 2;
   const y = p.y - h / 2;
   const selected = inspectedNodeId === node.id || game.mapVotes?.[localPlayerId] === node.id;
-  const border = node.cleared ? C.green : node.reachable ? C.gold : selected ? C.parchment : "rgba(238,231,215,.46)";
+  const selectedReachable = selected && node.reachable;
+  const selectedFuture = selected && !node.reachable && !node.cleared && !node.current;
+  const border = node.cleared ? C.green : selectedReachable ? C.gold : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? C.parchment : node.reachable ? "rgba(238,231,215,.66)" : "rgba(238,231,215,.46)";
   const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
   const lockedAlpha = node.locked ? .78 : 1;
@@ -3312,17 +3333,20 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
     });
   }
   ctx.globalAlpha = 1;
-  if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, selected || node.reachable ? 5 : 3);
-  else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, selected || node.reachable ? 5 : 3);
-  const label = node.kind === "elevator" ? "E" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
-  text(label, p.x, p.y + (node.kind === "boss" ? 6 : 8), node.kind === "boss" ? 17 : 24, node.kind === "elevator" ? "#fff" : C.black, "center", "serif");
+  const strokeWidth = selectedReachable || selectedFuture ? 5 : node.reachable || node.cleared || node.current ? 4 : 3;
+  if (node.kind === "boss") polygonStroke(p.x, p.y, w / 2, 8, border, strokeWidth);
+  else strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
+  const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
+  if (label) text(label, p.x, p.y + (node.kind === "boss" ? 6 : 8), node.kind === "boss" ? 17 : 24, C.black, "center", "serif");
   if (node.kind === "table" || node.kind === "boss") {
     const tagW = Math.min(116, Math.max(74, w + 24));
     const tagH = portrait ? 42 : 34;
-    fill("rgba(0,0,0,.52)", p.x - tagW / 2, y + h + 7, tagW, tagH, 9);
-    strokeRound(p.x - tagW / 2, y + h + 7, tagW, tagH, 9, "rgba(238,231,215,.12)", 1);
-    text(node.rarity.name, p.x, y + h + (portrait ? 25 : 20), portrait ? 15 : 11, node.rarity.color, "center");
-    text(`Threat ${node.threat}`, p.x, y + h + (portrait ? 43 : 34), portrait ? 12 : 10, C.muted, "center");
+    const tagAbove = node.id === "top-2b";
+    const tagY = tagAbove ? y - tagH - 8 : y + h + 7;
+    fill("rgba(0,0,0,.52)", p.x - tagW / 2, tagY, tagW, tagH, 9);
+    strokeRound(p.x - tagW / 2, tagY, tagW, tagH, 9, "rgba(238,231,215,.12)", 1);
+    text(node.rarity.name, p.x, tagY + (portrait ? 18 : 14), portrait ? 15 : 11, node.rarity.color, "center");
+    text(`Threat ${node.threat}`, p.x, tagY + (portrait ? 36 : 28), portrait ? 12 : 10, C.muted, "center");
   } else {
     text(node.label, p.x, y + h + (portrait ? 24 : 18), portrait ? 15 : 11, C.muted, "center");
   }
@@ -3393,11 +3417,13 @@ function drawMapRewardCard(node, x, y, w, portrait) {
   if (!node.reward) {
     text(node.kind === "elevator" ? "Elevator" : "No reward", x + 18, y + 34, portrait ? 20 : 15, C.gold);
     wrapTextSized(node.kind === "elevator" ? "Beat the mini boss to open the doors." : "Gather the party and start the climb.", x + 18, y + 62, w - 36, portrait ? 18 : 13, portrait ? 15 : 12, C.muted, 2);
+    buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.kind === "elevator" ? "Elevator" : "Route Start", subtitle: node.label, color: C.gold, body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight." }; } });
     return;
   }
   badge(x + 31, y + 48, node.reward.icon, node.rarity.color);
   text(fitLabel(node.reward.name, w - 82, portrait ? 21 : 16), x + 66, y + 34, portrait ? 21 : 16, node.rarity.color);
   wrapTextSized(node.reward.description, x + 66, y + 60, w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.text, 2);
+  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: `${node.rarity.name} relic reward`, color: node.rarity.color, body: node.reward.description }; } });
 }
 
 function drawMapEncounterCard(node, x, y, w, portrait) {
@@ -3408,6 +3434,27 @@ function drawMapEncounterCard(node, x, y, w, portrait) {
   text(fitLabel(node.encounter.name, w - 34, portrait ? 20 : 15), x + 18, y + 31, portrait ? 20 : 15, C.gold);
   text(`Threat ${node.threat}/5`, x + 18, y + (portrait ? 59 : 54), portrait ? 18 : 13, C.text);
   wrapTextSized(node.encounter.description, x + 18, y + (portrait ? 84 : 77), w - 36, portrait ? 17 : 12, portrait ? 14 : 11, C.muted, 2);
+  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.encounter.name, subtitle: `Threat ${node.threat}/5`, color: C.gold, body: `${node.encounter.description} Higher threat tables hit harder, pay better relic rarity, and usually have nastier house rules.` }; } });
+}
+
+function drawMapInfoOverlay() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const w = portrait ? Math.min(lw - 44, 620) : 520;
+  const h = portrait ? 360 : 300;
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  buttons = [];
+  fill("rgba(0,0,0,.64)", 0, 0, lw, lh);
+  shadow(0, 24, 70, "rgba(0,0,0,.55)", () => {
+    gradientRound(x, y, w, h, 22, [[0, "#35243f"], [.5, "#17101f"], [1, "#11171a"]], true);
+  });
+  strokeRound(x, y, w, h, 22, mapInfoDetail.color || C.gold, 2);
+  text(mapInfoDetail.title, x + 28, y + 48, portrait ? 28 : 23, mapInfoDetail.color || C.gold, "left", "serif");
+  if (mapInfoDetail.subtitle) text(mapInfoDetail.subtitle, x + 28, y + 78, portrait ? 18 : 14, C.muted);
+  wrapTextSized(mapInfoDetail.body || "", x + 28, y + 118, w - 56, portrait ? 22 : 17, portrait ? 18 : 15, C.text, portrait ? 8 : 7);
+  addButton(x + 28, y + h - (portrait ? 80 : 66), w - 56, portrait ? 58 : 48, "Close", () => { mapInfoDetail = null; }, true);
 }
 
 function drawSoloMapControls(x, y, w, h, node, portrait) {
