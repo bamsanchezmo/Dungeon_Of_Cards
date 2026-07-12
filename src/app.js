@@ -20,6 +20,7 @@ const DEATH_WARP_MS = 1000;
 const DEATH_SILENCE_MS = 900;
 const DEATH_REVERSE_FADE_MS = 5200;
 const FLOORS = 10;
+const AUDIO_CACHE_BUST = Date.now().toString(36);
 
 const rarityTiers = [
   { key: "common", name: "Common", color: "#b9c0c7", scale: 1 },
@@ -2415,11 +2416,11 @@ function startAudio() {
 }
 
 function musicPath(filename) {
-  return `./assets/audio/music/${filename}`;
+  return `./assets/audio/music/${filename}?v=${AUDIO_CACHE_BUST}`;
 }
 
 function fallbackMusicPathFor(path) {
-  return path.endsWith(".mp3") ? path.slice(0, -4) + ".ogg" : "";
+  return path.includes(".mp3") ? path.replace(".mp3", ".ogg") : "";
 }
 
 function desiredMusicPath() {
