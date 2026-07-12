@@ -906,7 +906,7 @@ function floorAssetKey(floorIndex) {
 function mapNodeAssetKey(kind, rarity, floorKey) {
   if (kind === "start") return "map:start";
   if (kind === "elevator") return `map:${floorKey}:elevator`;
-  if (kind === "boss") return `map:${floorKey}:bossTable`;
+  if (kind === "boss") return `tableMotif:${floorKey}`;
   return `map:${floorKey}:table`;
 }
 
@@ -3921,8 +3921,8 @@ function mapNodeDrawableAsset(node) {
     if (handAssetReady("map:elevator")) return "map:elevator";
   }
   if (node.kind === "boss") {
-    const floorBoss = `map:${game.map.floorKey}:bossTable`;
-    if (handAssetReady(floorBoss)) return floorBoss;
+    const floorMotif = `tableMotif:${game.map.floorKey}`;
+    if (handAssetReady(floorMotif)) return floorMotif;
   }
   if (node.kind === "table") {
     if (handAssetReady("tableBase:grunt")) return "tableBase:grunt";
