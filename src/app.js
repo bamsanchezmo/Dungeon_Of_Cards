@@ -691,13 +691,13 @@ function floorThemeName(floorIndex) {
 }
 
 function floorThemeColor(floorIndex) {
-  return ["#4e8a57", "#aa42a8", "#5872b8", "#b8a06a", "#d1a23c", "#8e78d4", "#d66a32", "#65b8d6", "#2d3448", C.gold][Math.min(floorIndex, 9)];
+  return ["#4e8a57", "#7f8f9c", "#5872b8", "#b8a06a", "#d1a23c", "#8e78d4", "#d66a32", "#65b8d6", "#2d3448", C.gold][Math.min(floorIndex, 9)];
 }
 
 function bossTableColor(floorIndex) {
   return [
     "#7b3f2a",
-    "#d04bd8",
+    "#8bdcff",
     "#3f5f9f",
     "#b7a06f",
     "#d4a21f",
@@ -707,6 +707,49 @@ function bossTableColor(floorIndex) {
     "#1c2236",
     "#f1c75c"
   ][Math.min(floorIndex, 9)];
+}
+
+function floorUiPalette(floorIndex) {
+  const base = floorThemeColor(floorIndex);
+  const palettes = [
+    null,
+    {
+      accent: "#8bdcff",
+      accentDim: "#496372",
+      border: "#aebbc5",
+      title: "#d8e3e9",
+      titleWarm: "#f0f5f8",
+      panelTop: "rgba(104,122,136,.38)",
+      panelMid: "#151a21",
+      panelBottom: "#090c12",
+      panelWash: "rgba(180,198,210,.12)",
+      primaryTop: "#e7edf1",
+      primaryBottom: "#748898",
+      primaryStroke: "#f4fbff",
+      primaryText: "#09131a",
+      buttonHot: "#a9e8ff",
+      buttonIdle: "rgba(139,220,255,.34)",
+      buttonBottom: "#111721"
+    }
+  ];
+  return palettes[Math.min(floorIndex, 9)] || {
+    accent: base,
+    accentDim: shade(base, -40),
+    border: base,
+    title: C.gold,
+    titleWarm: C.gold,
+    panelTop: hexToRgba(base, .34),
+    panelMid: "#15101c",
+    panelBottom: "#10151a",
+    panelWash: hexToRgba(base, .12),
+    primaryTop: "#f0cb64",
+    primaryBottom: "#b8892f",
+    primaryStroke: "#ffe28a",
+    primaryText: C.black,
+    buttonHot: lighten(base, .12),
+    buttonIdle: hexToRgba(base, .42),
+    buttonBottom: "#19131f"
+  };
 }
 
 function floorAssetKey(floorIndex) {
@@ -3075,6 +3118,7 @@ function drawTable() {
     : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
   const scene = tableSceneAssets();
   const theme = feltTheme();
+  const ui = activeFloorUi();
   shadow(0, 26, 60, "rgba(0,0,0,.5)", () => {
     gradientRound(felt.x, felt.y, felt.w, felt.h, 22, [
       [0, theme[0]], [.52, theme[1]], [1, theme[2]]
@@ -3084,9 +3128,9 @@ function drawTable() {
     drawRawAssetCover(scene.background, felt.x + 6, felt.y + 6, felt.w - 12, felt.h - 12, .9);
     fill("rgba(5,4,8,.12)", felt.x, felt.y, felt.w, felt.h, 22);
   }
-  strokeRound(felt.x, felt.y, felt.w, felt.h, 22, game.enemy.color || "#4f744f", 8);
+  strokeRound(felt.x, felt.y, felt.w, felt.h, 22, ui.border || game.enemy.color || "#4f744f", 8);
   strokeRound(felt.x + 12, felt.y + 12, felt.w - 24, felt.h - 24, 16, "rgba(238,231,215,.08)", 1);
-  strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, "rgba(220,180,70,.08)", 1);
+  strokeRound(felt.x + 20, felt.y + 20, felt.w - 40, felt.h - 40, 13, hexToRgba(ui.accent, .1), 1);
   if (!scene.table) {
     ctx.save();
     ctx.globalAlpha = .11;
@@ -3106,13 +3150,13 @@ function drawTable() {
     }
   }
   ctx.save();
-  ctx.strokeStyle = "rgba(220,180,70,.10)";
+  ctx.strokeStyle = hexToRgba(ui.accent, .12);
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.ellipse(felt.x + felt.w / 2, felt.y + 190, Math.min(310, felt.w * .34), 125, 0, 0, Math.PI * 2);
   ctx.stroke();
   ctx.globalAlpha = .07;
-  text("DUNGEON OF CARDS", felt.x + felt.w / 2, felt.y + felt.h - 34, viewport.portrait ? 22 : 25, C.gold, "center", "serif");
+  text("DUNGEON OF CARDS", felt.x + felt.w / 2, felt.y + felt.h - 34, viewport.portrait ? 22 : 25, ui.titleWarm, "center", "serif");
   ctx.restore();
   drawEncounterTableArt(felt, scene);
   drawDeck(felt.x + felt.w - 125, felt.y + 50);
@@ -3153,6 +3197,7 @@ function drawEncounterTableArt(felt, scene) {
 
 function drawDealer(felt) {
   const portrait = viewport.portrait;
+  const ui = activeFloorUi();
   const dealerX = felt.x + felt.w / 2 - (portrait ? 100 : 120);
   const badgeX = felt.x + felt.w / 2;
   const barX = felt.x + 22;
@@ -3164,14 +3209,14 @@ function drawDealer(felt) {
   badge(badgeX, felt.y + 205, game.dealer.length ? `Total ${shown}` : "Waiting", C.muted);
   const e = game.enemy;
   gradientRound(barX, barY, barW, 78, 14, [
-    [0, "#19101f"],
-    [.6, "#0e0b13"],
-    [1, "#20162a"]
+    [0, ui.panelTop],
+    [.6, ui.panelMid],
+    [1, ui.panelBottom]
   ]);
-  strokeRound(barX, barY, barW, 78, 14, "rgba(220,180,70,.2)", 1);
+  strokeRound(barX, barY, barW, 78, 14, hexToRgba(ui.border, .24), 1);
   shadow(0, 0, 18, e.color, () => fill(e.color, barX + 16, barY + 15, 50, 50, 25));
   text(e.icon, barX + 41, barY + 44, e.icon.length > 2 ? 14 : 22, C.black, "center", "serif");
-  text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, C.gold);
+  text(e.name, barX + 82, barY + 28, portrait ? 23 : 22, ui.titleWarm);
   const meterW = portrait ? 180 : 220;
   const meterX = barX + barW - meterW - 30;
   const descriptionW = portrait ? 300 : Math.max(160, Math.min(460, barW - meterW - 150));
@@ -3194,11 +3239,12 @@ function drawDungeonMap() {
   const panelY = portrait ? mapY + mapH + 24 : 126;
   const panelW = portrait ? lw - 48 : 275;
   const panelH = portrait ? Math.max(520, lh - panelY - 28) : mapH;
+  const ui = activeFloorUi();
 
   shadow(0, 28, 70, "rgba(0,0,0,.5)", () => {
-    gradientRound(mapX, mapY, mapW, mapH, 24, [[0, "#20172a"], [.52, "#0f1118"], [1, "#1a241d"]], true);
+    gradientRound(mapX, mapY, mapW, mapH, 24, [[0, ui.panelTop], [.52, ui.panelMid], [1, ui.panelBottom]], true);
   });
-  strokeRound(mapX, mapY, mapW, mapH, 24, game.map.color, 4);
+  strokeRound(mapX, mapY, mapW, mapH, 24, ui.border, 4);
   strokeRound(mapX + 14, mapY + 14, mapW - 28, mapH - 28, 18, "rgba(238,231,215,.08)", 1);
   drawMapCarpet(mapX, mapY, mapW, mapH);
   drawMapHeader(lw, portrait);
@@ -3235,10 +3281,11 @@ function drawMapCarpet(x, y, w, h) {
 }
 
 function drawMapHeader(lw, portrait) {
+  const ui = activeFloorUi();
   const titleY = portrait ? 58 : 34;
   const themeY = portrait ? 94 : 64;
   const statY = portrait ? 125 : 96;
-  text(`FLOOR ${game.floor + 1}/${FLOORS}`, lw / 2, titleY, portrait ? 30 : 26, C.gold, "center", "serif");
+  text(`FLOOR ${game.floor + 1}/${FLOORS}`, lw / 2, titleY, portrait ? 30 : 26, ui.titleWarm, "center", "serif");
   text(game.map.theme, lw / 2, themeY, portrait ? 24 : 20, C.text, "center");
   const summary = `Gold ${game.gold}g  •  HP ${game.hp}/${game.maxHp}  •  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`;
   if (portrait) {
@@ -3325,6 +3372,7 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
   ctx.save();
   ctx.lineCap = "round";
   const selectedRouteId = game.mapVotes?.[localPlayerId] || inspectedNodeId;
+  const ui = activeFloorUi();
   for (const node of game.map.nodes) {
     const from = mapPoint(node, mapX, mapY, mapW, mapH);
     for (const nextId of node.next || []) {
@@ -3333,7 +3381,7 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
       const selectedReachableEdge = nextId === selectedRouteId && next.reachable && (node.current || node.cleared);
       const clearedEdge = node.cleared && next.cleared;
-      ctx.strokeStyle = selectedReachableEdge ? "rgba(220,180,70,.86)" : clearedEdge ? "rgba(92,190,120,.58)" : "rgba(238,231,215,.32)";
+      ctx.strokeStyle = selectedReachableEdge ? hexToRgba(ui.accent, .9) : clearedEdge ? "rgba(92,190,120,.58)" : "rgba(238,231,215,.32)";
       ctx.lineWidth = selectedReachableEdge ? 5.5 : clearedEdge ? 4.5 : 3.5;
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
@@ -3356,7 +3404,8 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const selected = inspectedNodeId === node.id || game.mapVotes?.[localPlayerId] === node.id;
   const selectedReachable = selected && node.reachable;
   const selectedFuture = selected && !node.reachable && !node.cleared && !node.current;
-  const border = node.cleared ? C.green : selectedReachable ? C.gold : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? C.parchment : node.reachable ? "rgba(238,231,215,.66)" : "rgba(238,231,215,.46)";
+  const ui = activeFloorUi();
+  const border = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? ui.title : node.reachable ? "rgba(238,231,215,.66)" : "rgba(238,231,215,.46)";
   const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
   const lockedAlpha = node.locked ? .78 : 1;
@@ -3386,10 +3435,10 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
     const badgeH = portrait ? 30 : 26;
     const badgeY = y - badgeH / 2 - (portrait ? 8 : 6);
     shadow(0, 0, 18, "rgba(0,0,0,.55)", () => {
-      gradientRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, [[0, "rgba(255,232,150,.95)"], [1, "rgba(177,112,30,.95)"]], true);
+      gradientRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, [[0, ui.primaryTop], [1, ui.primaryBottom]], true);
     });
-    strokeRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, "rgba(255,248,210,.8)", 2);
-    text("Floor Boss", p.x, badgeY + (portrait ? 21 : 18), portrait ? 15 : 13, C.black, "center", "serif");
+    strokeRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, ui.primaryStroke, 2);
+    text("Floor Boss", p.x, badgeY + (portrait ? 21 : 18), portrait ? 15 : 13, ui.primaryText, "center", "serif");
   } else if (label && !hideAssetLabel) {
     text(label, p.x, p.y + 8, 24, C.black, "center", "serif");
   }
@@ -3438,13 +3487,14 @@ function drawPolishedMapPanel(x, y, w, h) {
   const selected = getMapNode(inspectedNodeId) || reachableMapNodes()[0] || getMapNode(game.currentNodeId);
   const solo = game.seats.filter((s) => !s.spectating).length <= 1;
   const theme = activeFloorColor();
+  const ui = activeFloorUi();
   shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
-    gradientRound(x, y, w, h, 20, [[0, hexToRgba(theme, .38)], [.48, "#15101c"], [1, "#10151a"]], true);
+    gradientRound(x, y, w, h, 20, [[0, ui.panelTop], [.48, ui.panelMid], [1, ui.panelBottom]], true);
   });
-  strokeRound(x, y, w, h, 20, hexToRgba(theme, .58), 2);
-  fill(hexToRgba(theme, .12), x + 16, y + 16, w - 32, 54, 14);
-  strokeRound(x + 16, y + 16, w - 32, 54, 14, hexToRgba(theme, .26), 1);
-  text("Route Planner", x + w / 2, y + 51, portrait ? 28 : 21, C.gold, "center", "serif");
+  strokeRound(x, y, w, h, 20, hexToRgba(ui.border, .66), 2);
+  fill(ui.panelWash, x + 16, y + 16, w - 32, 54, 14);
+  strokeRound(x + 16, y + 16, w - 32, 54, 14, hexToRgba(ui.border, .28), 1);
+  text("Route Planner", x + w / 2, y + 51, portrait ? 28 : 21, ui.titleWarm, "center", "serif");
   if (!selected) return;
 
   const node = selected;
@@ -3468,13 +3518,14 @@ function drawPolishedMapPanel(x, y, w, h) {
 }
 
 function drawMapRewardCard(node, x, y, w, portrait) {
+  const ui = activeFloorUi();
   const h = portrait ? 104 : 94;
   fill("rgba(8,6,12,.44)", x, y, w, h, 14);
   strokeRound(x, y, w, h, 14, node.reward ? node.rarity.color : "rgba(238,231,215,.12)", node.reward ? 2 : 1);
   if (!node.reward) {
-    text(node.kind === "elevator" ? "Elevator" : "No reward", x + 18, y + 34, portrait ? 20 : 15, C.gold);
+    text(node.kind === "elevator" ? "Elevator" : "No reward", x + 18, y + 34, portrait ? 20 : 15, ui.title);
     wrapTextSized(node.kind === "elevator" ? "Beat the mini boss to open the doors." : "Gather the party and start the climb.", x + 18, y + 62, w - 36, portrait ? 18 : 13, portrait ? 15 : 12, C.muted, 2);
-    buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.kind === "elevator" ? "Elevator" : "Route Start", subtitle: node.label, color: C.gold, body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight." }; } });
+    buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.kind === "elevator" ? "Elevator" : "Route Start", subtitle: node.label, color: ui.title, body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight." }; } });
     return;
   }
   drawRelicIcon(node.reward, x + 37, y + 50, portrait ? 58 : 50, node.rarity.color);
@@ -3485,13 +3536,14 @@ function drawMapRewardCard(node, x, y, w, portrait) {
 
 function drawMapEncounterCard(node, x, y, w, portrait) {
   if (!node.encounter) return;
+  const ui = activeFloorUi();
   const h = portrait ? 112 : 104;
   fill("rgba(0,0,0,.28)", x, y, w, h, 14);
   strokeRound(x, y, w, h, 14, "rgba(238,231,215,.12)", 1);
-  text(fitLabel(node.encounter.name, w - 34, portrait ? 20 : 15), x + 18, y + 31, portrait ? 20 : 15, C.gold);
+  text(fitLabel(node.encounter.name, w - 34, portrait ? 20 : 15), x + 18, y + 31, portrait ? 20 : 15, ui.title);
   text(`Threat ${node.threat}/5`, x + 18, y + (portrait ? 59 : 54), portrait ? 18 : 13, C.text);
   wrapTextSized(node.encounter.description, x + 18, y + (portrait ? 84 : 77), w - 36, portrait ? 17 : 12, portrait ? 14 : 11, C.muted, 2);
-  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.encounter.name, subtitle: `Threat ${node.threat}/5`, color: C.gold, body: `${node.encounter.description} Higher threat tables hit harder, pay better relic rarity, and usually have nastier house rules.` }; } });
+  buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.encounter.name, subtitle: `Threat ${node.threat}/5`, color: ui.title, body: `${node.encounter.description} Higher threat tables hit harder, pay better relic rarity, and usually have nastier house rules.` }; } });
 }
 
 function drawMapInfoOverlay() {
@@ -3506,15 +3558,16 @@ function drawMapInfoOverlay() {
   const bodyY = y + 118;
   buttons = [];
   fill("rgba(0,0,0,.64)", 0, 0, lw, lh);
+  const ui = activeFloorUi();
   shadow(0, 24, 70, "rgba(0,0,0,.55)", () => {
-    gradientRound(x, y, w, h, 22, [[0, "#35243f"], [.5, "#17101f"], [1, "#11171a"]], true);
+    gradientRound(x, y, w, h, 22, [[0, ui.panelTop], [.5, ui.panelMid], [1, ui.panelBottom]], true);
   });
-  strokeRound(x, y, w, h, 22, mapInfoDetail.color || C.gold, 2);
-  text(mapInfoDetail.title, x + 28, y + 48, portrait ? 28 : 23, mapInfoDetail.color || C.gold, "left", "serif");
+  strokeRound(x, y, w, h, 22, mapInfoDetail.color || ui.title, 2);
+  text(mapInfoDetail.title, x + 28, y + 48, portrait ? 28 : 23, mapInfoDetail.color || ui.title, "left", "serif");
   if (mapInfoDetail.subtitle) text(mapInfoDetail.subtitle, x + 28, y + 78, portrait ? 18 : 14, C.muted);
   if (hasRelicArt) {
     const iconSize = portrait ? 104 : 88;
-    drawRelicIcon(mapInfoDetail.relic, x + w - 28 - iconSize / 2, y + 28 + iconSize / 2, iconSize, mapInfoDetail.color || C.gold);
+    drawRelicIcon(mapInfoDetail.relic, x + w - 28 - iconSize / 2, y + 28 + iconSize / 2, iconSize, mapInfoDetail.color || ui.title);
   }
   wrapTextSized(mapInfoDetail.body || "", x + 28, bodyY, w - 56, portrait ? 22 : 17, portrait ? 18 : 15, C.text, portrait ? 8 : 7);
   addButton(x + 28, y + h - (portrait ? 80 : 66), w - 56, portrait ? 58 : 48, "Close", () => { mapInfoDetail = null; }, true);
@@ -3563,8 +3616,9 @@ function drawSoloMapControls(x, y, w, h, node, portrait) {
 function drawPartyMapControls(x, y, w, h, node, portrait) {
   const votes = game.mapVotes || {};
   const baseY = y + h - (portrait ? 214 : 188);
+  const ui = activeFloorUi();
   fill("rgba(238,231,215,.06)", x + 24, baseY - 12, w - 48, 1);
-  text("Party route", x + 24, baseY + 18, portrait ? 20 : 15, C.gold);
+  text("Party route", x + 24, baseY + 18, portrait ? 20 : 15, ui.title);
   game.seats.forEach((seat, i) => {
     const voteNode = getMapNode(votes[seat.id]);
     const ready = game.mapReady?.[seat.id];
@@ -3765,17 +3819,18 @@ function drawSidePanel() {
   }
   const x = layoutW() - 310;
   const theme = activeFloorColor();
+  const ui = activeFloorUi();
   shadow(0, 24, 55, "rgba(0,0,0,.45)", () => {
     gradientRound(x, 40, 270, 720, 18, [
-      [0, hexToRgba(theme, .34)],
-      [.44, "#14101b"],
-      [1, "#1b1423"]
+      [0, ui.panelTop],
+      [.44, ui.panelMid],
+      [1, ui.panelBottom]
     ], true);
   });
-  strokeRound(x, 40, 270, 720, 18, hexToRgba(theme, .52), 2);
-  gradientRound(x + 14, 52, 176, 42, 10, [[0, hexToRgba(theme, .22)], [1, hexToRgba(theme, .04)]], true);
-  strokeRound(x + 14, 52, 176, 42, 10, hexToRgba(theme, .28), 1);
-  text("DUNGEON", x + 102, 70, 17, C.gold, "center", "serif");
+  strokeRound(x, 40, 270, 720, 18, hexToRgba(ui.border, .56), 2);
+  gradientRound(x + 14, 52, 176, 42, 10, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .04)]], true);
+  strokeRound(x + 14, 52, 176, 42, 10, hexToRgba(ui.border, .28), 1);
+  text("DUNGEON", x + 102, 70, 17, ui.titleWarm, "center", "serif");
   text("OF CARDS", x + 102, 86, 10, C.muted, "center", "serif");
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 100, 230, 1);
@@ -3784,13 +3839,13 @@ function drawSidePanel() {
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
   if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
-  gradientRound(x + 22, 242, 226, 44, 10, [[0, "rgba(220,180,70,.14)"], [1, "rgba(220,180,70,.04)"]], true);
-  strokeRound(x + 22, 242, 226, 44, 10, "rgba(220,180,70,.18)", 1);
+  gradientRound(x + 22, 242, 226, 44, 10, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .04)]], true);
+  strokeRound(x + 22, 242, 226, 44, 10, hexToRgba(ui.border, .2), 1);
   text(phaseTitle(), x + 135, 271, 22, C.text, "center");
   drawActionButtons(x + 22, 295);
   drawRelicPanel(x + 22, 500, 226);
   fill("rgba(238,231,215,.06)", x + 22, 646, 226, 1);
-  text("Log", x + 22, 674, 18, C.gold);
+  text("Log", x + 22, 674, 18, ui.title);
   drawLogPreview(x + 22, 700, 226, 44, 13);
 }
 
@@ -3800,15 +3855,16 @@ function drawBottomPanel() {
   const w = layoutW() - 48;
   const h = Math.max(720, layoutH() - y - 28);
   const theme = activeFloorColor();
+  const ui = activeFloorUi();
   shadow(0, 18, 45, "rgba(0,0,0,.45)", () => {
     gradientRound(x, y, w, h, 18, [
-      [0, hexToRgba(theme, .34)],
-      [.46, "#15101c"],
-      [1, "#10151a"]
+      [0, ui.panelTop],
+      [.46, ui.panelMid],
+      [1, ui.panelBottom]
     ], true);
   });
-  strokeRound(x, y, w, h, 18, hexToRgba(theme, .56), 2);
-  text("DUNGEON OF CARDS", x + w / 2, y + 48, 30, C.gold, "center", "serif");
+  strokeRound(x, y, w, h, 18, hexToRgba(ui.border, .6), 2);
+  text("DUNGEON OF CARDS", x + w / 2, y + 48, 30, ui.titleWarm, "center", "serif");
   addButton(x + w - 140, y + 18, 112, 54, "Menu", () => menuOpen = true);
 
   const leftX = x + 24;
@@ -3819,20 +3875,20 @@ function drawBottomPanel() {
   text(`HP ${game.hp}/${game.maxHp}`, rightStatX + 110, y + 136, 21, C.text, "center");
   if (game.code) badge(x + w / 2, y + 178, `Lobby ${game.code}`, C.gold);
 
-  gradientRound(leftX, y + 192, w - 48, 58, 12, [[0, hexToRgba(theme, .2)], [1, hexToRgba(theme, .05)]], true);
-  strokeRound(leftX, y + 192, w - 48, 58, 12, hexToRgba(theme, .24), 1);
+  gradientRound(leftX, y + 192, w - 48, 58, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
+  strokeRound(leftX, y + 192, w - 48, 58, 12, hexToRgba(ui.border, .24), 1);
   text(phaseTitle(), x + w / 2, y + 230, 29, C.text, "center");
   drawActionButtons(leftX, y + 264);
 
   fill("rgba(238,231,215,.06)", leftX, y + 560, w - 48, 1);
   drawRelicPanel(leftX, y + 598, 320);
-  text("Log", x + 392, y + 598, 24, C.gold);
+  text("Log", x + 392, y + 598, 24, ui.title);
   drawLogPreview(x + 392, y + 636, w - 440, 52, 19);
 }
 
 function drawRelicPanel(x, y, w) {
   const portrait = viewport.portrait;
-  text("Relics", x, y, portrait ? 24 : 18, C.gold);
+  text("Relics", x, y, portrait ? 24 : 18, activeFloorUi().title);
   if (!game.relics.length) {
     text("None yet", x, y + (portrait ? 38 : 28), portrait ? 19 : 14, C.muted);
     return;
@@ -3852,9 +3908,10 @@ function drawTouchLandscapePanel() {
   const x = layoutW() - 510;
   const w = 470;
   const theme = activeFloorColor();
-  gradientRound(x, 30, w, 740, 20, [[0, hexToRgba(theme, .34)], [.44, "#14101b"], [1, "#1b1423"]], true);
-  strokeRound(x, 30, w, 740, 20, hexToRgba(theme, .58), 3);
-  text("DUNGEON OF CARDS", x + 190, 82, 25, C.gold, "center", "serif");
+  const ui = activeFloorUi();
+  gradientRound(x, 30, w, 740, 20, [[0, ui.panelTop], [.44, ui.panelMid], [1, ui.panelBottom]], true);
+  strokeRound(x, 30, w, 740, 20, hexToRgba(ui.border, .62), 3);
+  text("DUNGEON OF CARDS", x + 190, 82, 25, ui.titleWarm, "center", "serif");
   addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
   text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 24, 142, 27, C.text);
   drawGoldDebtLine(x + 245, 142, 27);
@@ -3862,12 +3919,12 @@ function drawTouchLandscapePanel() {
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
   text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
   drawActionButtons(x + 20, 310);
-  text("Relics", x + 24, 560, 24, C.gold);
+  text("Relics", x + 24, 560, 24, ui.title);
   const relicSummary = game.relics.length ? `${game.relics.length} collected — tap to view` : "None yet";
   text(relicSummary, x + 24, 598, 20, C.muted);
   buttons.push({ x: x + 18, y: 530, w: w - 36, h: 94, onClick: () => { relicsOpen = true; relicPage = 0; } });
   const latest = game.log[0] || "";
-  text("Log", x + 24, 676, 22, C.gold);
+  text("Log", x + 24, 676, 22, ui.title);
   drawLogPreview(x + 24, 700, w - 48, 48, 18);
 }
 
@@ -3876,15 +3933,16 @@ function drawLogPreview(x, y, w, h, size) {
   fill("rgba(238,231,215,.045)", x - 8, y - 22, w + 16, h, 8);
   strokeRound(x - 8, y - 22, w + 16, h, 8, "rgba(238,231,215,.1)", 1);
   text(fitLabel(latest, w, size), x, y, size, C.muted);
-  text("Click for full log", x, y + Math.max(18, size + 8), Math.max(11, size - 4), C.gold);
+  text("Click for full log", x, y + Math.max(18, size + 8), Math.max(11, size - 4), activeFloorUi().title);
   buttons.push({ x: x - 8, y: y - 22, w: w + 16, h, onClick: () => { logOpen = true; } });
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
   const portrait = viewport.portrait;
   const rowH = portrait ? 74 : 54;
-  gradientRound(x, y - 14, w, rowH, 8, highlight ? [[0, "#3a2c45"], [1, "#211827"]] : [[0, "#1d1624"], [1, "#100d15"]]);
-  strokeRound(x, y - 14, w, rowH, 8, highlight ? C.gold : "rgba(238,231,215,.12)", 1);
+  const ui = activeFloorUi();
+  gradientRound(x, y - 14, w, rowH, 8, highlight ? [[0, ui.panelTop], [1, ui.panelBottom]] : [[0, "#1d1624"], [1, "#100d15"]]);
+  strokeRound(x, y - 14, w, rowH, 8, highlight ? ui.title : "rgba(238,231,215,.12)", 1);
   drawRelicIcon(relic, x + (portrait ? 29 : 23), y + (portrait ? 22 : 13), portrait ? 44 : 34, C.gold);
   text(relic.name, x + (portrait ? 62 : 50), y + (portrait ? 8 : 4), portrait ? 18 : 14, C.gold);
   wrapTextSized(relic.description, x + (portrait ? 62 : 50), y + (portrait ? 34 : 24), w - (portrait ? 74 : 58), portrait ? 18 : 14, portrait ? 15 : 12, C.muted, 2);
@@ -5388,17 +5446,18 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   const hot = inRect(hover, b) && enabled;
   const portrait = viewport.portrait;
   const theme = activeFloorColor();
+  const ui = activeFloorUi();
   const stops = !enabled
     ? [[0, "#282631"], [1, "#1a1820"]]
     : primary
-      ? [[0, hot ? "#ffe081" : "#f0cb64"], [1, "#b8892f"]]
-      : [[0, hot ? lighten(theme, .12) : hexToRgba(theme, .42)], [1, hot ? hexToRgba(theme, .28) : "#19131f"]];
+      ? [[0, hot ? lighten(ui.primaryTop, .06) : ui.primaryTop], [1, ui.primaryBottom]]
+      : [[0, hot ? ui.buttonHot : ui.buttonIdle], [1, hot ? hexToRgba(theme, .28) : ui.buttonBottom]];
   shadow(0, hot ? 8 : 4, hot ? 18 : 10, "rgba(0,0,0,.32)", () => gradientRound(x, y, w, h, 9, stops, true));
-  strokeRound(x, y, w, h, 9, enabled ? (primary ? "#ffe28a" : hexToRgba(theme, .72)) : "#47414f", primary ? 2 : 1.5);
+  strokeRound(x, y, w, h, 9, enabled ? (primary ? ui.primaryStroke : hexToRgba(theme, .72)) : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
   const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
-  text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? C.black : enabled ? C.text : C.muted, "center");
+  text(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), fontSize, primary ? ui.primaryText : enabled ? C.text : C.muted, "center");
 }
 
 function badge(x, y, label, color) {
@@ -5489,6 +5548,10 @@ function activeFloorColor() {
   if (game?.map?.color) return game.map.color;
   if (game) return floorThemeColor(Number(game.floor) || 0);
   return floorThemeColor(0);
+}
+
+function activeFloorUi() {
+  return floorUiPalette(game ? Number(game.floor) || 0 : 0);
 }
 
 function houseRules() {
