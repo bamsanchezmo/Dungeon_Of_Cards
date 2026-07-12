@@ -3836,10 +3836,9 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const border = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? ui.title : node.reachable ? hexToRgba(threatColor || C.parchment, .82) : "rgba(238,231,215,.46)";
   const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : threatColor || node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
-  const lockedAlpha = node.locked ? .78 : 1;
-  if (node.kind === "table") drawMapGruntBehindTableNode(node, p, w, h, lockedAlpha);
+  const lockedAlpha = node.locked ? .5 : 1;
   const drewNodeAsset = node.kind === "table"
-    ? drawLayeredTableAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x - w * .42, y - h * .22, w * 1.84, h * 1.2, lockedAlpha)
+    ? drawMapTableGroup(node, p, w, h, lockedAlpha)
     : !!nodeAsset && drawRawAssetContain(nodeAsset, x - w * .16, y - h * .16, w * 1.32, h * 1.32, lockedAlpha);
   ctx.save();
   ctx.globalAlpha = lockedAlpha;
@@ -3890,24 +3889,55 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   buttons.push({ x, y, w, h: h + 50, onClick: () => { inspectedNodeId = node.id; } });
 }
 
+function drawMapTableGroup(node, p, w, h, alpha = 1) {
+  const tableRect = containRectForAsset("tableBase:grunt", p.x - w * .92, p.y - h * .24, w * 1.84, h * 1.2);
+  const pad = Math.max(w, h) * .62;
+  const groupX = Math.floor(Math.min(tableRect.x, p.x - w * .85) - pad);
+  const groupY = Math.floor(p.y - h * 1.12 - pad * .28);
+  const groupW = Math.ceil(Math.max(tableRect.w, w * 1.7) + pad * 2);
+  const groupH = Math.ceil(tableRect.h + h * 1.28 + pad * .72);
+  const off = document.createElement("canvas");
+  off.width = Math.max(1, groupW);
+  off.height = Math.max(1, groupH);
+  const octx = off.getContext("2d");
+  drawMapGruntToContext(octx, node, { x: p.x - groupX, y: p.y - groupY }, w, h, 1);
+  const tableAsset = layeredTableAsset("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0));
+  if (tableAsset) {
+    octx.save();
+    octx.imageSmoothingEnabled = true;
+    octx.drawImage(tableAsset, tableRect.x - groupX, tableRect.y - groupY, tableRect.w, tableRect.h);
+    octx.restore();
+  }
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(off, groupX, groupY);
+  ctx.restore();
+  return true;
+}
+
 function drawMapGruntBehindTableNode(node, p, w, h, alpha = 1) {
+  return drawMapGruntToContext(ctx, node, p, w, h, alpha);
+}
+
+function drawMapGruntToContext(targetCtx, node, p, w, h, alpha = 1) {
   const key = gruntAssetKeyForEnemy(node.encounter);
   if (!handAssetReady(key)) return false;
   const size = handAssetSize(key);
   const threatColor = difficultyGlowColor(node.threat);
-  const targetH = h * (viewport.portrait ? 1.22 : 1.14);
+  const targetH = h * (viewport.portrait ? 1.34 : 1.26);
   const targetW = targetH * size.w / Math.max(1, size.h);
   const x = p.x - targetW / 2;
-  const y = p.y - h * .92;
+  const y = p.y - h * 1.34;
   const asset = chromaKeyedHandAsset(key);
   if (!asset) return false;
-  ctx.save();
-  ctx.globalAlpha = alpha * (node.locked ? .66 : .82);
-  ctx.shadowColor = hexToRgba(threatColor, node.reachable || node.current ? .9 : .45);
-  ctx.shadowBlur = node.reachable || node.current ? 28 : 18;
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(asset, x, y, targetW, targetH);
-  ctx.restore();
+  targetCtx.save();
+  targetCtx.globalAlpha = alpha * .86;
+  targetCtx.shadowColor = hexToRgba(threatColor, node.reachable || node.current ? .9 : .45);
+  targetCtx.shadowBlur = node.reachable || node.current ? 28 : 18;
+  targetCtx.imageSmoothingEnabled = true;
+  targetCtx.drawImage(asset, x, y, targetW, targetH);
+  targetCtx.restore();
   return true;
 }
 
