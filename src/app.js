@@ -700,10 +700,15 @@ function createFloorMap(floorIndex) {
   };
   const columnCount = () => {
     const floorBias = clamp(floorIndex / Math.max(1, FLOORS - 1), 0, 1);
-    const fourChance = .18 + floorBias * .56;
-    return Math.random() < fourChance ? 4 : 2;
+    const roll = Math.random();
+    const oneChance = .32 * (1 - floorBias);
+    const fourChance = .16 + floorBias * .58;
+    if (roll < oneChance) return 1;
+    if (roll > 1 - fourChance) return 4;
+    return 2;
   };
   const tableYs = (count) => {
+    if (count <= 1) return [.50];
     if (count === 2) return [.30, .70];
     return [.20, .40, .60, .80];
   };
@@ -712,7 +717,7 @@ function createFloorMap(floorIndex) {
     const ids = Array.from({ length: count }, (_, i) => `c${columnIndex}-${i + 1}`);
     const ys = tableYs(count);
     const nodes = ids.map((id, i) => {
-      const stagger = count >= 4 ? (i % 2 === 0 ? -.018 : .018) : count === 3 && i === 1 ? .014 : 0;
+      const stagger = count >= 4 ? (i % 2 === 0 ? -.018 : .018) : 0;
       const next = nextIds ? branchNextIds(i, count, nextIds) : [];
       const label = columnNames[columnIndex]?.[i] || `Table ${columnIndex + 1}-${i + 1}`;
       const threatBoost = Math.max(0, columnIndex) + (count >= 4 && (i === 0 || i === count - 1) ? 0 : i % 2);
