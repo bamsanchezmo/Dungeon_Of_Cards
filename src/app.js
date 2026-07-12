@@ -4593,7 +4593,7 @@ function mapPoint(node, mapX, mapY, mapW, mapH) {
     const padY = Math.min(92, mapH * .1);
     return {
       x: mapX + padX + (1 - node.y) * Math.max(1, mapW - padX * 2),
-      y: mapY + padY + node.x * Math.max(1, mapH - padY * 2)
+      y: mapY + padY + (1 - node.x) * Math.max(1, mapH - padY * 2)
     };
   }
   return { x: mapX + node.x * mapW, y: mapY + node.y * mapH };
