@@ -684,6 +684,11 @@ function createFloorMap(floorIndex) {
   const bossColor = bossTableColor(floorIndex);
   const floorKey = floorAssetKey(floorIndex);
   const rewardPicker = createFloorRewardPicker();
+  const columnNames = [
+    ["Upper Table", "Lower Table", "Corner Table", "Side Table"],
+    ["Skybox Table", "Neon Table", "Vault Table", "Basement Table"],
+    ["Cage Table", "Lantern Table", "Velvet Table", "Backroom Table"]
+  ];
   const node = (id, label, kind, x, y, next = [], threatBoost = 0) => {
     const threat = kind === "boss" ? Math.min(5, 2 + Math.ceil(floor / 3)) : clamp(1 + Math.floor(floorIndex / 2) + threatBoost, 1, 5);
     const rarity = rarityForFloor(floorIndex, threatBoost + (kind === "boss" ? 2 : 0));
@@ -693,6 +698,36 @@ function createFloorMap(floorIndex) {
     const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
     return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color, bossColor, assetKey };
   };
+  const columnCount = () => {
+    const floorBias = clamp(floorIndex / Math.max(1, FLOORS - 1), 0, 1);
+    const roll = Math.random() + floorBias * .55;
+    if (roll < .38) return 1;
+    if (roll < .78) return 2;
+    if (roll < 1.18) return 3;
+    return 4;
+  };
+  const tableYs = (count) => {
+    if (count <= 1) return [.50];
+    if (count === 2) return [.36, .64];
+    if (count === 3) return [.29, .50, .71];
+    return [.24, .415, .585, .76];
+  };
+  const makeColumn = (columnIndex, x, nextIds = null) => {
+    const count = columnCount();
+    const ids = Array.from({ length: count }, (_, i) => `c${columnIndex}-${i + 1}`);
+    const ys = tableYs(count);
+    const nodes = ids.map((id, i) => {
+      const stagger = count >= 4 ? (i % 2 === 0 ? -.018 : .018) : count === 3 && i === 1 ? .014 : 0;
+      const next = nextIds ? nextIds : [];
+      const label = columnNames[columnIndex]?.[i] || `Table ${columnIndex + 1}-${i + 1}`;
+      const threatBoost = Math.max(0, columnIndex) + (count >= 4 && (i === 0 || i === count - 1) ? 0 : i % 2);
+      return node(id, label, "table", x + stagger, ys[i], next, threatBoost);
+    });
+    return { ids, nodes };
+  };
+  const col3 = makeColumn(2, .62, ["boss"]);
+  const col2 = makeColumn(1, .49, col3.ids);
+  const col1 = makeColumn(0, .35, col2.ids);
   const map = {
     floor,
     theme: floorThemeName(floorIndex),
@@ -703,13 +738,10 @@ function createFloorMap(floorIndex) {
     decorationAsset: `map:${floorKey}:decoration`,
     nodes: [
       node("start", "Start", "start", .07, .50, ["start-1"]),
-      node("start-1", "Starter Table", "table", .22, .50, ["top-1", "bottom-1"], 0),
-      node("top-1", "Upper Table", "table", .38, .30, ["top-2a", "top-2b"], 1),
-      node("bottom-1", "Lower Table", "table", .38, .70, ["bottom-2a", "bottom-2b"], 1),
-      node("top-2a", "Skybox Table", "table", .55, .17, ["boss"], 1),
-      node("top-2b", "Neon Table", "table", .55, .39, ["boss"], 2),
-      node("bottom-2a", "Vault Table", "table", .55, .61, ["boss"], 2),
-      node("bottom-2b", "Basement Table", "table", .55, .83, ["boss"], 1),
+      node("start-1", "Starter Table", "table", .22, .50, col1.ids, 0),
+      ...col1.nodes,
+      ...col2.nodes,
+      ...col3.nodes,
       node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"]),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
@@ -977,14 +1009,18 @@ function createMapEnemy(floorIndex, kind, threat, id) {
     boss.description = `${boss.description} Boss phases at 66% and 33% HP.`;
     return boss;
   }
-  const poolStart = floorIndex < 3 ? 1 : floorIndex < 6 ? 4 : 7;
-  const template = enemyTemplates[Math.min(enemyTemplates.length - 2, poolStart + (Math.abs(hashString(id)) % 3))] || enemyTemplates[0];
+  const poolStart = floorIndex < 3 ? 0 : floorIndex < 6 ? 2 : 5;
+  const poolEnd = Math.min(enemyTemplates.length - 2, poolStart + 8 + Math.floor(floorIndex / 2));
+  const pool = enemyTemplates.slice(poolStart, Math.max(poolStart + 1, poolEnd));
+  const template = pool[Math.abs(hashString(`${id}:${floorIndex}:${threat}`)) % pool.length] || enemyTemplates[0];
+  const gruntArtKeys = ["grunt:cardsharp", "grunt:bookie", "grunt:bouncer", "grunt:croupier", "grunt:dealer", "grunt:cheater"];
   const hp = 45 + floorIndex * 18 + threat * 16;
   return {
     ...template,
     name: tableEnemyName(template.name, threat),
     title: `Floor ${floorIndex + 1} - Grunt Table`,
     threat,
+    gruntArtKey: gruntArtKeys[Math.abs(hashString(`${template.name}:${id}:${floorIndex}`)) % gruntArtKeys.length],
     hp,
     maxHp: hp,
     dealerPeek: template.dealerPeek !== false
@@ -3478,6 +3514,7 @@ function drawEncounterTableArt(felt, scene) {
 }
 
 function gruntAssetKeyForEnemy(enemy) {
+  if (enemy?.gruntArtKey && handAssetReady(enemy.gruntArtKey)) return enemy.gruntArtKey;
   const name = String(enemy?.name || "").toLowerCase();
   if (/(cardsharp|stranger|magician|oracle)/.test(name)) return "grunt:cardsharp";
   if (/(book|bank|auditor|notary|pawn|toll|collector)/.test(name)) return "grunt:bookie";
@@ -3902,22 +3939,29 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   if (node.kind === "table" || node.kind === "boss") {
     const tagW = Math.min(116, Math.max(74, w + 24));
     const tagH = portrait ? 42 : 34;
+    const tableRect = node.kind === "table" ? mapTableDisplayRect(p, w, h) : null;
     const tagX = p.x - tagW / 2;
-    const tagY = y + h + 7;
+    const tagY = node.kind === "table" && tableRect ? tableRect.y + tableRect.h * .63 : y + h + 7;
     const textX = tagX + tagW / 2;
-    fill("rgba(0,0,0,.52)", tagX, tagY, tagW, tagH, 9);
-    strokeRound(tagX, tagY, tagW, tagH, 9, "rgba(238,231,215,.12)", 1);
+    fill(node.kind === "table" ? "rgba(0,0,0,.62)" : "rgba(0,0,0,.52)", tagX, tagY, tagW, tagH, 9);
+    strokeRound(tagX, tagY, tagW, tagH, 9, node.kind === "table" ? hexToRgba(node.color || C.gold, .36) : "rgba(238,231,215,.12)", 1);
     text(node.rarity.name, textX, tagY + (portrait ? 18 : 14), portrait ? 15 : 11, node.rarity.color, "center");
     text(`Threat ${node.threat}`, textX, tagY + (portrait ? 36 : 28), portrait ? 12 : 10, C.muted, "center");
   } else {
     text(node.label, p.x, y + h + (portrait ? 24 : 18), portrait ? 15 : 11, C.muted, "center");
   }
   ctx.restore();
-  buttons.push({ x, y, w, h: h + 50, onClick: () => { inspectedNodeId = node.id; } });
+  const hitRect = node.kind === "table" ? mapTableHitRect(p, w, h) : { x, y, w, h: h + 50 };
+  buttons.push({ ...hitRect, onClick: () => { inspectedNodeId = node.id; } });
 }
 
 function mapTableDisplayRect(p, w, h) {
   return containRectForAsset("tableBase:grunt", p.x - w * .725, p.y - h * .38, w * 1.45, h * .95);
+}
+
+function mapTableHitRect(p, w, h) {
+  const rect = mapTableDisplayRect(p, w, h);
+  return { x: rect.x - w * .26, y: p.y - h * 1.22, w: rect.w + w * .52, h: rect.h + h * 1.38 };
 }
 
 function drawMapTableSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture) {
