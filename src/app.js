@@ -1418,6 +1418,7 @@ function finishFloorTransition() {
   inspectedNodeId = "start-1";
   game.floorTransition = null;
   game.phase = "map";
+  if (game.relicPopup) game.relicPopup.shownAt = Date.now();
   log(`Elevator doors open onto Floor ${game.floor + 1}: ${game.map.theme}.`);
   refreshReachableNodes();
 }
@@ -3111,7 +3112,7 @@ function draw() {
   if (relicsOpen) drawRelicsOverlay();
   if (logOpen) drawLogOverlay();
   if (mapInfoDetail) drawMapInfoOverlay();
-  if (game?.relicPopup) drawRelicRewardPopup();
+  if (game?.relicPopup && game.phase !== "floorTransition") drawRelicRewardPopup();
   drawFeedbackAnimations();
   if (menuOpen) {
     buttons = [];
@@ -3557,21 +3558,22 @@ function drawFloorTransition() {
   const shaftX = x + panelW / 2;
   const shaftTop = y + (portrait ? 160 : 145);
   const shaftH = panelH - (portrait ? 250 : 210);
-  const rowGap = portrait ? 78 : 60;
-  const centerY = shaftTop + shaftH / 2;
-  const offset = (from - 1 + eased) * rowGap;
   strokeRound(shaftX - 78, shaftTop - 24, 156, shaftH + 48, 28, "rgba(238,231,215,.18)", 2);
   fill("rgba(0,0,0,.28)", shaftX - 62, shaftTop - 10, 124, shaftH + 20, 22);
+  const floorY = (floor) => shaftTop + shaftH - ((floor - 1) / Math.max(1, FLOORS - 1)) * shaftH;
+  const fromY = floorY(from);
+  const toY = floorY(to);
+  const elevatorY = fromY + (toY - fromY) * eased;
   ctx.save();
   pathRound(shaftX - 86, shaftTop - 34, 172, shaftH + 68, 30);
   ctx.clip();
   for (let floor = 1; floor <= FLOORS; floor++) {
-    const fy = centerY + (floor - 1) * rowGap - offset;
-    const dist = Math.abs(fy - centerY);
-    const active = floor === to && progress > .58;
+    const fy = floorY(floor);
+    const dist = Math.abs(fy - elevatorY);
+    const active = floor === to && progress > .72;
     const passed = floor < to;
-    const scale = active ? 1.36 : Math.max(.72, 1.08 - dist / 420);
-    const alpha = clamp(1 - dist / (shaftH * .72), .18, 1);
+    const scale = active ? 1.34 : Math.max(.72, 1.08 - dist / 240);
+    const alpha = clamp(1 - dist / (shaftH * .95), .28, 1);
     ctx.globalAlpha = alpha;
     const r = (portrait ? 27 : 23) * scale;
     fill(active ? ui.primaryTop : passed ? hexToRgba(C.gold, .82) : "rgba(238,231,215,.22)", shaftX - r, fy - r, r * 2, r * 2, r);
@@ -3581,7 +3583,7 @@ function drawFloorTransition() {
   ctx.restore();
   ctx.globalAlpha = 1;
   const glow = Math.sin(progress * Math.PI) * .85 + .15;
-  shadow(0, 0, 28, hexToRgba(C.gold, .45 * glow), () => strokeRound(shaftX - 96, centerY - 47, 192, 94, 32, C.gold, 4));
+  shadow(0, 0, 28, hexToRgba(C.gold, .45 * glow), () => strokeRound(shaftX - 96, elevatorY - 47, 192, 94, 32, C.gold, 4));
   text(`${from}  →  ${to}`, x + panelW / 2, y + panelH - 86, portrait ? 44 : 38, C.gold, "center", "serif");
   text("New tables. New rules. Higher stakes.", x + panelW / 2, y + panelH - 45, portrait ? 20 : 18, C.muted, "center");
 }
