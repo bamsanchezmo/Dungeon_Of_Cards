@@ -8,8 +8,13 @@ const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const MIN_BET = 1;
 const MAX_BET = 500;
+// Match the generated floor card-back art ratio: 280x420, or 2:3.
+// Keep all gameplay outlines, highlights, face art, and deck stacks on that
+// same ratio so image assets are not stretched inside the card frame.
+const CARD_ART_W = 280;
+const CARD_ART_H = 420;
 const CARD_W = 90;
-const CARD_H = 130;
+const CARD_H = Math.round(CARD_W * CARD_ART_H / CARD_ART_W);
 const MAX_PLAYERS = 4;
 const hostId = "host";
 const LOAN_AMOUNT = 100;
