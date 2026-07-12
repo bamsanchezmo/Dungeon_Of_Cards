@@ -3468,7 +3468,7 @@ function drawMapRewardCard(node, x, y, w, portrait) {
     buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.kind === "elevator" ? "Elevator" : "Route Start", subtitle: node.label, color: C.gold, body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight." }; } });
     return;
   }
-  badge(x + 31, y + 48, node.reward.icon, node.rarity.color);
+  drawRelicIcon(node.reward, x + 37, y + 50, portrait ? 58 : 50, node.rarity.color);
   text(fitLabel(node.reward.name, w - 82, portrait ? 21 : 16), x + 66, y + 34, portrait ? 21 : 16, node.rarity.color);
   wrapTextSized(node.reward.description, x + 66, y + 60, w - 84, portrait ? 18 : 13, portrait ? 15 : 12, C.text, 2);
   buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.reward.name, subtitle: `${node.rarity.name} relic reward`, color: node.rarity.color, body: node.reward.description, relic: node.reward }; } });
@@ -3491,10 +3491,10 @@ function drawMapInfoOverlay() {
   const portrait = viewport.portrait;
   const w = portrait ? Math.min(lw - 44, 620) : 520;
   const hasRelicArt = !!mapInfoDetail.relic;
-  const h = portrait ? (hasRelicArt ? 430 : 360) : (hasRelicArt ? 370 : 300);
+  const h = portrait ? 360 : 300;
   const x = lw / 2 - w / 2;
   const y = lh / 2 - h / 2;
-  const bodyY = hasRelicArt ? y + (portrait ? 214 : 190) : y + 118;
+  const bodyY = y + 118;
   buttons = [];
   fill("rgba(0,0,0,.64)", 0, 0, lw, lh);
   shadow(0, 24, 70, "rgba(0,0,0,.55)", () => {
@@ -3504,7 +3504,8 @@ function drawMapInfoOverlay() {
   text(mapInfoDetail.title, x + 28, y + 48, portrait ? 28 : 23, mapInfoDetail.color || C.gold, "left", "serif");
   if (mapInfoDetail.subtitle) text(mapInfoDetail.subtitle, x + 28, y + 78, portrait ? 18 : 14, C.muted);
   if (hasRelicArt) {
-    drawRelicIcon(mapInfoDetail.relic, x + w / 2, y + (portrait ? 145 : 130), portrait ? 112 : 96, mapInfoDetail.color || C.gold);
+    const iconSize = portrait ? 104 : 88;
+    drawRelicIcon(mapInfoDetail.relic, x + w - 28 - iconSize / 2, y + 28 + iconSize / 2, iconSize, mapInfoDetail.color || C.gold);
   }
   wrapTextSized(mapInfoDetail.body || "", x + 28, bodyY, w - 56, portrait ? 22 : 17, portrait ? 18 : 15, C.text, portrait ? 8 : 7);
   addButton(x + 28, y + h - (portrait ? 80 : 66), w - 56, portrait ? 58 : 48, "Close", () => { mapInfoDetail = null; }, true);
