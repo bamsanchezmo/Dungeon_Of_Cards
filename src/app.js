@@ -4065,10 +4065,10 @@ function drawMapGruntToContext(targetCtx, node, p, w, h, alpha = 1) {
   if (!handAssetReady(key)) return false;
   const size = handAssetSize(key);
   const threatColor = difficultyGlowColor(node.threat);
-  const targetH = h * (viewport.portrait ? 1.02 : .96);
+  const targetH = h * (viewport.portrait ? 1.06 : 1);
   const targetW = targetH * size.w / Math.max(1, size.h);
   const x = p.x - targetW / 2;
-  const y = p.y - h * 1.18;
+  const y = p.y - h * 1.00;
   const asset = chromaKeyedHandAsset(key);
   if (!asset) return false;
   targetCtx.save();
