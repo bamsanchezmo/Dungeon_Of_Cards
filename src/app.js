@@ -706,6 +706,77 @@ function floorBossName(floorIndex) {
   ][Math.min(floorIndex, FLOORS - 1)];
 }
 
+const bossPhasePool = [
+  { id: "soft17", name: "Soft Seventeen", text: "Dealer hits soft 17.", rules: { hitsSoft17: true } },
+  { id: "pushesLose", name: "No Pushes", text: "Pushes count as dealer wins.", rules: { tiesLose: true } },
+  { id: "blackjack65", name: "Short Blackjack", text: "Blackjack pays only 6:5.", rules: { bjPays65: true } },
+  { id: "noSurrender", name: "No Exit", text: "Surrender is forbidden.", rules: { noSurrender: true } },
+  { id: "noDouble", name: "No Leverage", text: "Doubling down is forbidden.", rules: { noDouble: true } },
+  { id: "noInsurance", name: "No Insurance", text: "Insurance is forbidden.", rules: { noInsurance: true } },
+  { id: "noPeek", name: "Blind House", text: "Dealer does not peek for blackjack.", rules: { dealerPeek: false } },
+  { id: "hitFeeSmall", name: "Table Toll", text: "Each hit costs 5 gold.", rules: { hitFee: 5 } },
+  { id: "hitFeeBig", name: "Premium Toll", text: "Each hit costs 10 gold.", rules: { hitFee: 10 }, minFloor: 3 },
+  { id: "lossPain", name: "Blood Stakes", text: "Losing hands deal +25% HP damage.", rules: { lossHpMult: 1.25 } },
+  { id: "lossPainBig", name: "Bleeding Stakes", text: "Losing hands deal +50% HP damage.", rules: { lossHpMult: 1.5 }, minFloor: 5 },
+  { id: "armored", name: "House Shield", text: "Boss takes 20% less damage.", rules: { bossDamageMult: .8 } },
+  { id: "ironVault", name: "Iron Vault", text: "Boss takes 35% less damage.", rules: { bossDamageMult: .65 }, minFloor: 6 },
+  { id: "blackjackWeak", name: "Blackjack Weakness", text: "Blackjack deals +35% boss damage.", rules: { blackjackDamageMult: 1.35 } },
+  { id: "jackpot", name: "Jackpot Fever", text: "Wins deal +20% boss damage; losses deal +20% HP damage.", rules: { winDamageMult: 1.2, lossHpMult: 1.2 } },
+  { id: "standTall", name: "Stand Tall", text: "Standing below 15 is forbidden.", rules: { minStandTotal: 15 }, minFloor: 2 },
+  { id: "noHighHit", name: "Frozen Nerves", text: "Hitting on 18+ is forbidden.", rules: { maxHitTotal: 17 }, minFloor: 4 },
+  { id: "charlieDealer", name: "House Charlie", text: "Dealer 5-card Charlie beats standing hands.", rules: { dealerCharlie: true }, minFloor: 4 },
+  { id: "healingHouse", name: "House Recovers", text: "Boss heals 8 HP after non-winning rounds.", rules: { bossHealOnPlayerLoss: 8 }, minFloor: 3 },
+  { id: "goldTax", name: "House Cut", text: "Winning hands pay 10% less gold.", rules: { winGoldMult: .9 }, minFloor: 2 },
+  { id: "highRoller", name: "High Roller", text: "Wins and losses are both 25% stronger.", rules: { winDamageMult: 1.25, lossHpMult: 1.25 }, minFloor: 5 }
+];
+
+const bossSignaturePhases = [
+  { name: "Bramble Odds", text: "Boss takes +25% damage from 21 exactly.", rules: { exact21DamageMult: 1.25 } },
+  { name: "Reels Spinning", text: "Wins deal +20% damage, but losses hurt +20%.", rules: { winDamageMult: 1.2, lossHpMult: 1.2 } },
+  { name: "Security Lockdown", text: "Doubling down is forbidden.", rules: { noDouble: true } },
+  { name: "Bone Debt", text: "Losing hands deal +25% HP damage.", rules: { lossHpMult: 1.25 } },
+  { name: "Vault Plating", text: "Boss takes 20% less damage.", rules: { bossDamageMult: .8 } },
+  { name: "Mirror Push", text: "Pushes count as dealer wins.", rules: { tiesLose: true } },
+  { name: "Dragon Ante", text: "Each hit costs 10 gold.", rules: { hitFee: 10 } },
+  { name: "Clockwork Limit", text: "Standing below 15 is forbidden.", rules: { minStandTotal: 15 } },
+  { name: "Black Felt Law", text: "Blackjack pays only 6:5.", rules: { bjPays65: true } },
+  { name: "Final House Edge", text: "Boss takes 35% less damage and pushes lose.", rules: { bossDamageMult: .65, tiesLose: true } }
+];
+
+const bossPhaseNames = [
+  ["Opening Bet", "Bramble Spread", "Bookie's Bind"],
+  ["Welcome Spin", "Reels Are Spinning", "Jackpot Fever"],
+  ["Checkpoint", "Lockdown", "Alarm Protocol"],
+  ["Bone Ante", "Grave Odds", "Death's Ledger"],
+  ["Vault Door", "Iron Lock", "Sealed Treasury"],
+  ["Reflected Bet", "Mirror Rule", "Shattered Odds"],
+  ["Dragon's Deal", "Burning Ante", "Hoard Fever"],
+  ["First Tick", "Clockwork Table", "Midnight Strike"],
+  ["Black Felt", "Marshal's Law", "No Appeal"],
+  ["House Rules", "The Deck Answers", "Final Hand"]
+];
+
+function bossPhasesForFloor(floorIndex) {
+  const names = bossPhaseNames[Math.min(floorIndex, bossPhaseNames.length - 1)];
+  const used = new Set();
+  const phasePick = (phaseIndex) => {
+    const minFloor = Math.max(0, floorIndex - 2);
+    const eligible = bossPhasePool.filter((p) => !used.has(p.id) && (p.minFloor == null || floorIndex >= p.minFloor) && (p.maxFloor == null || floorIndex <= p.maxFloor));
+    const pool = eligible.length ? eligible : bossPhasePool.filter((p) => !used.has(p.id));
+    const weighted = pool.filter((p) => (phaseIndex < 2 || !p.maxFloor) && (p.minFloor || 0) <= floorIndex + phaseIndex + 1 && (p.minFloor || 0) >= minFloor - 3);
+    const pickPool = weighted.length ? weighted : pool;
+    const pick = pickPool[Math.floor(Math.random() * pickPool.length)] || bossPhasePool[0];
+    used.add(pick.id);
+    return pick;
+  };
+  const signature = bossSignaturePhases[Math.min(floorIndex, bossSignaturePhases.length - 1)];
+  return [
+    { threshold: 1, name: names[0], text: signature.text, rules: { ...signature.rules } },
+    { threshold: .66, ...phasePick(1), name: names[1] },
+    { threshold: .33, ...phasePick(2), name: names[2] }
+  ];
+}
+
 function floorThemeName(floorIndex) {
   return [
     "Lobby Tables", "Slots & Side Bets", "Security Checkpoint", "Bone Lounge", "Vault Hall",
@@ -830,6 +901,14 @@ function createMapEnemy(floorIndex, kind, threat, id) {
     const boss = cloneEnemy(floorIndex);
     boss.name = floorBossName(floorIndex);
     boss.color = bossTableColor(floorIndex);
+    boss.title = `Floor ${floorIndex + 1} - Floor Boss`;
+    boss.isBoss = true;
+    boss.bossPhase = 0;
+    boss.bossPhases = bossPhasesForFloor(floorIndex);
+    const hpBoost = floorIndex >= 8 ? 2.25 : floorIndex >= 5 ? 2 : 1.75;
+    boss.maxHp = Math.max(boss.maxHp || boss.hp || 1, Math.ceil((boss.maxHp || boss.hp || 1) * hpBoost));
+    boss.hp = boss.maxHp;
+    boss.description = `${boss.description} Boss phases at 66% and 33% HP.`;
     return boss;
   }
   const poolStart = floorIndex < 3 ? 1 : floorIndex < 6 ? 4 : 7;
@@ -1137,6 +1216,8 @@ function peekCheck() {
 function hit(seatIndex) {
   const seat = game.seats[seatIndex];
   const hand = activeHand(seat);
+  const maxHitTotal = Number(bossRuleValue("maxHitTotal", 0)) || 0;
+  if (maxHitTotal && handTotal(hand) > maxHitTotal) return flashMsg(`Boss rule: cannot hit above ${maxHitTotal}`);
   const fee = game.enemy.hitFee || 0;
   if (fee) {
     if (!spendGold(seat, fee)) {
@@ -1166,6 +1247,8 @@ function hit(seatIndex) {
 
 function stand(seatIndex) {
   const h = activeHand(game.seats[seatIndex]);
+  const minStandTotal = Number(bossRuleValue("minStandTotal", 0)) || 0;
+  if (h && minStandTotal && handTotal(h) < minStandTotal) return flashMsg(`Boss rule: stand at ${minStandTotal}+`);
   if (h) h.status = "stand";
   advanceHand(seatIndex);
 }
@@ -1223,11 +1306,50 @@ function startMapEncounter(nodeId) {
   if (!node || !node.encounter) return;
   game.activeEncounterId = nodeId;
   game.enemy = { ...node.encounter, hp: node.encounter.hp, maxHp: node.encounter.maxHp || node.encounter.hp };
+  applyBossPhaseRules(true);
   game.mapVotes = {};
   game.mapReady = {};
   game.selectedNodeId = nodeId;
   resetRound();
   log(`The party sits at ${node.label}. Reward: ${node.reward?.name || "none"}.`);
+}
+
+function activeBossPhaseRules(enemy = game?.enemy) {
+  if (!enemy?.isBoss || !Array.isArray(enemy.bossPhases)) return {};
+  const phaseIndex = clamp(Number(enemy.bossPhase) || 0, 0, enemy.bossPhases.length - 1);
+  return enemy.bossPhases.slice(0, phaseIndex + 1).reduce((rules, phase) => ({ ...rules, ...(phase.rules || {}) }), {});
+}
+
+function bossRuleValue(key, fallback = null) {
+  const rules = activeBossPhaseRules();
+  return Object.prototype.hasOwnProperty.call(rules, key) ? rules[key] : fallback;
+}
+
+function applyBossPhaseRules(initial = false) {
+  const enemy = game?.enemy;
+  if (!enemy?.isBoss || !Array.isArray(enemy.bossPhases) || !enemy.maxHp) return false;
+  const ratio = enemy.hp / enemy.maxHp;
+  let nextPhase = 0;
+  enemy.bossPhases.forEach((phase, i) => {
+    if (ratio <= phase.threshold) nextPhase = i;
+  });
+  const changed = nextPhase !== (Number(enemy.bossPhase) || 0);
+  enemy.bossPhase = nextPhase;
+  const rules = activeBossPhaseRules(enemy);
+  for (const [key, value] of Object.entries(rules)) {
+    if (["lossHpMult", "bossDamageMult", "blackjackDamageMult", "exact21DamageMult", "winDamageMult", "bossHealOnPlayerLoss", "winGoldMult", "minStandTotal", "maxHitTotal", "dealerCharlie"].includes(key)) continue;
+    if (key === "hitFee") enemy.hitFee = Math.max(Number(enemy.hitFee) || 0, Number(value) || 0);
+    else enemy[key] = value;
+  }
+  if (initial || changed) {
+    const phase = enemy.bossPhases[nextPhase];
+    if (phase) {
+      log(`${enemy.name} phase ${nextPhase + 1}: ${phase.name}. ${phase.text}`);
+      notify(`${phase.name}: ${phase.text}`);
+      if (!initial) flashMsg(`${phase.name}: ${phase.text}`);
+    }
+  }
+  return changed;
 }
 
 function completeMapEncounter() {
@@ -1447,6 +1569,7 @@ function settleRound() {
   let winHands = 0;
   let grossLoss = 0;
   let lifeLoss = 0;
+  let bossDamage = 0;
   const results = [];
   for (const seat of game.seats) {
     let seatNet = 0;
@@ -1457,6 +1580,7 @@ function settleRound() {
       seatNet += result.net;
       grossLoss += result.grossLoss || 0;
       lifeLoss += result.lifeLoss || 0;
+      bossDamage += result.bossDamage || Math.max(0, result.net);
       if (result.net > 0) winHands++;
       results.push(`${seat.name}: ${result.msg}`);
     }
@@ -1469,7 +1593,9 @@ function settleRound() {
   const bankruptSeat = updateFreeForAllBankruptcy(results);
   if (net > 0) {
     const bonus = relicSum("damageBonus");
-    game.enemy.hp = Math.max(0, game.enemy.hp - net - bonus);
+    const damage = Math.max(1, Math.round(bossDamage + bonus));
+    game.enemy.hp = Math.max(0, game.enemy.hp - damage);
+    applyBossPhaseRules(false);
     const heal = relicSum("heal") * Math.max(1, winHands);
     if (heal) game.hp = Math.min(game.maxHp, game.hp + heal);
     sfx("win");
@@ -1481,6 +1607,13 @@ function settleRound() {
     if (net <= 0) sfx("lose");
   } else if (net <= 0) {
     sfx("push");
+  }
+  if (net <= 0) {
+    const bossHeal = Number(bossRuleValue("bossHealOnPlayerLoss", 0)) || 0;
+    if (bossHeal && game.enemy?.hp > 0) {
+      game.enemy.hp = Math.min(game.enemy.maxHp, game.enemy.hp + bossHeal);
+      results.push(`${game.enemy.name} recovers ${bossHeal} HP`);
+    }
   }
   if (hpBefore > game.hp) queueHpAnimation(hpBefore, game.hp, game.maxHp);
   if ((isFreeForAll() ? localNet : net) !== 0) queueMoneyAnimation(isFreeForAll() ? localNet : net);
@@ -1543,6 +1676,7 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
   if (has("fiveCard") && h.cards.length >= 5 && !isBust(h)) return winResult(seat, h, h.bet + chipBonus, "5-Card Charlie");
   const total = handTotal(h);
   if (dealerTotal > 21) return winResult(seat, h, h.bet + chipBonus, "Dealer bust");
+  if (bossRuleValue("dealerCharlie", false) && game.dealer.length >= 5 && dealerTotal <= 21) return loseResult(seat, h, "House Charlie");
   if (total > dealerTotal) return winResult(seat, h, h.bet + chipBonus, `${total} beats ${dealerTotal}`);
   if (total < dealerTotal) return loseResult(seat, h, `${total} loses to ${dealerTotal}`);
   if (pushWins) return winResult(seat, h, h.bet + chipBonus, "Push wins");
@@ -1552,17 +1686,26 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
 }
 
 function winResult(seat, h, amount, msg) {
-  addGold(seat, h.bet + amount, amount);
-  return { net: amount, grossLoss: 0, msg: `${msg} +${amount}g` };
+  const paidAmount = Math.max(1, Math.round(amount * (Number(bossRuleValue("winGoldMult", 1)) || 1)));
+  addGold(seat, h.bet + paidAmount, paidAmount);
+  return { net: paidAmount, grossLoss: 0, bossDamage: bossDamageForWin(h, amount), msg: `${msg} +${paidAmount}g` };
 }
 
 function lossResultPayload(seat, h, lostAmount, msg, grossLoss = lostAmount) {
   return {
     net: -lostAmount,
     grossLoss,
-    lifeLoss: lifeLossForBetLoss(seat, h, Math.max(lostAmount, grossLoss)),
+    lifeLoss: lifeLossForBetLoss(seat, h, Math.max(lostAmount, grossLoss)) * (Number(bossRuleValue("lossHpMult", 1)) || 1),
     msg
   };
+}
+
+function bossDamageForWin(hand, amount) {
+  let mult = Number(bossRuleValue("bossDamageMult", 1)) || 1;
+  mult *= Number(bossRuleValue("winDamageMult", 1)) || 1;
+  if (isBlackjack(hand)) mult *= Number(bossRuleValue("blackjackDamageMult", 1)) || 1;
+  if (handTotal(hand) === 21) mult *= Number(bossRuleValue("exact21DamageMult", 1)) || 1;
+  return Math.max(1, Math.round(amount * mult));
 }
 
 function lifeLossForBetLoss(seat, hand, betAtRisk) {
@@ -3245,8 +3388,26 @@ function drawDealer(felt) {
   textFit(e.name, barX + 82, barY + 28, Math.max(120, meterX - barX - 102), portrait ? 23 : 22, ui.titleWarm);
   wrapTextSized(e.description, barX + 82, barY + 56, descriptionW, portrait ? 19 : 16, portrait ? 17 : 15, C.muted, 1);
   meter(meterX, barY + 29, meterW, 14, e.hp / e.maxHp, C.red, C.gold);
+  drawBossPhaseTicks(e, meterX, barY + 29, meterW, 14);
   text(`${e.hp}/${e.maxHp}`, meterX + meterW / 2, barY + 63, portrait ? 18 : 14, C.text, "center");
   buttons.push({ x: barX, y: barY, w: barW, h: 78, onClick: () => rulesOpen = true });
+}
+
+function drawBossPhaseTicks(enemy, x, y, w, h) {
+  if (!enemy?.isBoss || !Array.isArray(enemy.bossPhases)) return;
+  ctx.save();
+  ctx.strokeStyle = "rgba(245,251,255,.86)";
+  ctx.lineWidth = 2;
+  for (const phase of enemy.bossPhases.slice(1)) {
+    const tx = x + w * phase.threshold;
+    ctx.beginPath();
+    ctx.moveTo(tx, y - 4);
+    ctx.lineTo(tx, y + h + 4);
+    ctx.stroke();
+  }
+  const active = enemy.bossPhases[clamp(Number(enemy.bossPhase) || 0, 0, enemy.bossPhases.length - 1)];
+  if (active) textFit(active.name, x + w / 2, y - 7, w, viewport.portrait ? 14 : 11, activeFloorUi().title, "center");
+  ctx.restore();
 }
 
 function drawDungeonMap() {
@@ -3997,8 +4158,8 @@ function drawActionButtons(x, y) {
     if (game.phase === "player") {
       const mine = activeHand(mySeat());
       const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
-      addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
-      addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
+      addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
+      addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
       addButton(x, y + 76, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
       addButton(x + bw + gap, y + 76, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
       addButton(x, y + 152, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
@@ -4036,8 +4197,8 @@ function drawActionButtons(x, y) {
     if (game.phase === "player") {
       const mine = activeHand(mySeat());
       const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
-      addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn);
-      addButton(x + 110, y, bw, bh, "Stand", () => action("stand"), false, myTurn);
+      addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
+      addButton(x + 110, y, bw, bh, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
       addButton(x + 220, y, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
       addButton(x + 330, y, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
       addButton(x, y + bh + gap, 430, 105, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
@@ -4068,8 +4229,8 @@ function drawActionButtons(x, y) {
   if (game.phase === "player") {
     const mine = activeHand(mySeat());
     const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
-    addButton(x, y, 110, 44, "Hit", () => action("hit"), true, myTurn);
-    addButton(x + 118, y, 110, 44, "Stand", () => action("stand"), false, myTurn);
+    addButton(x, y, 110, 44, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
+    addButton(x + 118, y, 110, 44, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
     addButton(x, y + 52, 110, 44, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
     addButton(x + 118, y + 52, 110, 44, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
     addButton(x, y + 104, 228, 44, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
@@ -5580,6 +5741,10 @@ function activeFloorUi() {
 function houseRules() {
   const e = game.enemy;
   const rules = [];
+  if (e.isBoss && Array.isArray(e.bossPhases)) {
+    const phase = e.bossPhases[clamp(Number(e.bossPhase) || 0, 0, e.bossPhases.length - 1)];
+    if (phase) rules.push(`Boss phase ${Number(e.bossPhase || 0) + 1}: ${phase.name} — ${phase.text}`);
+  }
   if (e.tiesLose) rules.push("Ties count as dealer wins");
   if (e.bjPays65) rules.push("Blackjack pays only 6:5");
   if (e.noSurrender) rules.push("Surrender is forbidden");
@@ -5588,8 +5753,19 @@ function houseRules() {
   if (e.dealerPeek === false) rules.push("Dealer does not peek for blackjack");
   if (e.hitFee) rules.push(`Each hit costs ${e.hitFee} gold`);
   if (e.hitsSoft17 !== false) rules.push("Dealer hits soft 17");
+  const bossRules = activeBossPhaseRules(e);
+  if (bossRules.lossHpMult && bossRules.lossHpMult !== 1) rules.push(`Losing hands deal ${Math.round((bossRules.lossHpMult - 1) * 100)}% extra HP damage`);
+  if (bossRules.bossDamageMult && bossRules.bossDamageMult !== 1) rules.push(`Boss takes ${Math.round((1 - bossRules.bossDamageMult) * 100)}% less damage`);
+  if (bossRules.winDamageMult && bossRules.winDamageMult !== 1) rules.push(`Wins deal ${Math.round((bossRules.winDamageMult - 1) * 100)}% extra boss damage`);
+  if (bossRules.blackjackDamageMult && bossRules.blackjackDamageMult !== 1) rules.push(`Blackjacks deal ${Math.round((bossRules.blackjackDamageMult - 1) * 100)}% extra boss damage`);
+  if (bossRules.exact21DamageMult && bossRules.exact21DamageMult !== 1) rules.push(`Hands totaling 21 deal ${Math.round((bossRules.exact21DamageMult - 1) * 100)}% extra boss damage`);
+  if (bossRules.winGoldMult && bossRules.winGoldMult !== 1) rules.push(`Winning payouts are ${Math.round((1 - bossRules.winGoldMult) * 100)}% lower`);
+  if (bossRules.minStandTotal) rules.push(`You cannot stand below ${bossRules.minStandTotal}`);
+  if (bossRules.maxHitTotal) rules.push(`You cannot hit above ${bossRules.maxHitTotal}`);
+  if (bossRules.dealerCharlie) rules.push("Dealer 5-card Charlie beats standing hands");
+  if (bossRules.bossHealOnPlayerLoss) rules.push(`Boss heals ${bossRules.bossHealOnPlayerLoss} HP after non-winning rounds`);
   if (!rules.length) rules.push("Standard dungeon blackjack rules");
-  return rules.slice(0, 7);
+  return rules.slice(0, 9);
 }
 
 function playerRankIcon(seat) {
@@ -5614,6 +5790,18 @@ function canSplitLocal(hand) {
     && cardValue(hand.cards[0]) === cardValue(hand.cards[1])
     && seatBankroll(seat) >= hand.bet
     && (seat?.hands?.length || 0) < maxSplitHands();
+}
+
+function bossAllowsHit(hand) {
+  if (!hand) return false;
+  const maxHitTotal = Number(bossRuleValue("maxHitTotal", 0)) || 0;
+  return !maxHitTotal || handTotal(hand) <= maxHitTotal;
+}
+
+function bossAllowsStand(hand) {
+  if (!hand) return false;
+  const minStandTotal = Number(bossRuleValue("minStandTotal", 0)) || 0;
+  return !minStandTotal || handTotal(hand) >= minStandTotal;
 }
 
 function flashMsg(msg) {
