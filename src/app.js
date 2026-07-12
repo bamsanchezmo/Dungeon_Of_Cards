@@ -648,10 +648,10 @@ function createFloorMap(floorIndex) {
       node("start-1", "Starter Table", "table", .22, .50, ["top-1", "bottom-1"], 0),
       node("top-1", "Upper Table", "table", .38, .30, ["top-2a", "top-2b"], 1),
       node("bottom-1", "Lower Table", "table", .38, .70, ["bottom-2a", "bottom-2b"], 1),
-      node("top-2a", "Skybox Table", "table", .55, .22, ["boss"], 1),
-      node("top-2b", "Neon Table", "table", .55, .40, ["boss"], 2),
-      node("bottom-2a", "Vault Table", "table", .55, .60, ["boss"], 2),
-      node("bottom-2b", "Basement Table", "table", .55, .78, ["boss"], 1),
+      node("top-2a", "Skybox Table", "table", .55, .17, ["boss"], 1),
+      node("top-2b", "Neon Table", "table", .55, .39, ["boss"], 2),
+      node("bottom-2a", "Vault Table", "table", .55, .61, ["boss"], 2),
+      node("bottom-2b", "Basement Table", "table", .55, .83, ["boss"], 1),
       node("boss", floorBossName(floorIndex), "boss", .75, .50, ["elevator"]),
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
@@ -3376,12 +3376,14 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   if (node.kind === "table" || node.kind === "boss") {
     const tagW = Math.min(116, Math.max(74, w + 24));
     const tagH = portrait ? 42 : 34;
-    const tagAbove = node.id === "top-2b";
-    const tagY = tagAbove ? y - tagH - 8 : y + h + 7;
-    fill("rgba(0,0,0,.52)", p.x - tagW / 2, tagY, tagW, tagH, 9);
-    strokeRound(p.x - tagW / 2, tagY, tagW, tagH, 9, "rgba(238,231,215,.12)", 1);
-    text(node.rarity.name, p.x, tagY + (portrait ? 18 : 14), portrait ? 15 : 11, node.rarity.color, "center");
-    text(`Threat ${node.threat}`, p.x, tagY + (portrait ? 36 : 28), portrait ? 12 : 10, C.muted, "center");
+    const compactChoiceColumn = ["top-2a", "top-2b", "bottom-2a", "bottom-2b"].includes(node.id);
+    const tagX = compactChoiceColumn ? x + w + 12 : p.x - tagW / 2;
+    const tagY = compactChoiceColumn ? p.y - tagH / 2 : y + h + 7;
+    const textX = tagX + tagW / 2;
+    fill("rgba(0,0,0,.52)", tagX, tagY, tagW, tagH, 9);
+    strokeRound(tagX, tagY, tagW, tagH, 9, "rgba(238,231,215,.12)", 1);
+    text(node.rarity.name, textX, tagY + (portrait ? 18 : 14), portrait ? 15 : 11, node.rarity.color, "center");
+    text(`Threat ${node.threat}`, textX, tagY + (portrait ? 36 : 28), portrait ? 12 : 10, C.muted, "center");
   } else {
     text(node.label, p.x, y + h + (portrait ? 24 : 18), portrait ? 15 : 11, C.muted, "center");
   }
