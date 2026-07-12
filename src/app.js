@@ -247,7 +247,9 @@ const handdrawnAssetFiles = {
 };
 for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `art/glyphs/glyph_${ch}.png`;
 for (let i = 1; i <= FLOORS; i++) {
-  handdrawnAssetFiles[`floor${String(i).padStart(2, "0")}CardBack`] = `art/cards/floor_backs/floor_${String(i).padStart(2, "0")}_card_back.png`;
+  const floor = String(i).padStart(2, "0");
+  handdrawnAssetFiles[`floor${floor}CardBack`] = `art/cards/floor_backs/floor_${floor}_card_back.png`;
+  handdrawnAssetFiles[`tableMotif:floor${floor}`] = `art/table_bases/motifs/floor_${floor}_motif.png`;
 }
 const relicAssetFiles = {
   "Lucky Coin": "lucky_coin.png",
@@ -3428,15 +3430,42 @@ function drawEncounterTableArt(felt, scene) {
   const targetH = portrait ? 390 : 520;
   const x = felt.x + felt.w / 2 - targetW / 2;
   const y = felt.y + (portrait ? 96 : 86);
+  let tableRect = null;
   if (scene.boss) {
+    tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
     drawRawAssetContain(scene.table, x, y, targetW, targetH, .98);
   } else {
+    tableRect = containRectForAsset("tableBase:grunt", x, y, targetW, targetH);
     const shifted = drawPaletteShiftedAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
-    if (!shifted && scene.table) drawRawAssetContain(scene.table, x, y, targetW, targetH, .94);
+    if (!shifted && scene.table) {
+      tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
+      drawRawAssetContain(scene.table, x, y, targetW, targetH, .94);
+    }
   }
+  drawTablePlaqueMotif(tableRect);
   if (scene.decoration) {
     drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
+}
+
+function containRectForAsset(key, x, y, w, h) {
+  if (!handAssetReady(key)) return { x, y, w, h };
+  const size = handAssetSize(key);
+  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  return { x: x + (w - dw) / 2, y: y + (h - dh) / 2, w: dw, h: dh };
+}
+
+function drawTablePlaqueMotif(tableRect) {
+  if (!tableRect) return false;
+  const floor = String(clamp((Number(game?.floor) || 0) + 1, 1, FLOORS)).padStart(2, "0");
+  const key = `tableMotif:floor${floor}`;
+  if (!handAssetReady(key)) return false;
+  const cx = tableRect.x + tableRect.w * .5;
+  const cy = tableRect.y + tableRect.h * .695;
+  const size = Math.min(tableRect.w * .095, tableRect.h * .17, viewport.portrait ? 62 : 74);
+  return drawRawAssetContain(key, cx - size / 2, cy - size / 2, size, size, .92);
 }
 
 function drawDealer(felt) {
@@ -5328,6 +5357,7 @@ function shouldChromaKeyAsset(key) {
   const assetKey = String(key);
   if (/^floor\d{2}CardBack$/.test(assetKey)) return true;
   if (assetKey === "tableBase:grunt") return true;
+  if (/^tableMotif:floor\d{2}$/.test(assetKey)) return true;
   if (/^(map|tableScene):floor\d{2}:(table|bossTable|bossPortrait|elevator|decoration)$/.test(assetKey)) return true;
   return false;
 }
