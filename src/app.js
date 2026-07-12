@@ -133,33 +133,33 @@ const LEADERBOARD_VISIBLE = 5;
 const LEADERBOARD_REFRESH_MS = 15000;
 const artPreference = "handdrawn";
 const handdrawnAssetFiles = {
-  frame: "frame.png",
-  divider: "divider.png",
-  token: "token.png",
-  chip: "chip.png",
-  goldMark: "gold_mark.png",
-  debtMark: "debt_mark.png",
-  backDiamond: "back_diamond.png",
-  bloodDrop: "blood_drop.png",
-  bloodSmear: "blood_smear.png",
-  signatureFlourish: "signature_flourish.png",
-  heartbeat: "heartbeat.png",
-  doodle: "doodle.png",
-  texture: "texture.png",
-  suitS: "suit_S.png",
-  suitH: "suit_H.png",
-  suitD: "suit_D.png",
-  suitC: "suit_C.png",
-  glyphPlus: "glyph_plus.png",
-  glyphMinus: "glyph_minus.png",
-  glyphX: "glyph_x.png",
-  glyphSlash: "glyph_slash.png",
-  glyphPercent: "glyph_percent.png",
-  glyphDollar: "glyph_dollar.png",
-  glyphBang: "glyph_bang.png",
-  glyphQuestion: "glyph_question.png"
+  frame: "art/ui/frame.png",
+  divider: "art/ui/divider.png",
+  token: "art/ui/token.png",
+  chip: "art/ui/chip.png",
+  goldMark: "art/marks/gold_mark.png",
+  debtMark: "art/marks/debt_mark.png",
+  backDiamond: "art/cards/back_diamond.png",
+  bloodDrop: "art/effects/blood_drop.png",
+  bloodSmear: "art/effects/blood_smear.png",
+  signatureFlourish: "art/marks/signature_flourish.png",
+  heartbeat: "art/effects/heartbeat.png",
+  doodle: "art/ui/doodle.png",
+  texture: "art/ui/texture.png",
+  suitS: "art/suits/suit_S.png",
+  suitH: "art/suits/suit_H.png",
+  suitD: "art/suits/suit_D.png",
+  suitC: "art/suits/suit_C.png",
+  glyphPlus: "art/glyphs/glyph_plus.png",
+  glyphMinus: "art/glyphs/glyph_minus.png",
+  glyphX: "art/glyphs/glyph_x.png",
+  glyphSlash: "art/glyphs/glyph_slash.png",
+  glyphPercent: "art/glyphs/glyph_percent.png",
+  glyphDollar: "art/glyphs/glyph_dollar.png",
+  glyphBang: "art/glyphs/glyph_bang.png",
+  glyphQuestion: "art/glyphs/glyph_question.png"
 };
-for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `glyph_${ch}.png`;
+for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `art/glyphs/glyph_${ch}.png`;
 const relicAssetFiles = {
   "Lucky Coin": "lucky_coin.png",
   "Double Crown": "double_crown.png",
@@ -198,7 +198,7 @@ const relicAssetFiles = {
   "Coin of the Fates": "lucky_coin.png"
 };
 for (const [name, file] of Object.entries(relicAssetFiles)) {
-  handdrawnAssetFiles[`relic:${name}`] = `relics/${file}`;
+  handdrawnAssetFiles[`relic:${name}`] = `art/relics/${file}`;
 }
 const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
@@ -2341,7 +2341,7 @@ function voteRelic(playerId, index) {
 
 function startAudio() {
   if (!audio) {
-    audio = new Audio("./assets/Velvet_Blackjack.ogg");
+    audio = new Audio("./assets/audio/music/Velvet_Blackjack.ogg");
     audio.loop = true;
     audio.volume = .35;
     audio.playbackRate = 1;
@@ -2350,12 +2350,12 @@ function startAudio() {
     audio.webkitPreservesPitch = true;
   }
   if (!deathWarpAudio) {
-    deathWarpAudio = new Audio("./assets/death_warp.wav");
+    deathWarpAudio = new Audio("./assets/audio/sfx/death_warp.wav");
     deathWarpAudio.preload = "auto";
     deathWarpAudio.volume = .22;
   }
   if (!heartbeatAudio) {
-    heartbeatAudio = new Audio("./assets/heartbeat.wav");
+    heartbeatAudio = new Audio("./assets/audio/sfx/heartbeat.wav");
     heartbeatAudio.preload = "auto";
     heartbeatAudio.volume = .24;
   }
@@ -4170,7 +4170,7 @@ function loadHanddrawnAssets() {
   for (const [key, file] of Object.entries(handdrawnAssetFiles)) {
     if (handdrawnImages[key]) continue;
     const img = new Image();
-    img.src = `./assets/handdrawn/${file}`;
+    img.src = `./assets/${file}`;
     img.onload = () => {
       tintedHanddrawnCache.clear();
       draw();
