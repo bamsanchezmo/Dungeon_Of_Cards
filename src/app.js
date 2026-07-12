@@ -3462,19 +3462,17 @@ function drawTablePlaqueMotif(tableRect) {
   const floor = String(clamp((Number(game?.floor) || 0) + 1, 1, FLOORS)).padStart(2, "0");
   const key = `tableMotif:floor${floor}`;
   if (!handAssetReady(key)) return false;
+  // Matches the blank rounded-square plaque baked into the recolorable table master.
   const cx = tableRect.x + tableRect.w * .5;
-  const cy = tableRect.y + tableRect.h * .69;
-  const size = Math.min(tableRect.w * .14, tableRect.h * .25, viewport.portrait ? 132 : 168);
+  const cy = tableRect.y + tableRect.h * .705;
+  const size = Math.min(tableRect.w * .12, tableRect.h * .225, viewport.portrait ? 112 : 148);
   const x = cx - size / 2;
   const y = cy - size / 2;
-  const glowColor = floorCardPalette(Number(game?.floor) || 0).accent;
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
-  ctx.filter = `drop-shadow(0 2px 4px rgba(0,0,0,.34)) drop-shadow(0 0 10px ${hexToRgba(glowColor, .18)})`;
-  drawRawAssetContain(key, x, y, size, size, .16);
+  ctx.filter = "saturate(.72) contrast(.88) brightness(.92)";
+  drawRawAssetContain(key, x, y, size, size, .8);
   ctx.restore();
-  drawRawAssetContainBlended(key, x, y, size, size, .52, "soft-light", "saturate(.5) contrast(.92)");
-  drawRawAssetContainBlended(key, x, y, size, size, .38, "source-over", "saturate(.7) contrast(.86) brightness(.92)");
   return true;
 }
 
@@ -5538,24 +5536,6 @@ function drawRawAssetContain(key, x, y, w, h, alpha = 1) {
   const dw = size.w * scale;
   const dh = size.h * scale;
   return drawRawAsset(key, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, alpha);
-}
-
-function drawRawAssetContainBlended(key, x, y, w, h, alpha = 1, mode = "source-over", filter = "none") {
-  if (!handAssetReady(key)) return false;
-  const asset = chromaKeyedHandAsset(key);
-  if (!asset) return false;
-  const size = handAssetSize(key);
-  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
-  const dw = size.w * scale;
-  const dh = size.h * scale;
-  ctx.save();
-  ctx.globalAlpha *= alpha;
-  ctx.globalCompositeOperation = mode;
-  ctx.filter = filter;
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(asset, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
-  ctx.restore();
-  return true;
 }
 
 function drawRawAssetCover(key, x, y, w, h, alpha = 1) {
