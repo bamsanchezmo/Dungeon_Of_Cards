@@ -129,6 +129,7 @@ floorArtIds.forEach((id, index) => {
   tableSceneArtFiles[`floor${floor}:bossTable`] = `art/tables/${id}/boss_table.png`;
   tableSceneArtFiles[`floor${floor}:decoration`] = `art/tables/${id}/decoration.png`;
 });
+tableSceneArtFiles["quick:background"] = "art/tables/quick_run/background.png";
 
 const C = {
   bg: "#120e16",
@@ -655,6 +656,7 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     dealerTimer: .6,
     roundNet: 0,
     completedRounds: 0,
+    damageMultiplier: 1,
     dealSeq: 0,
     roundDealCount: 0,
     freePlay: mode !== "classic",
@@ -761,7 +763,7 @@ function canUseRelicChoiceScreen() {
 }
 
 function runFloorCount() {
-  return isQuickRun() ? Math.max(1, enemyTemplates.length || FLOORS) : towerFloorCount();
+  return isQuickRun() ? Math.max(1, (Number(game?.floor) || 0) + 1) : towerFloorCount();
 }
 
 function createFloorMap(floorIndex, options = {}) {
@@ -971,6 +973,82 @@ function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
     name: `${rarity.name} Vitality Voucher`,
     icon: "♥",
     description: `Increase max HP by ${amount} and heal for the same amount.`,
+    amount,
+    rarityName: rarity.name,
+    rarityColor: rarity.color
+  };
+}
+
+function createQuickRewardChoices() {
+  const quickFloor = Math.max(1, (Number(game?.floor) || 0) + 1);
+  const picker = createFloorRewardPicker();
+  const rewards = [];
+  const add = (reward) => {
+    if (!reward || rewards.some((r) => r.type === reward.type && r.name === reward.name)) return;
+    rewards.push(reward);
+  };
+  const rarityForChoice = (boost = 0) => rarityForFloor(Math.min(FLOORS - 1, Math.floor((quickFloor - 1) / 2)), boost + Math.floor(quickFloor / 5));
+  add(createRewardRelic(rarityForChoice(0), picker()));
+  const types = shuffle(["gold", "heal", "maxHp", "damage", "relic"]);
+  for (const type of types) {
+    if (rewards.length >= 3) break;
+    const rarity = rarityForChoice(rewards.length);
+    if (type === "relic") add(createRewardRelic(rarity, picker()));
+    else add(createQuickPerkReward(type, quickFloor, rarity));
+  }
+  let guard = 0;
+  while (rewards.length < 3 && guard++ < 12) {
+    const rarity = rarityForChoice(guard);
+    add(createQuickPerkReward(["gold", "heal", "maxHp", "damage"][guard % 4], quickFloor, rarity));
+  }
+  return rewards.slice(0, 3);
+}
+
+function createQuickPerkReward(type, quickFloor, rarity) {
+  const rarityMult = Number(rarity?.scale || rarity?.mult || 1) || 1;
+  const scale = 1 + Math.sqrt(Math.max(1, quickFloor)) * .12 + quickFloor * .025;
+  if (type === "gold") {
+    const amount = Math.round((45 + quickFloor * 12) * scale * rarityMult / 5) * 5;
+    return {
+      type: "gold",
+      name: `${rarity.name} Cash Payout`,
+      icon: "$",
+      description: `Gain ${amount} gold for future bets.`,
+      amount,
+      rarityName: rarity.name,
+      rarityColor: rarity.color
+    };
+  }
+  if (type === "heal") {
+    const amount = Math.round((18 + quickFloor * 3) * scale);
+    return {
+      type: "heal",
+      name: `${rarity.name} Second Wind`,
+      icon: "+",
+      description: `Restore ${amount} HP.`,
+      amount,
+      rarityName: rarity.name,
+      rarityColor: rarity.color
+    };
+  }
+  if (type === "maxHp") {
+    const amount = Math.max(5, Math.round((6 + quickFloor * .75) * rarityMult));
+    return {
+      type: "maxHp",
+      name: `${rarity.name} Vitality Upgrade`,
+      icon: "♥",
+      description: `Increase max HP by ${amount} and heal ${amount} HP.`,
+      amount,
+      rarityName: rarity.name,
+      rarityColor: rarity.color
+    };
+  }
+  const amount = Number((.05 + Math.min(.28, rarityMult * .035 + quickFloor * .0025)).toFixed(2));
+  return {
+    type: "damage",
+    name: `${rarity.name} Sharpened Cards`,
+    icon: "×",
+    description: `Winning hands deal +${Math.round(amount * 100)}% damage. Current ${quickDamageLabel()} → x${(quickDamageMultiplier() + amount).toFixed(2)}.`,
     amount,
     rarityName: rarity.name,
     rarityColor: rarity.color
@@ -1795,15 +1873,10 @@ function completeQuickEncounter() {
     return;
   }
   game.activeEncounterId = "";
-  if (game.floor >= FLOORS - 1) {
-    game.phase = "victory";
-    log("Quick Run cleared its final table.");
-    return;
-  }
-  game.shop = chooseRelics();
+  game.shop = createQuickRewardChoices();
   game.relicVotes = {};
   game.phase = "shop";
-  log("Table cleared. Choose one of three relics before the next table.");
+  log(`Quick Floor ${game.floor + 1} cleared. Choose one reward before climbing.`);
 }
 
 function gainRelic(relic) {
@@ -1844,7 +1917,26 @@ function claimMapReward(reward) {
     queueHpAnimation(before, game.hp, game.maxHp);
     notify(`${reward.name}: max HP +${reward.amount || 0}`);
     log(`Reward gained: ${reward.name} (${reward.description}).`);
+    return;
   }
+  if (reward.type === "damage") {
+    game.damageMultiplier = Number((quickDamageMultiplier() + (Number(reward.amount) || 0)).toFixed(2));
+    notify(`${reward.name}: damage ${quickDamageLabel()}`);
+    log(`Reward gained: ${reward.name} (${reward.description}).`);
+  }
+}
+
+function claimQuickReward(reward) {
+  if (!reward) return;
+  claimMapReward(reward);
+}
+
+function quickDamageMultiplier() {
+  return Math.max(1, Number(game?.damageMultiplier) || 1);
+}
+
+function quickDamageLabel() {
+  return `x${quickDamageMultiplier().toFixed(2)}`;
 }
 
 function awardMapGold(amount) {
@@ -2167,6 +2259,7 @@ function lossResultPayload(seat, h, lostAmount, msg, grossLoss = lostAmount) {
 function bossDamageForWin(hand, amount) {
   let mult = Number(bossRuleValue("bossDamageMult", 1)) || 1;
   mult *= Number(bossRuleValue("winDamageMult", 1)) || 1;
+  if (isQuickRun()) mult *= quickDamageMultiplier();
   if (isBlackjack(hand)) mult *= Number(bossRuleValue("blackjackDamageMult", 1)) || 1;
   if (handTotal(hand) === 21) mult *= Number(bossRuleValue("exact21DamageMult", 1)) || 1;
   return Math.max(1, Math.round(amount * mult));
@@ -2212,7 +2305,7 @@ function buyRelic(index) {
   if (!canUseRelicChoiceScreen()) return;
   if (isQuickRun()) {
     sfx("coinDown");
-    gainRelic(relic);
+    claimQuickReward(relic);
     nextBattle();
     return;
   }
@@ -2245,7 +2338,8 @@ function applyQuickDifficultyToEnemy() {
   game.enemy.maxHp = Math.max(1, Math.ceil(game.enemy.maxHp * hpMult * scale));
   game.enemy.hp = game.enemy.maxHp;
   game.enemy.threat = clamp(1 + Math.floor(table / (difficulty === "normal" ? 3 : 2)), 1, 5);
-  game.enemy.title = `Quick Table ${table + 1}`;
+  game.enemy.title = `Quick Floor ${table + 1}`;
+  game.enemy.color = "#d8c58a";
 }
 
 function resetRound() {
@@ -2343,7 +2437,7 @@ function relicFamilyOverlap(relic, usedFamilies) {
 
 function ensureShopRelics() {
   if (game.phase === "shop" && (!Array.isArray(game.shop) || game.shop.length === 0)) {
-    game.shop = chooseRelics();
+    game.shop = isQuickRun() ? createQuickRewardChoices() : chooseRelics();
   }
 }
 
@@ -3143,14 +3237,16 @@ function seatInDebt(seat) {
 function goldLabel() {
   const seat = mySeat() || game.seats[0];
   const debt = debtForSeat(seat);
-  const base = isFreeForAll() ? `Bank ${seatBankroll(seat)}g` : `Gold ${game.gold}g`;
+  const damage = isQuickRun() ? `  DMG ${quickDamageLabel()}` : "";
+  const base = `${isFreeForAll() ? `Bank ${seatBankroll(seat)}g` : `Gold ${game.gold}g`}${damage}`;
   return `${base}${debt ? ` / Debt ${debt}g` : ""}`;
 }
 
 function drawGoldDebtLine(x, y, size = 18) {
   const seat = mySeat() || game.seats[0];
   const debt = debtForSeat(seat);
-  const base = isFreeForAll() ? `Bank ${seatBankroll(seat)}g` : `Gold ${game.gold}g`;
+  const damage = isQuickRun() ? `  DMG ${quickDamageLabel()}` : "";
+  const base = `${isFreeForAll() ? `Bank ${seatBankroll(seat)}g` : `Gold ${game.gold}g`}${damage}`;
   const iconSize = size * 1.25;
   drawHandAssetFit("goldMark", x + iconSize / 2, y - size * .32, iconSize, C.gold, "center", .95);
   text(base, x + iconSize + 8, y, size, C.gold);
@@ -3965,6 +4061,14 @@ function tableSceneAssets() {
   const floorKey = floorAssetKey(Number(game?.floor) || 0);
   const activeNode = getMapNode(game?.activeEncounterId);
   const boss = activeNode?.kind === "boss";
+  if (isQuickRun()) {
+    return {
+      boss: false,
+      background: tableSceneAsset("quick:background"),
+      table: "tableBase:grunt",
+      decoration: ""
+    };
+  }
   return {
     boss,
     background: tableSceneAsset(`${floorKey}:background`),
@@ -4814,6 +4918,7 @@ function mapRewardSubtitle(reward) {
   if (reward.type === "gold") return `${reward.rarityName || "Bonus"} gold reward`;
   if (reward.type === "heal") return `${reward.rarityName || "Bonus"} HP reward`;
   if (reward.type === "maxHp") return `${reward.rarityName || "Bonus"} max HP reward`;
+  if (reward.type === "damage") return `${reward.rarityName || "Bonus"} damage reward`;
   return reward.rarityName || "Table reward";
 }
 
@@ -4881,6 +4986,7 @@ function rewardDecisionSummary(reward) {
   if (reward.type === "gold") return `${rarity}cash: +${reward.amount || 0} gold. ${reward.description}`;
   if (reward.type === "heal") return `${rarity}heal: restore ${reward.amount || 0} HP. ${reward.description}`;
   if (reward.type === "maxHp") return `${rarity}vitality: max HP +${reward.amount || 0}. ${reward.description}`;
+  if (reward.type === "damage") return `${rarity}damage: +${Math.round((reward.amount || 0) * 100)}%. ${reward.description}`;
   return `${reward.name}: ${reward.description || "Reward after clearing the table."}`;
 }
 
@@ -5546,7 +5652,7 @@ function drawSidePanel() {
   text("OF CARDS", x + 102, 86, 10, C.muted, "center", "serif");
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 100, 230, 1);
-  text(`${isQuickRun() ? "Table" : "Floor"} ${game.floor + 1}/${runFloorCount()}`, x + 22, 112, 18, C.text);
+  text(isQuickRun() ? `Quick Floor ${game.floor + 1}` : `Floor ${game.floor + 1}/${runFloorCount()}`, x + 22, 112, 18, C.text);
   drawGoldDebtLine(x + 22, 140, 18);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
@@ -5577,7 +5683,7 @@ function drawMobileGameplayDock() {
   strokeRound(x, y, w, dockH, 22, hexToRgba(ui.border, .58), 2);
 
   const statY = y + 28;
-  text(`${isQuickRun() ? "T" : "F"}${game.floor + 1}/${runFloorCount()}`, x + 28, statY, 22, C.text);
+  text(isQuickRun() ? `QF${game.floor + 1}` : `F${game.floor + 1}/${runFloorCount()}`, x + 28, statY, 22, C.text);
   drawGoldDebtLine(x + 96, statY, 21);
   const hpW = 180;
   const hpX = x + w - hpW - 24;
@@ -5670,7 +5776,7 @@ function drawTouchLandscapePanel() {
   strokeRound(x, 30, w, 740, 20, hexToRgba(ui.border, .62), 3);
   text("DUNGEON OF CARDS", x + 190, 82, 25, ui.titleWarm, "center", "serif");
   addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
-  text(`${isQuickRun() ? "Table" : "Floor"} ${game.floor + 1}/${runFloorCount()}`, x + 24, 142, 27, C.text);
+  text(isQuickRun() ? `Quick Floor ${game.floor + 1}` : `Floor ${game.floor + 1}/${runFloorCount()}`, x + 24, 142, 27, C.text);
   drawGoldDebtLine(x + 245, 142, 27);
   meter(x + 24, 174, w - 48, 20, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
@@ -5843,8 +5949,8 @@ function drawShop() {
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
   strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
-  text(isQuickRun() ? "QUICK RUN RELIC VOTE" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
-  text(isQuickRun() ? "Choose one relic, then the next table gets nastier." : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
+  text(isQuickRun() ? "QUICK FLOOR CLEARED" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
+  text(isQuickRun() ? `Choose one reward before Quick Floor ${game.floor + 2}.` : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
   if (portrait) {
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, 205 + i * 340));
     if (!isQuickRun()) addButton(lw / 2 - 170, 1225, 340, 72, "Skip Shop", () => action("skipShop"));
@@ -5859,6 +5965,7 @@ function drawShopRelicCard(relic, index, x, y) {
   const cost = 45 + game.floor * 15;
   const canBuy = isQuickRun() || (game.code && isFreeForAll()) ? true : seatBankroll(mySeat() || game.seats[0]) >= cost;
   const portrait = viewport.portrait;
+  const rewardColor = relic.rarityColor || C.gold;
   const cardW = portrait ? layoutW() - 160 : 280;
   const cardH = portrait ? 318 : 320;
   shadow(0, 18, 38, "rgba(0,0,0,.42)", () => {
@@ -5866,11 +5973,11 @@ function drawShopRelicCard(relic, index, x, y) {
       ? [[0, "#2c2438"], [.62, "#17111e"], [1, "#22152b"]]
       : [[0, "#211b27"], [1, "#111017"]], true);
   });
-  strokeRound(x, y, cardW, cardH, 14, canBuy ? C.gold : C.goldDim, canBuy ? 3 : 2);
-  fill("rgba(220,180,70,.08)", x + 14, y + 14, cardW - 28, portrait ? 88 : 76, 12);
+  strokeRound(x, y, cardW, cardH, 14, canBuy ? rewardColor : C.goldDim, canBuy ? 3 : 2);
+  fill(hexToRgba(rewardColor, .10), x + 14, y + 14, cardW - 28, portrait ? 88 : 76, 12);
   const iconSize = portrait ? 78 : 64;
-  drawRelicIcon(relic, x + 20 + iconSize / 2, y + 20 + iconSize / 2, iconSize, C.gold);
-  textFit(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), cardW - (portrait ? 150 : 130), portrait ? 27 : 20, C.gold);
+  drawMapRewardIcon(relic, x + 20 + iconSize / 2, y + 20 + iconSize / 2, iconSize, rewardColor);
+  textFit(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), cardW - (portrait ? 150 : 130), portrait ? 27 : 20, rewardColor);
   wrapTextSized(relic.description, x + (portrait ? 116 : 100), y + (portrait ? 82 : 72), cardW - (portrait ? 150 : 130), portrait ? 22 : 17, portrait ? 18 : 14, C.text, 2);
   fill("rgba(7,5,10,.46)", x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10);
   strokeRound(x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10, "rgba(238,231,215,.12)", 1);
@@ -5879,7 +5986,7 @@ function drawShopRelicCard(relic, index, x, y) {
   const voted = game.relicVotes?.[localPlayerId] === index;
   const label = game.code
     ? `${voted ? "Voted" : "Vote"}${votes ? ` (${votes})` : ""}`
-    : isQuickRun() ? "Choose Relic" : `Buy ${cost}g`;
+    : isQuickRun() ? "Choose Reward" : `Buy ${cost}g`;
   addButton(x + 40, y + (portrait ? 244 : 250), cardW - 80, portrait ? 62 : 50, label, () => action(`buy:${index}`), true, canBuy);
 }
 
@@ -7594,12 +7701,14 @@ function feltTheme() {
 }
 
 function activeFloorColor() {
+  if (isQuickRun()) return "#c8aa5a";
   if (game?.map?.color) return game.map.color;
   if (game) return floorThemeColor(Number(game.floor) || 0);
   return floorThemeColor(0);
 }
 
 function activeFloorUi() {
+  if (isQuickRun()) return floorUiPalette(9);
   return floorUiPalette(game ? clamp((Number(game.map?.sourceFloor) || ((Number(game.floor) || 0) + 1)) - 1, 0, FLOORS - 1) : 0);
 }
 
