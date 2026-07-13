@@ -753,7 +753,11 @@ function towerFloorCount() {
 }
 
 function isQuickRun() {
-  return game?.runType === "quick";
+  return game?.runType === "quick" && !game?.map && !(game?.floorMaps || []).length;
+}
+
+function canUseRelicChoiceScreen() {
+  return isQuickRun() || !!game?.developerTest;
 }
 
 function runFloorCount() {
@@ -1483,6 +1487,12 @@ function applyAction(playerId, name) {
     return;
   }
 
+  if (game.phase === "shop" && !canUseRelicChoiceScreen()) {
+    game.phase = game.map ? "map" : "roundOver";
+    if (game.phase === "map") refreshReachableNodes();
+    return;
+  }
+
   if (game.phase === "roundOver" || game.phase === "shop" || game.phase === "victory" || game.phase === "defeat") {
     if (name === "continue") continueAfterRound();
     if (name.startsWith("buy:")) game.code ? voteRelic(playerId, Number(name.slice(4))) : buyRelic(Number(name.slice(4)));
@@ -1779,6 +1789,11 @@ function finishFloorTransition() {
 }
 
 function completeQuickEncounter() {
+  if (!isQuickRun()) {
+    game.phase = game.map ? "map" : "roundOver";
+    if (game.phase === "map") refreshReachableNodes();
+    return;
+  }
   game.activeEncounterId = "";
   if (game.floor >= FLOORS - 1) {
     game.phase = "victory";
@@ -2194,6 +2209,7 @@ function continueAfterRound() {
 function buyRelic(index) {
   const relic = game.shop[index];
   if (!relic) return;
+  if (!canUseRelicChoiceScreen()) return;
   if (isQuickRun()) {
     sfx("coinDown");
     gainRelic(relic);
@@ -5805,6 +5821,13 @@ function drawActionButtons(x, y) {
 }
 
 function drawShop() {
+  if (!canUseRelicChoiceScreen()) {
+    if (game?.map) {
+      game.phase = "map";
+      refreshReachableNodes();
+    }
+    return;
+  }
   ensureShopRelics();
   const lw = layoutW();
   const lh = layoutH();
