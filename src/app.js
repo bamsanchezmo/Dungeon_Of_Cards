@@ -4079,6 +4079,21 @@ function drawFloorTransition() {
 
 function drawMapHeader(lw, portrait) {
   const ui = activeFloorUi();
+  if (portrait) {
+    const leftX = 24;
+    const topY = 34;
+    const statsX = Math.min(250, lw * .38);
+    const statsW = Math.max(86, lw - statsX - 154);
+    text(`FLOOR ${game.floor + 1}/${FLOORS}`, leftX, topY + 12, 24, ui.titleWarm, "left", "serif");
+    textFit(game.map.theme, leftX, topY + 42, Math.max(170, statsX - leftX - 12), 18, C.text);
+    shadow(0, 12, 28, "rgba(0,0,0,.42)", () => {
+      gradientRound(statsX, topY - 2, statsW, 54, 16, [[0, "rgba(8,6,12,.78)"], [1, hexToRgba(ui.panelBottom, .9)]], true);
+    });
+    strokeRound(statsX, topY - 2, statsW, 54, 16, hexToRgba(ui.border, .52), 1.5);
+    textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, topY + 31, statsW - 18, 16, C.text, "center");
+    addButton(lw - 134, 32, 108, 52, "Menu", () => menuOpen = true);
+    return;
+  }
   const titleY = portrait ? 58 : 34;
   const themeY = portrait ? 94 : 64;
   const statY = portrait ? 125 : 96;
@@ -4415,21 +4430,22 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const selected = getMapNode(inspectedNodeId) || reachableMapNodes()[0] || getMapNode(game.currentNodeId);
   if (!selected) return;
   const lw = layoutW();
-  const lh = layoutH();
   const ui = activeFloorUi();
   const solo = game.seats.filter((s) => !s.spectating).length <= 1;
-  const buttonH = 70;
-  const buttonW = Math.min(260, (lw - 70) / 2);
-  const leftX = 24;
-  const rightX = lw - 24 - buttonW;
-  const buttonY = lh - 24 - buttonH;
+  const buttonH = 58;
+  const buttonGap = 12;
+  const rowX = mapX + 22;
+  const rowW = mapW - 44;
+  const buttonW = (rowW - buttonGap * 2) / 3;
+  const leftX = rowX;
+  const midX = rowX + buttonW + buttonGap;
+  const rightX = rowX + (buttonW + buttonGap) * 2;
+  const buttonY = mapY + mapH - buttonH - 22;
   const stripH = 48;
-  const stripW = Math.min(mapW - 44, lw - 192);
+  const stripW = Math.min(mapW - 74, lw - 132);
   const stripX = mapX + (mapW - stripW) / 2;
-  const stripY = mapY + 18;
+  const stripY = buttonY - stripH - 10;
   const status = selected.reachable ? "Reachable" : selected.cleared ? "Cleared" : selected.current ? "Current" : "Preview";
-  const reward = selected.reward;
-  const rewardColor = reward?.rarityColor || selected.rarity?.color || ui.titleWarm;
 
   shadow(0, 16, 34, "rgba(0,0,0,.55)", () => {
     gradientRound(stripX, stripY, stripW, stripH, 18, [[0, "rgba(9,7,13,.78)"], [1, hexToRgba(ui.panelBottom, .82)]], true);
@@ -4439,7 +4455,8 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
 
   const canEnter = selected.reachable && selected.kind !== "elevator";
   if (solo) {
-    addButton(leftX, buttonY, buttonW, buttonH, "Details", () => openMapNodeDetail(selected), true, true);
+    addButton(leftX, buttonY, buttonW, buttonH, "Scout", () => openMapNodeDetail(selected), true, true);
+    addButton(midX, buttonY, buttonW, buttonH, "Relics", () => { relicsOpen = true; relicPage = 0; }, false, true);
     addButton(rightX, buttonY, buttonW, buttonH, canEnter ? "Enter" : selected.cleared ? "Cleared" : "Inspect", () => action(`enterMap:${selected.id}`), true, canEnter);
     return;
   }
@@ -4451,6 +4468,7 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const activeCount = Math.max(1, game.seats.filter((seat) => !seat.spectating).length);
   text(`${readyCount}/${activeCount} ready`, lw / 2, buttonY - 8, 16, C.muted, "center");
   addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${selected.id}`), true, canEnter);
+  addButton(midX, buttonY, buttonW, buttonH, "Relics", () => { relicsOpen = true; relicPage = 0; }, false, true);
   addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
 }
 
