@@ -5604,11 +5604,7 @@ function drawMobileGameplayDock() {
 }
 
 function mobileGameplayDockHeight() {
-  if (game.phase === "player" && game.foresightUsesLeft > 0) return 450;
-  if (game.phase === "player") return 404;
-  if (game.phase === "betting") return 382;
-  if (game.phase === "insurance") return 258;
-  return 246;
+  return 450;
 }
 
 function mobilePhaseSummary() {
@@ -5714,16 +5710,19 @@ function drawActionButtons(x, y) {
     const bw = Math.floor((layoutW() - 96 - gap) / 2);
     const bh = 54;
     const full = bw * 2 + gap;
+    const row2 = y + 62;
+    const row3 = y + 124;
+    const row4 = y + 186;
     if (game.phase === "betting") {
       if (isFreeForAll() && mySeat()?.bankrupt) {
-        addButton(x, y, full, 62, "Bankrupt", () => {}, false, false);
+        addButton(x, row3, full, bh, "Bankrupt", () => {}, false, false);
         return;
       }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + bw + gap, y, bw, bh, "+5", () => action("betUp"));
-      addButton(x, y + 62, bw, bh, "Min", () => action("minBet"));
-      addButton(x + bw + gap, y + 62, bw, bh, "Max", () => action("maxBet"));
-      addButton(x, y + 124, full, 62, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      addButton(x, row2, bw, bh, "Min", () => action("minBet"));
+      addButton(x + bw + gap, row2, bw, bh, "Max", () => action("maxBet"));
+      addButton(x, row3, full, bh, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
       return;
     }
     if (game.phase === "insurance") {
@@ -5736,16 +5735,16 @@ function drawActionButtons(x, y) {
       const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
       addButton(x, y, bw, bh, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
       addButton(x + bw + gap, y, bw, bh, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
-      addButton(x, y + 62, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
-      addButton(x + bw + gap, y + 62, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
-      addButton(x, y + 124, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+      addButton(x, row2, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
+      addButton(x + bw + gap, row2, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
+      addButton(x, row3, full, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
       if (game.foresightUsesLeft > 0) {
-        addButton(x, y + 186, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
+        addButton(x, row4, full, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
       }
       return;
     }
     if (["roundOver", "victory", "defeat"].includes(game.phase)) {
-      addButton(x, y, full, 64, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
+      addButton(x, row3, full, bh, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
     }
     return;
   }
@@ -5753,16 +5752,17 @@ function drawActionButtons(x, y) {
     const gap = 10;
     const bw = 100;
     const bh = 105;
+    const row2 = y + bh + gap;
     if (game.phase === "betting") {
       if (isFreeForAll() && mySeat()?.bankrupt) {
-        addButton(x, y, 430, 110, "Bankrupt", () => {}, false, false);
+        addButton(x, row2, 430, bh, "Bankrupt", () => {}, false, false);
         return;
       }
       addButton(x, y, bw, bh, "-5", () => action("betDown"));
       addButton(x + 110, y, bw, bh, "+5", () => action("betUp"));
       addButton(x + 220, y, bw, bh, "Min", () => action("minBet"));
       addButton(x + 330, y, bw, bh, "Max", () => action("maxBet"));
-      addButton(x, y + bh + gap, 430, 110, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+      addButton(x, row2, 430, bh, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
       return;
     }
     if (game.phase === "insurance") {
@@ -5777,24 +5777,27 @@ function drawActionButtons(x, y) {
       addButton(x + 110, y, bw, bh, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
       addButton(x + 220, y, bw, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
       addButton(x + 330, y, bw, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
-      addButton(x, y + bh + gap, 430, 105, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+      addButton(x, row2, 430, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
       return;
     }
     if (["roundOver", "victory", "defeat"].includes(game.phase)) {
-      addButton(x, y, 430, 110, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
+      addButton(x, row2, 430, bh, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
     }
     return;
   }
   if (game.phase === "betting") {
+    const bh = 44;
+    const row2 = y + 52;
+    const row3 = y + 104;
     if (isFreeForAll() && mySeat()?.bankrupt) {
-      addButton(x, y, 228, 50, "Bankrupt", () => {}, false, false);
+      addButton(x, row3, 228, bh, "Bankrupt", () => {}, false, false);
       return;
     }
-    addButton(x, y, 110, 42, "-5", () => action("betDown"));
-    addButton(x + 118, y, 110, 42, "+5", () => action("betUp"));
-    addButton(x, y + 50, 110, 42, "Min", () => action("minBet"));
-    addButton(x + 118, y + 50, 110, 42, "Max", () => action("maxBet"));
-    addButton(x, y + 102, 228, 48, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
+    addButton(x, y, 110, bh, "-5", () => action("betDown"));
+    addButton(x + 118, y, 110, bh, "+5", () => action("betUp"));
+    addButton(x, row2, 110, bh, "Min", () => action("minBet"));
+    addButton(x + 118, row2, 110, bh, "Max", () => action("maxBet"));
+    addButton(x, row3, 228, bh, mySeat()?.ready ? "Unready" : "Ready", () => action("ready"), true);
     return;
   }
   if (game.phase === "insurance") {
@@ -5803,20 +5806,24 @@ function drawActionButtons(x, y) {
     return;
   }
   if (game.phase === "player") {
+    const bh = 44;
+    const row2 = y + 52;
+    const row3 = y + 104;
+    const row4 = y + 156;
     const mine = activeHand(mySeat());
     const myTurn = game.freePlay ? !mySeat()?.finished : game.seats[game.activeSeat]?.id === localPlayerId;
-    addButton(x, y, 110, 44, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
-    addButton(x + 118, y, 110, 44, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
-    addButton(x, y + 52, 110, 44, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
-    addButton(x + 118, y + 52, 110, 44, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
-    addButton(x, y + 104, 228, 44, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
+    addButton(x, y, 110, bh, "Hit", () => action("hit"), true, myTurn && bossAllowsHit(mine));
+    addButton(x + 118, y, 110, bh, "Stand", () => action("stand"), false, myTurn && bossAllowsStand(mine));
+    addButton(x, row2, 110, bh, "Double", () => action("double"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noDouble && seatBankroll(mySeat()) >= (mine?.bet || 0));
+    addButton(x + 118, row2, 110, bh, "Split", () => action("split"), false, myTurn && canSplitLocal(mine));
+    addButton(x, row3, 228, bh, "Surrender", () => action("surrender"), false, myTurn && mine?.cards.length === 2 && !game.enemy.noSurrender);
     if (game.foresightUsesLeft > 0) {
-      addButton(x, y + 156, 228, 44, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
+      addButton(x, row4, 228, bh, `Peek (${game.foresightUsesLeft})`, () => action("peek"), true, myTurn);
     }
     return;
   }
   if (["roundOver", "victory", "defeat"].includes(game.phase)) {
-    addButton(x, y, 228, 50, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
+    addButton(x, y + 104, 228, 44, game.phase === "roundOver" ? "Continue" : "Return", () => action("continue"), true);
   }
 }
 
