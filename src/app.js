@@ -5041,7 +5041,8 @@ function drawSeats(felt) {
     const slot = portrait ? portraitSeatRect(idx) : null;
     const seatW = portrait ? slot.w - 24 : Math.min(370, columnW - 50);
     const x = portrait ? slot.x + 18 : felt.x + 50 + (idx % 2) * columnW;
-    const y = portrait ? slot.y + 42 : felt.y + 365 + Math.floor(idx / 2) * 170;
+    const y = portrait ? slot.y + 34 : felt.y + 365 + Math.floor(idx / 2) * 170;
+    const cardScale = portrait ? portraitSeatCardScale(slot) : 1;
     const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
     const isReady = game.phase === "betting" && seat.ready;
     if (portrait) {
@@ -5085,7 +5086,8 @@ function drawSeats(felt) {
         const visualIndex = carouselVisualIndex(seat.id, selected);
         const carouselCenter = clamp(Math.round(visualIndex), 0, seat.hands.length - 1);
         const visibleHands = new Set([carouselCenter - 1, carouselCenter, carouselCenter + 1].filter((n) => n >= 0 && n < seat.hands.length));
-        const centerX = x + seatW / 2 - CARD_W / 2 - 18;
+        const centerX = portrait ? x + seatW / 2 - (CARD_W * cardScale) / 2 : x + seatW / 2 - CARD_W / 2 - 18;
+        const maxHandW = Math.min(portrait ? 270 : 210, (seatW - 42) / Math.max(.01, cardScale));
         const handOrder = [...visibleHands]
           .map((hidx) => ({ hand: seat.hands[hidx], hidx, distance: Math.abs(hidx - visualIndex) }))
           .sort((a, b) => b.distance - a.distance || a.hidx - b.hidx);
@@ -5098,12 +5100,12 @@ function drawSeats(felt) {
           ctx.save();
           ctx.globalAlpha = isFocused ? 1 : clamp(.72 - depth * .18, .42, .68);
           const scale = isFocused ? 1 : clamp(.86 - depth * .12, .68, .82);
-          const handX = centerX + offset * (portrait ? 86 : 108);
-          const handY = y + (portrait ? 10 : 8) + depth * (portrait ? 18 : 24);
-          ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
+          const handX = centerX + offset * (portrait ? 86 * cardScale : 108);
+          const handY = y + (portrait ? 8 : 8) + depth * (portrait ? 14 * cardScale : 24);
+          ctx.translate(handX + (CARD_W * cardScale) / 2, handY + (CARD_H * cardScale) / 2);
           ctx.rotate(offset * -.11);
-          ctx.scale(scale, scale);
-          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, Math.min(portrait ? 230 : 210, seatW - 48), true, { x: handX, y: handY });
+          ctx.scale(scale * cardScale, scale * cardScale);
+          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, maxHandW, true, { x: handX, y: handY });
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
@@ -5111,7 +5113,15 @@ function drawSeats(felt) {
         buttons.push({ x: x - 12, y: y - 4, w: seatW, h: portrait ? slot.h - 44 : 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
       } else {
         const hand = seat.hands[0];
-        drawHand(hand.cards, x, y + (portrait ? 10 : 10), isActive, Math.min(portrait ? 235 : 220, seatW - 30));
+        if (portrait) {
+          ctx.save();
+          ctx.translate(x, y + 8);
+          ctx.scale(cardScale, cardScale);
+          drawHand(hand.cards, 0, 0, isActive, Math.min(270, (seatW - 30) / Math.max(.01, cardScale)));
+          ctx.restore();
+        } else {
+          drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 30));
+        }
         handStatusBadge(x + 45, y + (portrait ? slot.h - 28 : 148), handLabel(hand), handColor(hand), hand);
       }
     } else {
@@ -5133,16 +5143,23 @@ function portraitSeatRect(index) {
   const gapY = 12;
   const dockTop = layoutH() - mobileGameplayDockHeight() - 18;
   const areaBottom = dockTop - 16;
-  const desiredTop = Math.max(470, layoutH() * .47);
-  const areaTop = Math.min(desiredTop, areaBottom - 360);
+  const desiredTop = Math.max(360, layoutH() * .36);
+  const minAreaH = CARD_H * 2 + 148;
+  const areaTop = Math.max(24, Math.min(desiredTop, areaBottom - minAreaH));
   const cellW = (layoutW() - marginX * 2 - gapX) / 2;
-  const cellH = (areaBottom - areaTop - gapY) / 2;
+  const cellH = Math.max(96, (areaBottom - areaTop - gapY) / 2);
   return {
     x: marginX + (index % 2) * (cellW + gapX),
     y: areaTop + Math.floor(index / 2) * (cellH + gapY),
     w: cellW,
     h: cellH
   };
+}
+
+function portraitSeatCardScale(slot) {
+  if (!slot) return 1;
+  const usableH = Math.max(1, slot.h - 68);
+  return clamp(Math.min(1, usableH / CARD_H), .74, 1);
 }
 
 function drawSidePanel() {
