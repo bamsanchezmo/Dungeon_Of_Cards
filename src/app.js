@@ -5421,19 +5421,22 @@ function drawSeats(felt) {
             const outerScale = scale * cardScale;
             const handCenterX = panelX + panelW / 2 + offset * 84 * cardScale;
             const handY = cardY + depth * 12 * cardScale;
-            const visualW = metrics.visualW * outerScale;
             const visualH = CARD_H * metrics.scale * outerScale;
+            const rot = offset * -.11;
+            const cardTargets = transformedHandCardTargets(hand.cards, -metrics.visualW / 2, -CARD_H * metrics.scale / 2, maxHandW, handCenterX, handY + visualH / 2, outerScale, rot);
             ctx.translate(handCenterX, handY + visualH / 2);
-            ctx.rotate(offset * -.11);
+            ctx.rotate(rot);
             ctx.scale(outerScale, outerScale);
-            drawHand(hand.cards, -metrics.visualW / 2, -CARD_H * metrics.scale / 2, isPlayingHand, maxHandW, true, { x: handCenterX - visualW / 2, y: handY });
+            drawHand(hand.cards, -metrics.visualW / 2, -CARD_H * metrics.scale / 2, isPlayingHand, maxHandW, true, { points: cardTargets });
           } else {
             const handX = centerX + offset * 108;
             const handY = y + 8 + depth * 24;
+            const rot = offset * -.11;
+            const cardTargets = transformedHandCardTargets(hand.cards, -CARD_W / 2, -CARD_H / 2, maxHandW, handX + CARD_W / 2, handY + CARD_H / 2, scale, rot);
             ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
-            ctx.rotate(offset * -.11);
+            ctx.rotate(rot);
             ctx.scale(scale, scale);
-            drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, maxHandW, true, { x: handX, y: handY });
+            drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, maxHandW, true, { points: cardTargets });
           }
           ctx.restore();
         });
@@ -5446,7 +5449,7 @@ function drawSeats(felt) {
           ctx.save();
           ctx.translate(panelX + 14, cardY);
           ctx.scale(cardScale, cardScale);
-          drawHand(hand.cards, 0, 0, isActive, Math.min(280, (panelW - 28) / Math.max(.01, cardScale)));
+          drawHand(hand.cards, 0, 0, isActive, Math.min(280, (panelW - 28) / Math.max(.01, cardScale)), true, { x: panelX + 14, y: cardY, scale: cardScale });
           ctx.restore();
         } else {
           drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 30));
@@ -6627,9 +6630,12 @@ function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true, a
   cards.forEach((card, i) => {
     const cx = x + i * step;
     const cy = y + Math.sin(i * .6) * 2;
-    const targetX = animationBase ? animationBase.x + i * step : cx;
-    const targetY = animationBase ? animationBase.y + Math.sin(i * .6) * 2 : cy;
-    const anim = animate ? prepareCardAnimation(card, targetX, targetY) : null;
+    const explicitTarget = animationBase?.points?.[i];
+    const baseScale = Number(animationBase?.scale) || 1;
+    const targetX = explicitTarget ? explicitTarget.x : animationBase ? animationBase.x + cx * baseScale : cx;
+    const targetY = explicitTarget ? explicitTarget.y : animationBase ? animationBase.y + cy * baseScale : cy;
+    const targetScale = explicitTarget ? explicitTarget.scale : scale * baseScale;
+    const anim = animate ? prepareCardAnimation(card, targetX, targetY, targetScale) : null;
     if (anim && animationProgress(anim) < .92) return;
     const pulse = cardLandingPulse(card);
     const grow = 1 + pulse * .105;
@@ -6639,6 +6645,21 @@ function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true, a
     if (highlight) drawCardOutlineGlow(-CARD_W / 2, -CARD_H / 2);
     drawCardFace(card, -CARD_W / 2, -CARD_H / 2, false);
     ctx.restore();
+  });
+}
+
+function transformedHandCardTargets(cards, x, y, maxWidth, originX, originY, outerScale = 1, rotation = 0) {
+  const metrics = handDrawMetrics(cards, maxWidth);
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  return cards.map((_, i) => {
+    const lx = x + i * metrics.step;
+    const ly = y + Math.sin(i * .6) * 2;
+    return {
+      x: originX + (lx * cos - ly * sin) * outerScale,
+      y: originY + (lx * sin + ly * cos) * outerScale,
+      scale: metrics.scale * outerScale
+    };
   });
 }
 
@@ -6670,12 +6691,13 @@ function handStatusBadge(x, y, label, color, hand) {
   ctx.restore();
 }
 
-function prepareCardAnimation(card, x, y) {
+function prepareCardAnimation(card, x, y, targetScale = 1) {
   if (!card?._dealId || appScene !== "game") return null;
   let anim = cardAnimations.find((a) => a.id === card._dealId);
   if (anim) {
     anim.toX = x;
     anim.toY = y;
+    anim.toScale = targetScale;
     return anim;
   }
   if (seenCardIds.has(card._dealId)) return null;
@@ -6688,6 +6710,7 @@ function prepareCardAnimation(card, x, y) {
     fromY: from.y,
     toX: x,
     toY: y,
+    toScale: targetScale,
     start: performance.now() + (Number(card._dealDelay) || 0),
     duration: 430
   };
@@ -6703,11 +6726,11 @@ function drawFlyingCards() {
     const lift = Math.sin(progress * Math.PI) * 46;
     const x = lerp(anim.fromX, anim.toX, ease);
     const y = lerp(anim.fromY, anim.toY, ease) - lift;
-    const scale = .78 + ease * .22;
+    const scale = lerp(.78, Number(anim.toScale) || 1, ease);
     const rot = lerp(-.18, .03, ease);
     ctx.save();
     ctx.globalAlpha = Math.min(1, progress * 4);
-    ctx.translate(x + CARD_W / 2, y + CARD_H / 2);
+    ctx.translate(x + CARD_W * scale / 2, y + CARD_H * scale / 2);
     ctx.rotate(rot);
     ctx.scale(scale, scale);
     drawCardOutlineGlow(-CARD_W / 2, -CARD_H / 2);
