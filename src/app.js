@@ -4699,8 +4699,8 @@ function drawMapEncounterScoutOverlay(detail) {
   text(`Threat ${node.threat || 1}/5 - ${threatLabel(node.threat || 1)}`, x + w / 2, pillY + (portrait ? 23 : 20), portrait ? 17 : 14, threatColor, "center");
 
   const nameY = pillY + (portrait ? 62 : 54);
-  textFit(enemy.name, x + pad, nameY, w - pad * 2, portrait ? 30 : 26, color, "center", "serif");
-  textFit(`${node.label} - ${mapNodeRouteStatus(node)}`, x + pad, nameY + (portrait ? 34 : 30), w - pad * 2, portrait ? 17 : 15, C.muted, "center");
+  textFit(enemy.name, x + w / 2, nameY, w - pad * 2, portrait ? 30 : 26, color, "center", "serif");
+  textFit(`${node.label} - ${mapNodeRouteStatus(node)}`, x + w / 2, nameY + (portrait ? 34 : 30), w - pad * 2, portrait ? 17 : 15, C.muted, "center");
 
   const cardGap = portrait ? 10 : 14;
   const cardY = nameY + (portrait ? 58 : 54);
