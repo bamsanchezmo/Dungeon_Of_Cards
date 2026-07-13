@@ -6074,7 +6074,8 @@ function drawGameMenu() {
   const lh = layoutH();
   const hasDev = developerModeUnlocked;
   const panelW = viewport.portrait ? 520 : 430;
-  const panelH = viewport.portrait ? (hasDev ? 720 : 630) : (hasDev ? 560 : 500);
+  const hasLobby = !!game?.code;
+  const panelH = viewport.portrait ? (hasDev ? 560 : 480) : (hasDev ? 460 : 390);
   const x = lw / 2 - panelW / 2;
   const y = Math.max(72, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.62)", 0, 0, lw, lh);
@@ -6088,39 +6089,26 @@ function drawGameMenu() {
     : "Choose a run mode first";
   text(runLine, lw / 2, y + 100, viewport.portrait ? 20 : 16, C.text, "center");
   text(game?.code ? `Lobby ${game.code} • ${modeLabels[game.mode]}` : `Solo • ${modeLabels[game?.mode || modePreference]}`, lw / 2, y + 128, viewport.portrait ? 18 : 14, C.muted, "center");
+  text("Run rules are locked until you return home.", lw / 2, y + 152, viewport.portrait ? 16 : 13, hexToRgba(C.muted, .86), "center");
   const bh = viewport.portrait ? 62 : 46;
   const gap = viewport.portrait ? 72 : 52;
-  let by = y + (viewport.portrait ? 158 : 150);
+  let by = y + (viewport.portrait ? 184 : 174);
   addButton(x + 42, by, panelW - 84, bh, "Resume", () => menuOpen = false, true);
   by += gap;
   addButton(x + 42, by, panelW - 84, bh, "Change Name", openNameEditor);
   by += gap;
-  addButton(x + 42, by, panelW - 84, bh, game?.code ? "Lobby / Invite" : "Create Lobby", () => {
-    prepareSelectedRunFromCurrentGame();
-    if (game?.code && role === "host") showSignal("host", `Lobby ${game.code}`, "Share this lobby link or code with friends.");
-    else if (game?.code) notify(`Lobby code: ${game.code}`);
-    else hostLobby();
-  });
-  by += gap;
-  addButton(x + 42, by, panelW - 84, bh, "Join Lobby", () => {
-    prepareSelectedRunFromCurrentGame();
-    joinLobby();
-  });
-  by += gap;
-  addButton(x + 42, by, panelW - 84, bh, `Next Lobby Rules: ${modeLabels[modePreference]}`, cycleModePreference);
-  by += gap;
+  if (hasLobby) {
+    addButton(x + 42, by, panelW - 84, bh, role === "host" ? "Invite / Lobby Code" : "Show Lobby Code", () => {
+      if (role === "host") showSignal("host", `Lobby ${game.code}`, "Share this lobby link or code with friends.");
+      else notify(`Lobby code: ${game.code}`);
+    });
+    by += gap;
+  }
   if (hasDev) {
     addButton(x + 42, by, panelW - 84, bh, "Developer", () => developerPanelOpen = true);
     by += gap;
   }
   addButton(x + 42, by, panelW - 84, bh, "Home Screen", goHome);
-}
-
-function prepareSelectedRunFromCurrentGame() {
-  if (!game) return;
-  selectedRunType = game.runType || selectedRunType || "tower";
-  towerLengthPreference = game.towerFloors || towerLengthPreference;
-  quickDifficultyPreference = game.quickDifficulty || quickDifficultyPreference;
 }
 
 function drawDeveloperPanel() {
