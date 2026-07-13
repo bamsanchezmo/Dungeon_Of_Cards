@@ -5113,18 +5113,18 @@ function mapPoint(node, mapX, mapY, mapW, mapH) {
 function portraitMapProgress(node) {
   if (!node) return .5;
   if (node.kind === "elevator") return .025;
-  if (node.kind === "boss") return .155;
-  if (node.id === "start-1") return .86;
+  const encounterTop = .155;
+  const encounterBottom = .86;
+  if (node.kind === "boss") return encounterTop;
+  if (node.id === "start-1") return encounterBottom;
   if (node.kind === "start") return .995;
   const match = String(node.id || "").match(/^c(\d+)-/);
   if (match) {
     const columns = actualRouteColumnIndices();
     const visualIndex = Math.max(0, columns.indexOf(Number(match[1])));
     const count = Math.max(1, columns.length);
-    const rungTop = .24;
-    const rungBottom = .74;
-    const t = count <= 1 ? .5 : visualIndex / Math.max(1, count - 1);
-    return lerp(rungBottom, rungTop, t);
+    const step = (encounterBottom - encounterTop) / (count + 1);
+    return encounterBottom - step * (visualIndex + 1);
   }
   return clamp(1 - (Number(node.x) || .5), .08, .92);
 }
