@@ -4096,13 +4096,15 @@ function drawEncounterTableArt(felt, scene) {
   } else {
     tableRect = containRectForAsset("tableBase:grunt", x, y, targetW, targetH);
     drawGruntDealerBehindTable(felt, tableRect);
-    const shifted = drawLayeredTableAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
+    const shifted = isQuickRun()
+      ? (drawRawAssetContain("tableBase:grunt", x, y, targetW, targetH, .95), true)
+      : drawLayeredTableAssetContain("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0), x, y, targetW, targetH, .95);
     if (!shifted && scene.table) {
       tableRect = containRectForAsset(scene.table, x, y, targetW, targetH);
       drawRawAssetContain(scene.table, x, y, targetW, targetH, .94);
     }
   }
-  if (!scene.boss) drawTablePlaqueMotif(tableRect);
+  if (!scene.boss && !isQuickRun()) drawTablePlaqueMotif(tableRect);
   if (scene.decoration) {
     drawRawAssetContain(scene.decoration, felt.x + 32, felt.y + felt.h - 230, portrait ? 170 : 190, portrait ? 170 : 190, .35);
   }
