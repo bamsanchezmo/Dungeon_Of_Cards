@@ -5061,6 +5061,12 @@ function drawSeats(felt) {
     const x = portrait ? slot.x + 18 : felt.x + 50 + (idx % 2) * columnW;
     const y = portrait ? slot.y + 34 : felt.y + 365 + Math.floor(idx / 2) * 170;
     const cardScale = portrait ? portraitSeatCardScale(slot) : 1;
+    const panelX = portrait ? slot.x + 8 : x - 12;
+    const panelY = portrait ? slot.y + 8 : y - 36;
+    const panelW = portrait ? slot.w - 16 : seatW;
+    const panelH = portrait ? slot.h - 16 : 150;
+    const cardY = portrait ? panelY + 48 : y + 10;
+    const labelY = portrait ? panelY + panelH - 22 : y + 148;
     const isActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
     const isReady = game.phase === "betting" && seat.ready;
     if (portrait) {
@@ -5070,22 +5076,24 @@ function drawSeats(felt) {
     }
     if (isActive) {
       shadow(0, 0, 26, "rgba(220,180,70,.42)", () => {
-        gradientRound(x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
+        gradientRound(panelX, panelY, panelW, panelH, 14, [[0, "rgba(68,55,35,.9)"], [1, "rgba(20,30,24,.9)"]]);
       });
     } else if (isReady) {
       shadow(0, 0, 22, "rgba(90,180,110,.35)", () => {
-        fill("rgba(20,50,34,.48)", x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14);
+        fill("rgba(20,50,34,.48)", panelX, panelY, panelW, panelH, 14);
       });
     } else {
-      fill("rgba(5,8,7,.28)", x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14);
+      fill("rgba(5,8,7,.28)", panelX, panelY, panelW, panelH, 14);
     }
-    strokeRound(x - 12, y - 36, seatW, portrait ? slot.h - 10 : 150, 14, isActive ? C.gold : isReady ? C.green : "rgba(238,231,215,.11)", isActive || isReady ? 3 : 1);
+    strokeRound(panelX, panelY, panelW, panelH, 14, isActive ? C.gold : isReady ? C.green : "rgba(238,231,215,.11)", isActive || isReady ? 3 : 1);
     const rank = playerRankIcon(seat);
     const displayName = `${rank}${seat.name}${seat.id === localPlayerId ? " (You)" : ""}`;
     const nameColor = seatInDebt(seat) ? C.red : isActive ? C.gold : C.text;
-    text(fitLabel(displayName, seatW - 125, portrait ? 20 : 18), x, y - 18, portrait ? 20 : 18, nameColor);
-    text(seatStatus(seat), x + seatW - 40, y - 18, portrait ? 18 : 14, C.muted, "right");
-    if (seat.hands.length > 1) buttons.push({ x: x - 12, y: y - 36, w: seatW, h: 42, onClick: () => statsPlayerId = seat.id });
+    const activeHandForSeat = seat.hands[clamp(seat.active ?? 0, 0, Math.max(0, seat.hands.length - 1))];
+    const statusText = activeHandForSeat ? handLabel(activeHandForSeat) : seatStatus(seat);
+    text(fitLabel(displayName, panelW - 126, portrait ? 18 : 18), panelX + 10, portrait ? panelY + 26 : y - 18, portrait ? 18 : 18, nameColor);
+    text(statusText, panelX + panelW - 12, portrait ? panelY + 26 : y - 18, portrait ? 16 : 14, activeHandForSeat ? handColor(activeHandForSeat) : C.muted, "right");
+    if (seat.hands.length > 1) buttons.push({ x: panelX, y: panelY, w: panelW, h: 42, onClick: () => statsPlayerId = seat.id });
     if (seat.hands.length) {
       const activeIndex = clamp(seat.active ?? 0, 0, seat.hands.length - 1);
       const shouldFollowActive = game.phase === "player" && (game.freePlay ? !seat.finished : active?.id === seat.id);
@@ -5104,8 +5112,8 @@ function drawSeats(felt) {
         const visualIndex = carouselVisualIndex(seat.id, selected);
         const carouselCenter = clamp(Math.round(visualIndex), 0, seat.hands.length - 1);
         const visibleHands = new Set([carouselCenter - 1, carouselCenter, carouselCenter + 1].filter((n) => n >= 0 && n < seat.hands.length));
-        const centerX = portrait ? x + seatW / 2 - (CARD_W * cardScale) / 2 : x + seatW / 2 - CARD_W / 2 - 18;
-        const maxHandW = Math.min(portrait ? 270 : 210, (seatW - 42) / Math.max(.01, cardScale));
+        const centerX = portrait ? panelX + panelW / 2 - (CARD_W * cardScale) / 2 : x + seatW / 2 - CARD_W / 2 - 18;
+        const maxHandW = Math.min(portrait ? 280 : 210, (panelW - 42) / Math.max(.01, cardScale));
         const handOrder = [...visibleHands]
           .map((hidx) => ({ hand: seat.hands[hidx], hidx, distance: Math.abs(hidx - visualIndex) }))
           .sort((a, b) => b.distance - a.distance || a.hidx - b.hidx);
@@ -5119,7 +5127,7 @@ function drawSeats(felt) {
           ctx.globalAlpha = isFocused ? 1 : clamp(.72 - depth * .18, .42, .68);
           const scale = isFocused ? 1 : clamp(.86 - depth * .12, .68, .82);
           const handX = centerX + offset * (portrait ? 86 * cardScale : 108);
-          const handY = y + (portrait ? 8 : 8) + depth * (portrait ? 14 * cardScale : 24);
+          const handY = (portrait ? cardY : y + 8) + depth * (portrait ? 12 * cardScale : 24);
           ctx.translate(handX + (CARD_W * cardScale) / 2, handY + (CARD_H * cardScale) / 2);
           ctx.rotate(offset * -.11);
           ctx.scale(scale * cardScale, scale * cardScale);
@@ -5127,30 +5135,30 @@ function drawSeats(felt) {
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
-        handStatusBadge(x + seatW / 2, y + (portrait ? slot.h - 28 : 148), `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
-        buttons.push({ x: x - 12, y: y - 4, w: seatW, h: portrait ? slot.h - 44 : 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
+        handStatusBadge(panelX + panelW / 2, labelY, `${selected + 1}/${seat.hands.length} ${handLabel(seat.hands[selected])}`, labelColor, seat.hands[selected]);
+        buttons.push({ x: panelX, y: portrait ? panelY + 38 : y - 4, w: panelW, h: portrait ? panelH - 42 : 112, carouselSeat: seat.id, selected, count: seat.hands.length, onClick: () => {} });
       } else {
         const hand = seat.hands[0];
         if (portrait) {
           ctx.save();
-          ctx.translate(x, y + 8);
+          ctx.translate(panelX + 14, cardY);
           ctx.scale(cardScale, cardScale);
-          drawHand(hand.cards, 0, 0, isActive, Math.min(270, (seatW - 30) / Math.max(.01, cardScale)));
+          drawHand(hand.cards, 0, 0, isActive, Math.min(280, (panelW - 28) / Math.max(.01, cardScale)));
           ctx.restore();
         } else {
           drawHand(hand.cards, x, y + 10, isActive, Math.min(220, seatW - 30));
         }
-        handStatusBadge(x + 45, y + (portrait ? slot.h - 28 : 148), handLabel(hand), handColor(hand), hand);
+        handStatusBadge(portrait ? panelX + panelW / 2 : x + 45, labelY, handLabel(hand), handColor(hand), hand);
       }
     } else {
-      drawChips(x + 38, y + 50, seat.bet);
-      badge(x + 110, y + 70, `Bet ${seat.bet}g`, C.gold);
+      drawChips(panelX + 42, portrait ? panelY + 82 : y + 50, seat.bet);
+      badge(panelX + 116, portrait ? panelY + 102 : y + 70, `Bet ${seat.bet}g`, C.gold);
       if (isFreeForAll()) {
         const debt = debtForSeat(seat);
-        text(`${seatBankroll(seat)}g${debt ? ` / D${debt}g` : ""}`, x + seatW - 42, y + 72, portrait ? 17 : 14, debt ? C.red : C.gold, "right");
+        text(`${seatBankroll(seat)}g${debt ? ` / D${debt}g` : ""}`, panelX + panelW - 16, portrait ? panelY + 104 : y + 72, portrait ? 17 : 14, debt ? C.red : C.gold, "right");
       }
     }
-    if (seat.hands.length <= 1) buttons.push({ x: x - 12, y: y - 36, w: seatW, h: portrait ? slot.h - 10 : 150, onClick: () => statsPlayerId = seat.id });
+    if (seat.hands.length <= 1) buttons.push({ x: panelX, y: panelY, w: panelW, h: panelH, onClick: () => statsPlayerId = seat.id });
     if (portrait) ctx.restore();
   });
 }
@@ -5161,7 +5169,7 @@ function portraitSeatRect(index) {
   const gapY = 12;
   const dockTop = layoutH() - mobileGameplayDockHeight() - 18;
   const areaBottom = dockTop - 16;
-  const desiredTop = Math.max(360, layoutH() * .36);
+  const desiredTop = Math.max(430, layoutH() * .43);
   const minAreaH = CARD_H * 2 + 148;
   const areaTop = Math.max(24, Math.min(desiredTop, areaBottom - minAreaH));
   const cellW = (layoutW() - marginX * 2 - gapX) / 2;
@@ -5176,7 +5184,7 @@ function portraitSeatRect(index) {
 
 function portraitSeatCardScale(slot) {
   if (!slot) return 1;
-  const usableH = Math.max(1, slot.h - 68);
+  const usableH = Math.max(1, slot.h - 86);
   return clamp(Math.min(1, usableH / CARD_H), .74, 1);
 }
 
@@ -5244,18 +5252,19 @@ function drawMobileGameplayDock() {
   text(`HP ${game.hp}/${game.maxHp}`, x + w - hpW / 2 - 24, statY + 20, 16, C.text, "center");
   addButton(x + w - 130, y + 48, 104, 46, "Menu", () => menuOpen = true);
 
-  const phaseY = y + 66;
+  const phaseY = y + 62;
   const phaseX = x + 18;
   const phaseW = w - 160;
-  gradientRound(phaseX, phaseY - 26, phaseW, 48, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
-  strokeRound(phaseX, phaseY - 26, phaseW, 48, 12, hexToRgba(ui.border, .24), 1);
+  gradientRound(phaseX, phaseY - 28, phaseW, 54, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
+  strokeRound(phaseX, phaseY - 28, phaseW, 54, 12, hexToRgba(ui.border, .24), 1);
   ctx.save();
-  pathRound(phaseX + 6, phaseY - 22, phaseW - 12, 40, 10);
+  pathRound(phaseX + 6, phaseY - 24, phaseW - 12, 46, 10);
   ctx.clip();
-  textFit(phaseTitle(), phaseX + phaseW / 2, phaseY + 4, phaseW - 28, 22, C.text, "center");
+  textFit(mobilePhaseSummary(), phaseX + phaseW / 2, phaseY - 1, phaseW - 28, 18, C.text, "center");
+  textFit(phaseTitle(), phaseX + phaseW / 2, phaseY + 18, phaseW - 28, 13, C.muted, "center");
   ctx.restore();
 
-  drawActionButtons(x + 24, y + 108);
+  drawActionButtons(x + 24, y + 112);
 
   const trayY = y + dockH - 76;
   drawMobileRelicIconTray(x + 22, trayY, 238, 54);
@@ -5268,6 +5277,16 @@ function mobileGameplayDockHeight() {
   if (game.phase === "betting") return 382;
   if (game.phase === "insurance") return 258;
   return 246;
+}
+
+function mobilePhaseSummary() {
+  const seat = mySeat();
+  const hand = activeHand(seat);
+  if (game.phase === "player" && hand) return `${handLabel(hand)}  •  Bet ${hand.bet || seat?.bet || 0}g`;
+  if (game.phase === "betting" && seat) return `Bet ${seat.bet || 0}g  •  Bank ${seatBankroll(seat)}g`;
+  if (game.phase === "roundOver") return `Round ${game.roundNet >= 0 ? "+" : ""}${game.roundNet || 0}g`;
+  if (game.phase === "insurance") return "Insurance decision";
+  return phaseTitle();
 }
 
 function drawMobileRelicIconTray(x, y, w, h) {
@@ -7078,8 +7097,8 @@ function addButton(x, y, w, h, label, onClick, primary = false, enabled = true) 
   strokeRound(x, y, w, h, 9, enabled ? (primary ? ui.primaryStroke : hexToRgba(theme, .72)) : "#47414f", primary ? 2 : 1.5);
   fill("rgba(255,255,255,.12)", x + 2, y + 2, w - 4, Math.max(1, h * .34), 7);
   strokeRound(x + 4, y + 4, w - 8, h - 8, 6, enabled ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)", 1);
-  const fontSize = portrait ? Math.min(28, Math.max(23, h * .36)) : isTouchLandscape() ? 28 : 17;
-  textFit(label, x + w / 2, y + h / 2 + (portrait ? 9 : isTouchLandscape() ? 10 : 7), w - 12, fontSize, primary ? ui.primaryText : enabled ? C.text : C.muted, "center");
+  const fontSize = portrait ? Math.min(26, Math.max(20, h * .34)) : isTouchLandscape() ? 28 : 17;
+  textFit(label, x + w / 2, y + h / 2 + (portrait ? 7 : isTouchLandscape() ? 10 : 7), w - 12, fontSize, primary ? ui.primaryText : enabled ? C.text : C.muted, "center");
 }
 
 function badge(x, y, label, color) {
