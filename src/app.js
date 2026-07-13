@@ -229,8 +229,26 @@ const modeLabels = {
   freePlay: "Free Play",
   freeForAll: "Free For All"
 };
+const runTypeLabels = {
+  tower: "Tower Run",
+  quick: "Quick Run"
+};
+const towerLengthOptions = [2, 3, 5, 10];
+const quickDifficultyLabels = {
+  normal: "Normal",
+  fast: "Fast",
+  brutal: "Brutal"
+};
 const savedMode = localStorage.getItem("dungeon-mode");
 let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
+let menuView = "home";
+let selectedRunType = localStorage.getItem("dungeon-run-type") === "quick" ? "quick" : "tower";
+let towerLengthPreference = towerLengthOptions.includes(Number(localStorage.getItem("dungeon-tower-floors")))
+  ? Number(localStorage.getItem("dungeon-tower-floors"))
+  : 10;
+let quickDifficultyPreference = quickDifficultyLabels[localStorage.getItem("dungeon-quick-difficulty")]
+  ? localStorage.getItem("dungeon-quick-difficulty")
+  : "normal";
 const LEADERBOARD_KEY = "dungeon-leaderboard-v1";
 const LEADERBOARD_MAX = 50;
 const LEADERBOARD_VISIBLE = 5;
@@ -584,13 +602,16 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 
-function newGame(players, code = "", mode = modePreference) {
+function newGame(players, code = "", mode = modePreference, options = {}) {
   enemyTemplates = buildCampaign();
   lastRelicName = "";
   menuOpen = false;
   cardAnimations = [];
   seenCardIds = new Set();
   const freeForAll = mode === "freeForAll";
+  const runType = options.runType || selectedRunType || "tower";
+  const towerFloors = runType === "tower" ? clamp(Number(options.towerFloors) || towerLengthPreference || 10, 2, FLOORS) : FLOORS;
+  const quickDifficulty = options.quickDifficulty || quickDifficultyPreference || "normal";
   const seats = players.map((p) => ({
     id: p.id,
     name: p.name,
@@ -610,7 +631,10 @@ function newGame(players, code = "", mode = modePreference) {
   game = {
     code,
     mode,
-    phase: "map",
+    runType,
+    towerFloors,
+    quickDifficulty,
+    phase: runType === "quick" ? "betting" : "map",
     floor: 0,
     gold: 200 + Math.max(0, seats.length - 1) * 100,
     hp: 100 + Math.max(0, seats.length - 1) * 40,
@@ -626,7 +650,7 @@ function newGame(players, code = "", mode = modePreference) {
     foresightUsesLeft: 0,
     peekCard: null,
     peekTimer: 0,
-    log: [`${seats.length > 1 ? seats.length + " players enter" : "You enter"} the Dungeon of Cards.`],
+    log: [`${seats.length > 1 ? seats.length + " players enter" : "You enter"} ${runType === "quick" ? "Quick Run" : "the Casino Tower"}.`],
     dealerTimer: .6,
     roundNet: 0,
     completedRounds: 0,
@@ -651,10 +675,14 @@ function newGame(players, code = "", mode = modePreference) {
     clearedNodes: ["start"],
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
-  game.floorMaps = createRunFloorMaps();
-  game.map = game.floorMaps[0];
-  inspectedNodeId = "start-1";
-  refreshReachableNodes();
+  game.floorMaps = runType === "tower" ? createRunFloorMaps(towerFloors) : [];
+  game.map = game.floorMaps[0] || null;
+  inspectedNodeId = runType === "tower" ? "start-1" : "";
+  if (runType === "tower") refreshReachableNodes();
+  else {
+    applyQuickDifficultyToEnemy();
+    resetRound();
+  }
   appScene = "game";
 }
 
@@ -680,12 +708,14 @@ function rescaleEnemyForPlayers() {
   }
 }
 
-function createRunFloorMaps() {
+function createRunFloorMaps(totalFloors = FLOORS) {
   const maps = [];
   let minTableCount = 0;
   let minDifficultyScore = 0;
-  for (let floorIndex = 0; floorIndex < FLOORS; floorIndex++) {
-    const map = createFloorMap(floorIndex, { minTableCount, minDifficultyScore });
+  const count = clamp(Number(totalFloors) || FLOORS, 1, FLOORS);
+  for (let floorIndex = 0; floorIndex < count; floorIndex++) {
+    const sourceFloorIndex = count >= FLOORS ? floorIndex : Math.round(lerp(0, FLOORS - 1, count <= 1 ? 0 : floorIndex / (count - 1)));
+    const map = createFloorMap(sourceFloorIndex, { minTableCount, minDifficultyScore, runFloor: floorIndex + 1, runFloors: count });
     minTableCount = Math.max(minTableCount, countMapTables(map));
     minDifficultyScore = Math.max(minDifficultyScore, mapDifficultyScore(map));
     maps.push(map);
@@ -704,16 +734,29 @@ function mapDifficultyScore(map) {
 
 function ensureRunFloorMaps() {
   if (!game) return [];
-  if (!Array.isArray(game.floorMaps) || game.floorMaps.length !== FLOORS) game.floorMaps = createRunFloorMaps();
+  const totalFloors = towerFloorCount();
+  if (!Array.isArray(game.floorMaps) || game.floorMaps.length !== totalFloors) game.floorMaps = createRunFloorMaps(totalFloors);
   return game.floorMaps;
 }
 
 function setGameMapForFloor(floorIndex) {
   if (!game) return null;
   const maps = ensureRunFloorMaps();
-  const index = clamp(floorIndex, 0, FLOORS - 1);
+  const index = clamp(floorIndex, 0, towerFloorCount() - 1);
   game.map = maps[index] || createFloorMap(index);
   return game.map;
+}
+
+function towerFloorCount() {
+  return clamp(Number(game?.towerFloors) || FLOORS, 1, FLOORS);
+}
+
+function isQuickRun() {
+  return game?.runType === "quick";
+}
+
+function runFloorCount() {
+  return isQuickRun() ? Math.max(1, enemyTemplates.length || FLOORS) : towerFloorCount();
 }
 
 function createFloorMap(floorIndex, options = {}) {
@@ -841,7 +884,9 @@ function createFloorMap(floorIndex, options = {}) {
   const averageGruntThreat = gruntThreats.reduce((sum, threat) => sum + threat, 0) / Math.max(1, gruntThreats.length);
   const bossThreat = clamp(Math.round(averageGruntThreat) + 1, 2, 5);
   const map = {
-    floor,
+    floor: options.runFloor || floor,
+    sourceFloor: floor,
+    runFloors: options.runFloors || FLOORS,
     theme: floorThemeName(floorIndex),
     color: palette,
     bossColor,
@@ -1363,7 +1408,7 @@ function applyAction(playerId, name) {
     if (name === "solo") {
       role = "solo";
       localPlayerId = hostId;
-      newGame([{ id: hostId, name: "You" }]);
+      newGame([{ id: hostId, name: savedPlayerName("You") }], "", modePreference, selectedRunOptions());
     }
     return;
   }
@@ -1678,6 +1723,10 @@ function applyBossPhaseRules(initial = false) {
 }
 
 function completeMapEncounter() {
+  if (isQuickRun()) {
+    completeQuickEncounter();
+    return;
+  }
   const node = getMapNode(game.activeEncounterId);
   if (!node) return;
   game.clearedNodes = [...new Set([...(game.clearedNodes || []), node.id])];
@@ -1685,7 +1734,7 @@ function completeMapEncounter() {
   if (node.reward) claimMapReward(node.reward);
   game.activeEncounterId = "";
   if (node.kind === "boss") {
-    if (game.floor >= FLOORS - 1) {
+    if (game.floor >= towerFloorCount() - 1) {
       game.phase = "victory";
       log("The Penthouse boss folds. The climb is won.");
       return;
@@ -1715,7 +1764,7 @@ function completeMapEncounter() {
 
 function finishFloorTransition() {
   if (!game || game.phase !== "floorTransition") return;
-  const targetFloor = clamp((game.floorTransition?.to || game.floor + 2) - 1, 0, FLOORS - 1);
+  const targetFloor = clamp((game.floorTransition?.to || game.floor + 2) - 1, 0, towerFloorCount() - 1);
   game.floor = targetFloor;
   setGameMapForFloor(game.floor);
   game.currentNodeId = "start";
@@ -1726,6 +1775,19 @@ function finishFloorTransition() {
   if (game.relicPopup) game.relicPopup.shownAt = Date.now();
   log(`Elevator doors open onto Floor ${game.floor + 1}: ${game.map.theme}.`);
   refreshReachableNodes();
+}
+
+function completeQuickEncounter() {
+  game.activeEncounterId = "";
+  if (game.floor >= FLOORS - 1) {
+    game.phase = "victory";
+    log("Quick Run cleared its final table.");
+    return;
+  }
+  game.shop = chooseRelics();
+  game.relicVotes = {};
+  game.phase = "shop";
+  log("Table cleared. Choose one of three relics before the next table.");
 }
 
 function gainRelic(relic) {
@@ -2131,6 +2193,12 @@ function continueAfterRound() {
 function buyRelic(index) {
   const relic = game.shop[index];
   if (!relic) return;
+  if (isQuickRun()) {
+    sfx("coinDown");
+    gainRelic(relic);
+    nextBattle();
+    return;
+  }
   const cost = 45 + game.floor * 15;
   const buyer = mySeat() || game.seats[0];
   if (!game.code) {
@@ -2146,7 +2214,21 @@ function buyRelic(index) {
 function nextBattle() {
   game.floor++;
   game.enemy = cloneEnemy(game.floor);
+  if (isQuickRun()) applyQuickDifficultyToEnemy();
   resetRound();
+}
+
+function applyQuickDifficultyToEnemy() {
+  if (!game?.enemy || !isQuickRun()) return;
+  const table = Number(game.floor) || 0;
+  const difficulty = game.quickDifficulty || "normal";
+  const hpMult = difficulty === "brutal" ? 1.42 : difficulty === "fast" ? 1.24 : 1.1;
+  const ruleStep = difficulty === "brutal" ? 1.45 : difficulty === "fast" ? 1.2 : 1;
+  const scale = 1 + table * .12 * ruleStep;
+  game.enemy.maxHp = Math.max(1, Math.ceil(game.enemy.maxHp * hpMult * scale));
+  game.enemy.hp = game.enemy.maxHp;
+  game.enemy.threat = clamp(1 + Math.floor(table / (difficulty === "normal" ? 3 : 2)), 1, 5);
+  game.enemy.title = `Quick Table ${table + 1}`;
 }
 
 function resetRound() {
@@ -2320,9 +2402,9 @@ async function hostLobby() {
   role = "host";
   localPlayerId = hostId;
   const code = createLobbyCode();
-  newGame([{ id: hostId, name: savedPlayerName("Host") }], code, modePreference);
+  newGame([{ id: hostId, name: savedPlayerName("Host") }], code, modePreference, selectedRunOptions());
   hostOffer.value = "Creating lobby link...";
-  showSignal("host", `Lobby ${code}`, "Share this link. Up to 3 guests can join from it.");
+  showSignal("host", `${runTypeLabels[selectedRunType]} Lobby ${code}`, "Share this link. Up to 3 guests can join from it.");
   peer = new HostPeer({
     code,
     onMessage: handleHostMessage,
@@ -2337,6 +2419,20 @@ async function hostLobby() {
     notify(formatPeerError(err));
   }
   broadcast();
+}
+
+function selectedRunOptions() {
+  return {
+    runType: selectedRunType,
+    towerFloors: towerLengthPreference,
+    quickDifficulty: quickDifficultyPreference
+  };
+}
+
+function startSoloRun() {
+  role = "solo";
+  localPlayerId = hostId;
+  newGame([{ id: hostId, name: savedPlayerName("You") }], "", modePreference, selectedRunOptions());
 }
 
 function joinLobby(code = "") {
@@ -2667,7 +2763,7 @@ function recordLeaderboardIfNeeded() {
   const runKey = `${game.session || "run"}:${localPlayerId || seat.id || localDeviceId}`;
   const entries = loadLeaderboard();
   if (entries.some((entry) => entry.runKey === runKey)) return;
-  const totalFloors = Math.max(1, enemyTemplates.length || 1);
+  const totalFloors = game?.runType === "tower" ? towerFloorCount() : Math.max(1, enemyTemplates.length || 1);
   const floor = clamp((Number(game.floor) || 0) + 1, 1, totalFloors);
   const gold = Math.max(0, Math.round(isFreeForAll() ? seatBankroll(seat) : (Number(game.gold) || 0)));
   const debt = Math.max(0, Math.round(debtForSeat(seat)));
@@ -2749,7 +2845,11 @@ function restartLobbyRun() {
   const players = game.seats.map((s) => ({ id: s.id, name: s.name }));
   const code = game.code;
   const mode = game.mode || (game.freePlay ? "freePlay" : "classic");
-  newGame(players, code, mode);
+  newGame(players, code, mode, {
+    runType: game.runType || "tower",
+    towerFloors: game.towerFloors || towerLengthPreference,
+    quickDifficulty: game.quickDifficulty || quickDifficultyPreference
+  });
   log("The lobby deals a fresh dungeon run.");
 }
 
@@ -2940,6 +3040,19 @@ function cycleModePreference() {
   modePreference = modes[(modes.indexOf(modePreference) + 1) % modes.length];
   localStorage.setItem("dungeon-mode", modePreference);
   localStorage.setItem("dungeon-free-play", String(modePreference !== "classic"));
+}
+
+function cycleTowerLengthPreference() {
+  const current = towerLengthOptions.indexOf(towerLengthPreference);
+  towerLengthPreference = towerLengthOptions[(current + 1) % towerLengthOptions.length];
+  localStorage.setItem("dungeon-tower-floors", String(towerLengthPreference));
+}
+
+function cycleQuickDifficultyPreference() {
+  const options = Object.keys(quickDifficultyLabels);
+  const current = options.indexOf(quickDifficultyPreference);
+  quickDifficultyPreference = options[(current + 1) % options.length];
+  localStorage.setItem("dungeon-quick-difficulty", quickDifficultyPreference);
 }
 
 function cycleArtPreference() {
@@ -3144,7 +3257,7 @@ function fallbackMusicPathFor(path) {
 
 function desiredMusicPath() {
   if (!game || appScene === "splash" || appScene === "menu") return musicPath(musicTracks.menu);
-  const floorIndex = clamp(Number(game.floor) || 0, 0, musicTracks.floors.length - 1);
+  const floorIndex = clamp((Number(game.map?.sourceFloor) || ((Number(game.floor) || 0) + 1)) - 1, 0, musicTracks.floors.length - 1);
   const activeNode = getMapNode(game.activeEncounterId);
   const inBossTable = game.phase !== "map" && activeNode?.kind === "boss";
   const file = inBossTable ? musicTracks.bosses[floorIndex] : musicTracks.floors[floorIndex];
@@ -3536,42 +3649,79 @@ function drawMenu() {
   ctx.save();
   ctx.shadowColor = `rgba(220,180,70,${.34 + shimmer * .22})`;
   ctx.shadowBlur = 18 + shimmer * 10;
-  text("DUNGEON", cx, portrait ? 168 : 188, portrait ? 58 : 76, C.gold, "center", "serif");
+  text("DUNGEON", cx, portrait ? 146 : 160, portrait ? 58 : 70, C.gold, "center", "serif");
   ctx.restore();
-  text("of CARDS", cx, portrait ? 234 : 264, portrait ? 56 : 72, C.parchment, "center", "serif");
-  text("A blackjack roguelike", cx, portrait ? 302 : 316, portrait ? 29 : 25, C.muted, "center");
-  const lines = [
-    "Win chips to damage dealer-monsters.",
-    "Lose chips and the dungeon takes blood.",
-    "Collect relics, bend the rules, beat the final boss."
-  ];
-  const copyY = portrait ? 382 : 344;
-  const copyGap = portrait ? 40 : 28;
-  lines.forEach((line, i) => text(line, cx, copyY + i * copyGap, portrait ? 22 : 19, C.text, "center"));
-  const buttonW = portrait ? 480 : 300;
-  const buttonX = cx - buttonW / 2;
-  const playerButtonY = portrait ? 520 : 420;
-  const buttonY = portrait ? 620 : 474;
-  const buttonGap = portrait ? 92 : 54;
-  addButton(buttonX, playerButtonY, buttonW, portrait ? 72 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
-  addButton(buttonX, buttonY, buttonW, portrait ? 78 : 52, "Single Player", () => {
-    role = "solo";
-    localPlayerId = hostId;
-    newGame([{ id: hostId, name: savedPlayerName("You") }]);
-  }, true);
-  addButton(buttonX, buttonY + buttonGap, buttonW, portrait ? 78 : 52, "Host Game", hostLobby);
-  addButton(buttonX, buttonY + buttonGap * 2, buttonW, portrait ? 78 : 52, "Join Game", joinLobby);
-  addButton(buttonX, buttonY + buttonGap * 3, buttonW, portrait ? 72 : 44, `Mode: ${modeLabels[modePreference]}`, () => {
-    cycleModePreference();
-  });
+  text("of CARDS", cx, portrait ? 208 : 224, portrait ? 54 : 64, C.parchment, "center", "serif");
+  drawMainMenuContent(table, cx, portrait);
   if (portrait) {
-    const boardY = buttonY + buttonGap * 4 + 28;
+    const boardY = table.y + table.h - 300;
     const boardH = Math.max(220, Math.min(275, table.y + table.h - boardY - 34));
     drawLeaderboardPanel(table.x + 44, boardY, table.w - 88, boardH);
   } else {
     drawLeaderboardPanel(side.x + 18, side.y + 24, side.w - 36, side.h - 48);
   }
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
+}
+
+function drawMainMenuContent(table, cx, portrait) {
+  if (menuView === "tower") return drawRunSetupMenu(table, cx, portrait, "tower");
+  if (menuView === "quick") return drawRunSetupMenu(table, cx, portrait, "quick");
+  text("Choose your run", cx, portrait ? 282 : 286, portrait ? 30 : 24, C.muted, "center");
+  const cardW = portrait ? table.w - 108 : Math.min(340, table.w * .38);
+  const cardH = portrait ? 168 : 194;
+  const gap = portrait ? 24 : 28;
+  const startY = portrait ? 340 : 340;
+  const towerX = portrait ? table.x + 54 : cx - cardW - gap / 2;
+  const quickX = portrait ? table.x + 54 : cx + gap / 2;
+  const quickY = portrait ? startY + cardH + 24 : startY;
+  drawModeCard(towerX, startY, cardW, cardH, "Tower Run", "Climb 2–10 casino floors with maps, bosses, routes, and floor themes.", () => {
+    selectedRunType = "tower";
+    menuView = "tower";
+    localStorage.setItem("dungeon-run-type", selectedRunType);
+  }, true);
+  drawModeCard(quickX, quickY, cardW, cardH, "Quick Run", "Fast blackjack roguelike. Clear tables, pick from 3 relics, chase a high score.", () => {
+    selectedRunType = "quick";
+    menuView = "quick";
+    localStorage.setItem("dungeon-run-type", selectedRunType);
+  }, false);
+  const playerY = portrait ? quickY + cardH + 28 : startY + cardH + 34;
+  const buttonW = portrait ? Math.min(480, table.w - 120) : 300;
+  addButton(cx - buttonW / 2, playerY, buttonW, portrait ? 66 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
+}
+
+function drawModeCard(x, y, w, h, title, body, onClick, primary = false) {
+  const theme = primary ? C.gold : activeFloorColor();
+  shadow(0, 16, 34, "rgba(0,0,0,.42)", () => gradientRound(x, y, w, h, 18, [[0, hexToRgba(theme, .26)], [.6, "rgba(13,10,18,.9)"], [1, "rgba(22,16,28,.94)"]], true));
+  strokeRound(x, y, w, h, 18, hexToRgba(theme, .78), 2.2);
+  text(title, x + w / 2, y + 46, viewport.portrait ? 31 : 26, primary ? C.gold : C.parchment, "center", "serif");
+  wrapTextSized(body, x + 26, y + 78, w - 52, viewport.portrait ? 20 : 16, viewport.portrait ? 17 : 14, C.text, 3);
+  addButton(x + 28, y + h - (viewport.portrait ? 66 : 52), w - 56, viewport.portrait ? 52 : 40, "Select", onClick, primary);
+}
+
+function drawRunSetupMenu(table, cx, portrait, runType) {
+  selectedRunType = runType;
+  const title = runTypeLabels[runType];
+  const y0 = portrait ? 276 : 282;
+  text(title, cx, y0, portrait ? 38 : 32, C.gold, "center", "serif");
+  text(runType === "tower"
+    ? "Map routes, floor bosses, elevator climb."
+    : "Straight to blackjack tables and 3-relic picks.",
+    cx, y0 + (portrait ? 42 : 36), portrait ? 21 : 17, C.muted, "center");
+  const buttonW = portrait ? Math.min(500, table.w - 100) : 360;
+  const x = cx - buttonW / 2;
+  const h = portrait ? 66 : 46;
+  const gap = portrait ? 78 : 54;
+  const startY = y0 + (portrait ? 92 : 74);
+  if (runType === "tower") {
+    addButton(x, startY, buttonW, h, `Tower Length: ${towerLengthPreference} floors`, cycleTowerLengthPreference, false);
+  } else {
+    addButton(x, startY, buttonW, h, `Difficulty: ${quickDifficultyLabels[quickDifficultyPreference]}`, cycleQuickDifficultyPreference, false);
+  }
+  addButton(x, startY + gap, buttonW, h, `Lobby Rules: ${modeLabels[modePreference]}`, cycleModePreference, false);
+  addButton(x, startY + gap * 2, buttonW, h, "Start Solo Run", startSoloRun, true);
+  addButton(x, startY + gap * 3, buttonW, h, "Create Lobby", hostLobby);
+  addButton(x, startY + gap * 4, buttonW, h, "Join Lobby", joinLobby);
+  addButton(x, startY + gap * 5, buttonW, h, "Back", () => menuView = "home");
 }
 
 function drawMenuSidePanel(side) {
@@ -4050,8 +4200,9 @@ function drawFloorTransition() {
   const t = game.floorTransition || { from: 1, to: 2, startedAt: Date.now(), duration: 2800 };
   const progress = clamp((Date.now() - t.startedAt) / Math.max(1, t.duration), 0, 1);
   const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-  const from = clamp(t.from || 1, 1, FLOORS);
-  const to = clamp(t.to || from + 1, 1, FLOORS);
+  const totalFloors = runFloorCount();
+  const from = clamp(t.from || 1, 1, totalFloors);
+  const to = clamp(t.to || from + 1, 1, totalFloors);
   fill("rgba(0,0,0,.58)", 0, 0, lw, lh);
   const ui = activeFloorUi();
   const panelW = Math.min(portrait ? lw - 48 : 720, lw - 60);
@@ -4070,14 +4221,14 @@ function drawFloorTransition() {
   const shaftH = Math.max(220, shaftBottom - shaftTop);
   strokeRound(shaftX - 78, shaftTop - 24, 156, shaftH + 48, 28, "rgba(238,231,215,.18)", 2);
   fill("rgba(0,0,0,.28)", shaftX - 62, shaftTop - 10, 124, shaftH + 20, 22);
-  const floorY = (floor) => shaftTop + shaftH - ((floor - 1) / Math.max(1, FLOORS - 1)) * shaftH;
+  const floorY = (floor) => shaftTop + shaftH - ((floor - 1) / Math.max(1, totalFloors - 1)) * shaftH;
   const fromY = floorY(from);
   const toY = floorY(to);
   const elevatorY = fromY + (toY - fromY) * eased;
   ctx.save();
   pathRound(shaftX - 86, shaftTop - 34, 172, shaftH + 68, 30);
   ctx.clip();
-  for (let floor = 1; floor <= FLOORS; floor++) {
+  for (let floor = 1; floor <= totalFloors; floor++) {
     const fy = floorY(floor);
     const dist = Math.abs(fy - elevatorY);
     const active = floor === to && progress > .72;
@@ -4104,7 +4255,7 @@ function drawMapHeader(lw, portrait) {
     const topY = 34;
     const statsX = Math.min(250, lw * .38);
     const statsW = Math.max(86, lw - statsX - 154);
-    text(`FLOOR ${game.floor + 1}/${FLOORS}`, leftX, topY + 12, 24, ui.titleWarm, "left", "serif");
+    text(`FLOOR ${game.floor + 1}/${runFloorCount()}`, leftX, topY + 12, 24, ui.titleWarm, "left", "serif");
     textFit(game.map.theme, leftX, topY + 42, Math.max(170, statsX - leftX - 12), 18, C.text);
     shadow(0, 12, 28, "rgba(0,0,0,.42)", () => {
       gradientRound(statsX, topY - 2, statsW, 54, 16, [[0, "rgba(8,6,12,.78)"], [1, hexToRgba(ui.panelBottom, .9)]], true);
@@ -4117,7 +4268,7 @@ function drawMapHeader(lw, portrait) {
   const titleY = portrait ? 58 : 34;
   const themeY = portrait ? 94 : 64;
   const statY = portrait ? 125 : 96;
-  text(`FLOOR ${game.floor + 1}/${FLOORS}`, lw / 2, titleY, portrait ? 30 : 26, ui.titleWarm, "center", "serif");
+  text(`FLOOR ${game.floor + 1}/${runFloorCount()}`, lw / 2, titleY, portrait ? 30 : 26, ui.titleWarm, "center", "serif");
   text(game.map.theme, lw / 2, themeY, portrait ? 24 : 20, C.text, "center");
   const summary = `Gold ${game.gold}g  •  HP ${game.hp}/${game.maxHp}  •  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`;
   if (portrait) {
@@ -4143,7 +4294,7 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
   });
   strokeRound(barX, barY, barW, barH, 16, "rgba(95,200,234,.65)", 2);
   text("DEV MAP NAVIGATOR", barX + 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, "#8be3ff");
-  text(`Floor ${game.floor + 1}/${FLOORS}`, barX + barW - 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, C.gold, "right");
+  text(`Floor ${game.floor + 1}/${runFloorCount()}`, barX + barW - 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, C.gold, "right");
   const selected = getMapNode(inspectedNodeId);
   const hasEncounter = !!selected?.encounter;
   const canClear = hasEncounter || !!game.activeEncounterId;
@@ -4153,13 +4304,13 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
   if (portrait) {
     const half = (rowW - gap) / 2;
     addButton(barX + 14, buttonY, half, 48, "← Floor", devMapPreviousFloor, false, game.floor > 0);
-    addButton(barX + 14 + half + gap, buttonY, half, 48, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(barX + 14 + half + gap, buttonY, half, 48, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(barX + 14, buttonY + 56, half, 48, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + half + gap, buttonY + 56, half, 48, "Clear", devMapClearEncounter, false, canClear);
   } else {
     const buttonW = (rowW - gap * 3) / 4;
     addButton(barX + 14, buttonY, buttonW, 42, "← Floor", devMapPreviousFloor, false, game.floor > 0);
-    addButton(barX + 14 + (buttonW + gap), buttonY, buttonW, 42, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(barX + 14 + (buttonW + gap), buttonY, buttonW, 42, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(barX + 14 + (buttonW + gap) * 2, buttonY, buttonW, 42, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + (buttonW + gap) * 3, buttonY, buttonW, 42, "Clear", devMapClearEncounter, false, canClear);
   }
@@ -4182,19 +4333,19 @@ function drawDeveloperTableNavigatorControls() {
   });
   strokeRound(x, y, w, h, 16, "rgba(95,200,234,.7)", 2);
   const node = getMapNode(game.activeEncounterId) || getMapNode(inspectedNodeId);
-  text(`DEV TABLE TESTER • Floor ${game.floor + 1}/${FLOORS}${node ? ` • ${node.label}` : ""}`, x + 18, y + (portrait ? 27 : 25), portrait ? 16 : 13, "#8be3ff");
+  text(`DEV TABLE TESTER • Floor ${game.floor + 1}/${runFloorCount()}${node ? ` • ${node.label}` : ""}`, x + 18, y + (portrait ? 27 : 25), portrait ? 16 : 13, "#8be3ff");
   const gap = 8;
   const rowY = y + (portrait ? 46 : 32);
   if (portrait) {
     const half = (w - 44) / 2;
     addButton(x + 14, rowY, half, 44, "← Floor", devMapPreviousFloor, false, game.floor > 0);
-    addButton(x + 22 + half, rowY, half, 44, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(x + 22 + half, rowY, half, 44, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(x + 14, rowY + 52, half, 44, "Back to Map", devMapReturnToMap, true);
     addButton(x + 22 + half, rowY + 52, half, 44, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
   } else {
     const buttonW = (w - 44 - gap * 3) / 4;
     addButton(x + 14, rowY, buttonW, 38, "← Floor", devMapPreviousFloor, false, game.floor > 0);
-    addButton(x + 14 + (buttonW + gap), rowY, buttonW, 38, "Floor →", devMapNextFloor, false, game.floor < FLOORS - 1);
+    addButton(x + 14 + (buttonW + gap), rowY, buttonW, 38, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(x + 14 + (buttonW + gap) * 2, rowY, buttonW, 38, "Back to Map", devMapReturnToMap, true);
     addButton(x + 14 + (buttonW + gap) * 3, rowY, buttonW, 38, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
   }
@@ -5317,7 +5468,7 @@ function drawSidePanel() {
   text("OF CARDS", x + 102, 86, 10, C.muted, "center", "serif");
   addButton(x + 196, 52, 52, 34, "Menu", () => menuOpen = true);
   fill("rgba(238,231,215,.06)", x + 20, 100, 230, 1);
-  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 22, 112, 18, C.text);
+  text(`${isQuickRun() ? "Table" : "Floor"} ${game.floor + 1}/${runFloorCount()}`, x + 22, 112, 18, C.text);
   drawGoldDebtLine(x + 22, 140, 18);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
@@ -5348,7 +5499,7 @@ function drawMobileGameplayDock() {
   strokeRound(x, y, w, dockH, 22, hexToRgba(ui.border, .58), 2);
 
   const statY = y + 28;
-  text(`F${game.floor + 1}/${enemyTemplates.length}`, x + 28, statY, 22, C.text);
+  text(`${isQuickRun() ? "T" : "F"}${game.floor + 1}/${runFloorCount()}`, x + 28, statY, 22, C.text);
   drawGoldDebtLine(x + 96, statY, 21);
   const hpW = 180;
   const hpX = x + w - hpW - 24;
@@ -5445,7 +5596,7 @@ function drawTouchLandscapePanel() {
   strokeRound(x, 30, w, 740, 20, hexToRgba(ui.border, .62), 3);
   text("DUNGEON OF CARDS", x + 190, 82, 25, ui.titleWarm, "center", "serif");
   addButton(x + 370, 46, 78, 92, "Menu", () => menuOpen = true);
-  text(`Floor ${game.floor + 1}/${enemyTemplates.length}`, x + 24, 142, 27, C.text);
+  text(`${isQuickRun() ? "Table" : "Floor"} ${game.floor + 1}/${runFloorCount()}`, x + 24, 142, 27, C.text);
   drawGoldDebtLine(x + 245, 142, 27);
   meter(x + 24, 174, w - 48, 20, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
@@ -5600,21 +5751,21 @@ function drawShop() {
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
   strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
-  text("THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
-  text("Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
+  text(isQuickRun() ? "QUICK RUN RELIC VOTE" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
+  text(isQuickRun() ? "Choose one relic, then the next table gets nastier." : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
   if (portrait) {
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, 205 + i * 340));
-    addButton(lw / 2 - 170, 1225, 340, 72, "Skip Shop", () => action("skipShop"));
+    if (!isQuickRun()) addButton(lw / 2 - 170, 1225, 340, 72, "Skip Shop", () => action("skipShop"));
   } else {
     const cardsX = lw / 2 - 455;
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, cardsX + i * 315, 205));
-    addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
+    if (!isQuickRun()) addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
   }
 }
 
 function drawShopRelicCard(relic, index, x, y) {
   const cost = 45 + game.floor * 15;
-  const canBuy = game.code && isFreeForAll() ? true : seatBankroll(mySeat() || game.seats[0]) >= cost;
+  const canBuy = isQuickRun() || (game.code && isFreeForAll()) ? true : seatBankroll(mySeat() || game.seats[0]) >= cost;
   const portrait = viewport.portrait;
   const cardW = portrait ? layoutW() - 160 : 280;
   const cardH = portrait ? 318 : 320;
@@ -5634,7 +5785,9 @@ function drawShopRelicCard(relic, index, x, y) {
   wrapTextSized(relic.description, x + 42, y + (portrait ? 154 : 144), cardW - 84, portrait ? 24 : 20, portrait ? 19 : 16, C.text, 3);
   const votes = Object.values(game.relicVotes || {}).filter((v) => v === index).length;
   const voted = game.relicVotes?.[localPlayerId] === index;
-  const label = game.code ? `${voted ? "Voted" : "Vote"}${votes ? ` (${votes})` : ""}` : `Buy ${cost}g`;
+  const label = game.code
+    ? `${voted ? "Voted" : "Vote"}${votes ? ` (${votes})` : ""}`
+    : isQuickRun() ? "Choose Relic" : `Buy ${cost}g`;
   addButton(x + 40, y + (portrait ? 244 : 250), cardW - 80, portrait ? 62 : 50, label, () => action(`buy:${index}`), true, canBuy);
 }
 
@@ -5921,7 +6074,7 @@ function drawGameMenu() {
   const lh = layoutH();
   const hasDev = developerModeUnlocked;
   const panelW = viewport.portrait ? 520 : 430;
-  const panelH = viewport.portrait ? (hasDev ? 500 : 410) : (hasDev ? 410 : 340);
+  const panelH = viewport.portrait ? (hasDev ? 720 : 630) : (hasDev ? 560 : 500);
   const x = lw / 2 - panelW / 2;
   const y = Math.max(72, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.62)", 0, 0, lw, lh);
@@ -5930,11 +6083,44 @@ function drawGameMenu() {
   });
   strokeRound(x, y, panelW, panelH, 18, "rgba(220,180,70,.45)", 2);
   text("Game Menu", lw / 2, y + 62, viewport.portrait ? 34 : 28, C.gold, "center", "serif");
-  text("Return to the table or go back home.", lw / 2, y + 104, viewport.portrait ? 21 : 16, C.muted, "center");
-  addButton(x + 42, y + 138, panelW - 84, viewport.portrait ? 72 : 56, "Resume", () => menuOpen = false, true);
-  addButton(x + 42, y + (viewport.portrait ? 226 : 204), panelW - 84, viewport.portrait ? 72 : 56, "Change Name", openNameEditor);
-  if (hasDev) addButton(x + 42, y + (viewport.portrait ? 314 : 270), panelW - 84, viewport.portrait ? 72 : 56, "Developer", () => developerPanelOpen = true);
-  addButton(x + 42, y + (viewport.portrait ? (hasDev ? 402 : 314) : (hasDev ? 336 : 270)), panelW - 84, viewport.portrait ? 72 : 56, "Home Screen", goHome);
+  const runLine = game
+    ? `${runTypeLabels[game.runType || "tower"] || "Tower Run"} • ${game.runType === "quick" ? quickDifficultyLabels[game.quickDifficulty || "normal"] : `${towerFloorCount()} floors`}`
+    : "Choose a run mode first";
+  text(runLine, lw / 2, y + 100, viewport.portrait ? 20 : 16, C.text, "center");
+  text(game?.code ? `Lobby ${game.code} • ${modeLabels[game.mode]}` : `Solo • ${modeLabels[game?.mode || modePreference]}`, lw / 2, y + 128, viewport.portrait ? 18 : 14, C.muted, "center");
+  const bh = viewport.portrait ? 62 : 46;
+  const gap = viewport.portrait ? 72 : 52;
+  let by = y + (viewport.portrait ? 158 : 150);
+  addButton(x + 42, by, panelW - 84, bh, "Resume", () => menuOpen = false, true);
+  by += gap;
+  addButton(x + 42, by, panelW - 84, bh, "Change Name", openNameEditor);
+  by += gap;
+  addButton(x + 42, by, panelW - 84, bh, game?.code ? "Lobby / Invite" : "Create Lobby", () => {
+    prepareSelectedRunFromCurrentGame();
+    if (game?.code && role === "host") showSignal("host", `Lobby ${game.code}`, "Share this lobby link or code with friends.");
+    else if (game?.code) notify(`Lobby code: ${game.code}`);
+    else hostLobby();
+  });
+  by += gap;
+  addButton(x + 42, by, panelW - 84, bh, "Join Lobby", () => {
+    prepareSelectedRunFromCurrentGame();
+    joinLobby();
+  });
+  by += gap;
+  addButton(x + 42, by, panelW - 84, bh, `Next Lobby Rules: ${modeLabels[modePreference]}`, cycleModePreference);
+  by += gap;
+  if (hasDev) {
+    addButton(x + 42, by, panelW - 84, bh, "Developer", () => developerPanelOpen = true);
+    by += gap;
+  }
+  addButton(x + 42, by, panelW - 84, bh, "Home Screen", goHome);
+}
+
+function prepareSelectedRunFromCurrentGame() {
+  if (!game) return;
+  selectedRunType = game.runType || selectedRunType || "tower";
+  towerLengthPreference = game.towerFloors || towerLengthPreference;
+  quickDifficultyPreference = game.quickDifficulty || quickDifficultyPreference;
 }
 
 function drawDeveloperPanel() {
@@ -6265,7 +6451,7 @@ function devScenarioMapNavigator() {
 function devSetFloor(floorIndex) {
   if (!game?.developerTest) return flashMsg("Start Map Navigator first");
   developerPanelOpen = false;
-  game.floor = clamp(floorIndex, 0, FLOORS - 1);
+  game.floor = clamp(floorIndex, 0, runFloorCount() - 1);
   setGameMapForFloor(game.floor);
   game.currentNodeId = "start";
   game.clearedNodes = ["start"];
@@ -7307,7 +7493,7 @@ function activeFloorColor() {
 }
 
 function activeFloorUi() {
-  return floorUiPalette(game ? Number(game.floor) || 0 : 0);
+  return floorUiPalette(game ? clamp((Number(game.map?.sourceFloor) || ((Number(game.floor) || 0) + 1)) - 1, 0, FLOORS - 1) : 0);
 }
 
 function houseRules() {
