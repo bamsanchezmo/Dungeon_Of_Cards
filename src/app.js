@@ -1025,7 +1025,7 @@ function createQuickPerkReward(type, quickFloor, rarity) {
     return {
       type: "heal",
       name: `${rarity.name} Second Wind`,
-      icon: "+",
+      icon: "\u2764\uFE0F",
       description: `Restore ${amount} HP.`,
       amount,
       rarityName: rarity.name,
@@ -1037,7 +1037,7 @@ function createQuickPerkReward(type, quickFloor, rarity) {
     return {
       type: "maxHp",
       name: `${rarity.name} Vitality Upgrade`,
-      icon: "♥",
+      icon: "\u2764\uFE0F",
       description: `Increase max HP by ${amount} and heal ${amount} HP.`,
       amount,
       rarityName: rarity.name,
@@ -1048,7 +1048,7 @@ function createQuickPerkReward(type, quickFloor, rarity) {
   return {
     type: "damage",
     name: `${rarity.name} Sharpened Cards`,
-    icon: "×",
+    icon: "\u2694\uFE0F",
     description: `Winning hands deal +${Math.round(amount * 100)}% damage. Current ${quickDamageLabel()} → x${(quickDamageMultiplier() + amount).toFixed(2)}.`,
     amount,
     rarityName: rarity.name,
@@ -4924,22 +4924,32 @@ function drawMapRewardCard(node, x, y, w, portrait) {
 
 function mapRewardSubtitle(reward) {
   if (!reward) return "No reward";
-  if (reward.type === "relic") return `${reward.rarityName || "Relic"} relic reward`;
-  if (reward.type === "gold") return `${reward.rarityName || "Bonus"} gold reward`;
-  if (reward.type === "heal") return `${reward.rarityName || "Bonus"} HP reward`;
-  if (reward.type === "maxHp") return `${reward.rarityName || "Bonus"} max HP reward`;
-  if (reward.type === "damage") return `${reward.rarityName || "Bonus"} damage reward`;
+  const meta = rewardTypeMeta(reward);
+  if (meta?.label) return `${reward.rarityName || "Bonus"} ${meta.label}`;
   return reward.rarityName || "Table reward";
+}
+
+function rewardTypeMeta(reward) {
+  if (!reward) return { label: "Reward", action: "Choose Reward", icon: "?", color: C.gold };
+  if (reward.type === "relic") return { label: "Relic", action: "Choose Relic", icon: "Relic", color: reward.rarityColor || C.gold };
+  if (reward.type === "gold") return { label: "Gold Upgrade", action: "Choose Gold", icon: "$", color: C.gold };
+  if (reward.type === "heal") return { label: "Life Upgrade", action: "Choose \u2764\uFE0F Life", icon: "\u2764\uFE0F", color: C.green };
+  if (reward.type === "maxHp") return { label: "Max Life Upgrade", action: "Choose \u2764\uFE0F Max Life", icon: "\u2764\uFE0F", color: C.green };
+  if (reward.type === "damage") return { label: "Damage Upgrade", action: "Choose \u2694\uFE0F Damage", icon: "\u2694\uFE0F", color: C.red };
+  return { label: "Reward", action: "Choose Reward", icon: reward.icon || "?", color: reward.rarityColor || C.gold };
 }
 
 function drawMapRewardIcon(reward, cx, cy, size, color) {
   if (reward?.type === "relic") return drawRelicIcon(reward, cx, cy, size, color);
+  const meta = rewardTypeMeta(reward);
+  const icon = meta.icon || reward?.icon || "?";
+  const iconColor = meta.color || color || C.gold;
   const r = size * .5;
-  shadow(0, 6, 14, hexToRgba(color, .28), () => {
+  shadow(0, 6, 14, hexToRgba(iconColor, .28), () => {
     fill("rgba(8,6,12,.86)", cx - r, cy - r, size, size, Math.max(10, size * .2));
-    strokeRound(cx - r, cy - r, size, size, Math.max(10, size * .2), color, 2);
+    strokeRound(cx - r, cy - r, size, size, Math.max(10, size * .2), iconColor, 2);
   });
-  text(reward?.icon || "?", cx, cy + size * .12, size * .42, color, "center");
+  text(icon, cx, cy + size * .12, size * .42, iconColor, "center");
   return true;
 }
 
@@ -5975,7 +5985,8 @@ function drawShopRelicCard(relic, index, x, y) {
   const cost = 45 + game.floor * 15;
   const canBuy = isQuickRun() || (game.code && isFreeForAll()) ? true : seatBankroll(mySeat() || game.seats[0]) >= cost;
   const portrait = viewport.portrait;
-  const rewardColor = relic.rarityColor || C.gold;
+  const meta = rewardTypeMeta(relic);
+  const rewardColor = relic.rarityColor || meta.color || C.gold;
   const cardW = portrait ? layoutW() - 160 : 280;
   const cardH = portrait ? 318 : 320;
   shadow(0, 18, 38, "rgba(0,0,0,.42)", () => {
@@ -5987,6 +5998,9 @@ function drawShopRelicCard(relic, index, x, y) {
   fill(hexToRgba(rewardColor, .10), x + 14, y + 14, cardW - 28, portrait ? 88 : 76, 12);
   const iconSize = portrait ? 78 : 64;
   drawMapRewardIcon(relic, x + 20 + iconSize / 2, y + 20 + iconSize / 2, iconSize, rewardColor);
+  fill(hexToRgba(meta.color || rewardColor, .22), x + cardW - (portrait ? 154 : 132), y + 24, portrait ? 120 : 104, portrait ? 28 : 24, 14);
+  strokeRound(x + cardW - (portrait ? 154 : 132), y + 24, portrait ? 120 : 104, portrait ? 28 : 24, 14, hexToRgba(meta.color || rewardColor, .46), 1.5);
+  textFit(meta.label, x + cardW - (portrait ? 94 : 80), y + (portrait ? 43 : 40), portrait ? 104 : 90, portrait ? 14 : 12, C.text, "center");
   textFit(relic.name, x + (portrait ? 116 : 100), y + (portrait ? 49 : 45), cardW - (portrait ? 150 : 130), portrait ? 27 : 20, rewardColor);
   wrapTextSized(relic.description, x + (portrait ? 116 : 100), y + (portrait ? 82 : 72), cardW - (portrait ? 150 : 130), portrait ? 22 : 17, portrait ? 18 : 14, C.text, 2);
   fill("rgba(7,5,10,.46)", x + 24, y + (portrait ? 122 : 112), cardW - 48, portrait ? 104 : 116, 10);
@@ -5996,7 +6010,7 @@ function drawShopRelicCard(relic, index, x, y) {
   const voted = game.relicVotes?.[localPlayerId] === index;
   const label = game.code
     ? `${voted ? "Voted" : "Vote"}${votes ? ` (${votes})` : ""}`
-    : isQuickRun() ? "Choose Reward" : `Buy ${cost}g`;
+    : isQuickRun() ? meta.action : `Buy ${cost}g`;
   addButton(x + 40, y + (portrait ? 244 : 250), cardW - 80, portrait ? 62 : 50, label, () => action(`buy:${index}`), true, canBuy);
 }
 
