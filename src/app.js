@@ -273,6 +273,8 @@ const handdrawnAssetFiles = {
   texture: "art/ui/texture.png",
   elevatorDoorHalf: "art/elevator/door_half.png",
   elevatorGremlinShop: "art/elevator/gremlin_shop.png",
+  elevatorShaftBackground: "art/elevator/shaft_background.png",
+  elevatorInteriorFrame: "art/elevator/interior_frame.png",
   suitS: "art/suits/suit_S.png",
   suitH: "art/suits/suit_H.png",
   suitD: "art/suits/suit_D.png",
@@ -4427,64 +4429,68 @@ function drawFloorTransition() {
   const totalFloors = runFloorCount();
   const from = clamp(t.from || 1, 1, totalFloors);
   const to = clamp(t.to || from + 1, 1, totalFloors);
-  fill("rgba(0,0,0,.58)", 0, 0, lw, lh);
   const ui = activeFloorUi();
-  const panelW = Math.min(portrait ? lw - 48 : 720, lw - 60);
-  const panelH = Math.min(portrait ? 760 : 520, lh - 70);
-  const x = (lw - panelW) / 2;
-  const y = (lh - panelH) / 2;
-  shadow(0, 18, 42, "rgba(0,0,0,.5)", () => gradientRound(x, y, panelW, panelH, 24, [[0, hexToRgba(activeFloorColor(), .42)], [.5, "#15101c"], [1, "#080d12"]], true));
-  strokeRound(x, y, panelW, panelH, 24, ui.accent, 3);
-  text("FLOOR CLEARED", x + panelW / 2, y + 66, portrait ? 38 : 34, C.gold, "center", "serif");
-  text(`Elevator climbing to Floor ${to}`, x + panelW / 2, y + 108, portrait ? 23 : 20, C.text, "center");
-
-  const shaftX = x + panelW / 2;
-  const shaftTop = y + (portrait ? 160 : 145);
-  const footerY = y + panelH - 45;
-  const shaftBottom = footerY - (portrait ? 96 : 82);
-  const shaftH = Math.max(220, shaftBottom - shaftTop);
-  strokeRound(shaftX - 78, shaftTop - 24, 156, shaftH + 48, 28, "rgba(238,231,215,.18)", 2);
-  fill("rgba(0,0,0,.28)", shaftX - 62, shaftTop - 10, 124, shaftH + 20, 22);
-  const doorX = shaftX - 86;
-  const doorY = shaftTop - 34;
-  const doorW = 172;
-  const doorH = shaftH + 68;
-  ctx.save();
-  pathRound(doorX, doorY, doorW, doorH, 30);
-  ctx.clip();
+  fill("#050409", 0, 0, lw, lh);
   const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
-  const revealKey = game.floorTransition?.stopAtShop ? "elevatorGremlinShop" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
-  if (revealKey) drawRawAssetCover(revealKey, doorX, doorY, doorW, doorH, game.floorTransition?.stopAtShop ? .82 : .9);
-  fill("rgba(0,0,0,.25)", doorX, doorY, doorW, doorH, 0);
+  const shopStop = !!game.floorTransition?.stopAtShop;
+  const revealKey = shopStop ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
+  if (revealKey) drawRawAssetCover(revealKey, 0, 0, lw, lh, shopStop ? .96 : .9);
+  else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
+  if (shopStop && handAssetReady("elevatorGremlinShop")) {
+    const shopW = Math.min(lw * (portrait ? .86 : .52), portrait ? 620 : 760);
+    const shopH = Math.min(lh * .72, portrait ? 760 : 620);
+    drawRawAssetContain("elevatorGremlinShop", lw / 2 - shopW / 2, lh / 2 - shopH / 2 + (portrait ? 40 : 20), shopW, shopH, .94);
+  }
+  fill("rgba(0,0,0,.18)", 0, 0, lw, lh);
   const openBase = clamp((progress - .25) / .68, 0, 1);
-  const open = game.floorTransition?.stopAtShop ? Math.min(.46, openBase * .58) : openBase;
-  drawElevatorDoors(doorX, doorY, doorW, doorH, open, !!game.floorTransition?.stopAtShop);
-  ctx.restore();
-  const floorY = (floor) => shaftTop + shaftH - ((floor - 1) / Math.max(1, totalFloors - 1)) * shaftH;
-  const fromY = floorY(from);
-  const toY = floorY(to);
-  const elevatorY = fromY + (toY - fromY) * eased;
+  const open = shopStop ? Math.min(.52, openBase * .64) : openBase;
+  drawElevatorDoors(0, 0, lw, lh, open, shopStop);
+  if (handAssetReady("elevatorInteriorFrame")) drawRawAssetCover("elevatorInteriorFrame", 0, 0, lw, lh, .98);
+  drawElevatorFloorIndicator(from, to, progress, eased, shopStop);
+  text(shopStop ? "The elevator rattles. A pulley shop catches the shaft." : "Doors opening to the next floor.", lw / 2, lh - (portrait ? 54 : 38), portrait ? 20 : 18, C.text, "center");
+}
+
+function drawElevatorShaftLines(x, y, w, h, ui, progress = 0) {
   ctx.save();
-  pathRound(shaftX - 86, shaftTop - 34, 172, shaftH + 68, 30);
-  ctx.clip();
-  for (let floor = 1; floor <= totalFloors; floor++) {
-    const fy = floorY(floor);
-    const dist = Math.abs(fy - elevatorY);
-    const active = floor === to && progress > .72;
-    const passed = floor < to;
-    const scale = active ? 1.34 : Math.max(.72, 1.08 - dist / 240);
-    const alpha = clamp(1 - dist / (shaftH * .95), .28, 1);
-    ctx.globalAlpha = alpha;
-    const r = (portrait ? 27 : 23) * scale;
-    fill(active ? ui.primaryTop : passed ? hexToRgba(C.gold, .82) : "rgba(238,231,215,.22)", shaftX - r, fy - r, r * 2, r * 2, r);
-    strokeRound(shaftX - r, fy - r, r * 2, r * 2, r, active ? "#fff3ad" : "rgba(255,255,255,.25)", active ? 3 : 1.5);
-    text(String(floor), shaftX, fy + (portrait ? 11 : 9) * scale, (portrait ? 34 : 28) * scale, active ? C.black : C.text, "center", "serif");
+  ctx.globalAlpha = .35;
+  ctx.strokeStyle = hexToRgba(ui.border || C.gold, .45);
+  ctx.lineWidth = Math.max(2, w * .004);
+  const offset = (progress * h * .45) % 86;
+  for (let xx of [w * .08, w * .18, w * .82, w * .92]) {
+    ctx.beginPath();
+    ctx.moveTo(xx, y);
+    ctx.lineTo(xx, y + h);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = .18;
+  for (let yy = y - 86 + offset; yy < y + h + 86; yy += 86) {
+    ctx.beginPath();
+    ctx.moveTo(x, yy);
+    ctx.lineTo(x + w, yy - 34);
+    ctx.stroke();
   }
   ctx.restore();
-  ctx.globalAlpha = 1;
-  const glow = Math.sin(progress * Math.PI) * .85 + .15;
-  shadow(0, 0, 28, hexToRgba(C.gold, .45 * glow), () => strokeRound(shaftX - 96, elevatorY - 47, 192, 94, 32, C.gold, 4));
-  text("New tables. New rules. Higher stakes.", x + panelW / 2, footerY, portrait ? 20 : 18, C.muted, "center");
+}
+
+function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false) {
+  const lw = layoutW(), portrait = viewport.portrait;
+  const display = progress < .5 ? from : to;
+  const nextAlpha = clamp((progress - .42) / .24, 0, 1);
+  const boxW = portrait ? 180 : 220;
+  const boxH = portrait ? 96 : 86;
+  const x = lw / 2 - boxW / 2;
+  const y = portrait ? 34 : 28;
+  shadow(0, 12, 32, "rgba(0,0,0,.5)", () => gradientRound(x, y, boxW, boxH, 16, [[0, "#322414"], [1, "#09080b"]], true));
+  strokeRound(x, y, boxW, boxH, 16, C.gold, 3);
+  text(shopStop ? "SERVICE STOP" : "FLOOR", x + boxW / 2, y + 27, portrait ? 16 : 14, C.muted, "center");
+  const numberText = shopStop && progress > .72 ? `${from}.5` : String(display);
+  text(numberText, x + boxW / 2, y + (portrait ? 72 : 68), portrait ? 46 : 42, C.gold, "center", "serif");
+  if (!shopStop) {
+    ctx.save();
+    ctx.globalAlpha = nextAlpha;
+    text(String(to), x + boxW / 2, y + (portrait ? 72 : 68), portrait ? 46 : 42, "#fff3ad", "center", "serif");
+    ctx.restore();
+  }
 }
 
 function drawMapHeader(lw, portrait) {
@@ -6109,25 +6115,68 @@ function drawShop() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   const towerShop = game.shopContext?.kind === "towerElevator";
-  fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
-  if (towerShop && handAssetReady("elevatorGremlinShop")) {
-    const shopW = Math.min(lw * (portrait ? .72 : .38), portrait ? 520 : 560);
-    const shopH = portrait ? 360 : 300;
-    drawRawAssetContain("elevatorGremlinShop", lw / 2 - shopW / 2, portrait ? 118 : 82, shopW, shopH, .82);
+  if (towerShop) {
+    drawTowerElevatorShop(lw, lh, portrait);
+    return;
   }
+  fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
   strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
-  text(towerShop ? `ELEVATOR SHOP ${game.shopContext.fromFloor}.5` : isQuickRun() ? "QUICK FLOOR CLEARED" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
-  text(towerShop ? "Buy now, or save gold for the tables above." : isQuickRun() ? `Choose one reward before Quick Floor ${game.floor + 2}.` : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
+  text(isQuickRun() ? "QUICK FLOOR CLEARED" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
+  text(isQuickRun() ? `Choose one reward before Quick Floor ${game.floor + 2}.` : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
   if (portrait) {
-    const startY = towerShop ? 400 : 205;
+    const startY = 205;
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, startY + i * 340));
-    if (!isQuickRun()) addButton(lw / 2 - 170, Math.min(lh - 92, startY + 1018), 340, 72, towerShop ? "Keep Climbing" : "Skip Shop", () => action("skipShop"));
+    if (!isQuickRun()) addButton(lw / 2 - 170, Math.min(lh - 92, startY + 1018), 340, 72, "Skip Shop", () => action("skipShop"));
   } else {
     const cardsX = lw / 2 - 455;
-    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, cardsX + i * 315, towerShop ? 250 : 205));
-    if (!isQuickRun()) addButton(lw / 2 - 112, 640, 224, 54, towerShop ? "Keep Climbing" : "Skip Shop", () => action("skipShop"));
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, cardsX + i * 315, 205));
+    if (!isQuickRun()) addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
   }
+}
+
+function drawTowerElevatorShop(lw, lh, portrait) {
+  fill("#050409", 0, 0, lw, lh);
+  if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
+  else drawElevatorShaftLines(0, 0, lw, lh, activeFloorUi(), .5);
+  if (handAssetReady("elevatorGremlinShop")) {
+    const shopW = Math.min(lw * (portrait ? .92 : .56), portrait ? 680 : 840);
+    const shopH = Math.min(lh * (portrait ? .62 : .68), portrait ? 760 : 660);
+    drawRawAssetContain("elevatorGremlinShop", lw / 2 - shopW / 2, lh * (portrait ? .15 : .10), shopW, shopH, .96);
+  }
+  if (handAssetReady("elevatorInteriorFrame")) drawRawAssetCover("elevatorInteriorFrame", 0, 0, lw, lh, .98);
+  drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true);
+  const panelH = portrait ? 260 : 150;
+  const panelY = lh - panelH - (portrait ? 18 : 20);
+  shadow(0, -10, 36, "rgba(0,0,0,.55)", () => gradientRound(24, panelY, lw - 48, panelH, 20, [[0, "rgba(12,9,15,.62)"], [1, "rgba(8,6,10,.92)"]], true));
+  strokeRound(24, panelY, lw - 48, panelH, 20, hexToRgba(C.gold, .45), 2);
+  text(`ELEVATOR SHOP ${game.shopContext.fromFloor}.5`, lw / 2, panelY + (portrait ? 34 : 30), portrait ? 24 : 22, C.gold, "center", "serif");
+  textFit("Buy now, or save gold for the tables above.", lw / 2, panelY + (portrait ? 60 : 55), lw - 96, portrait ? 15 : 14, C.text, "center");
+  if (portrait) {
+    const cardW = (lw - 76) / 3;
+    const cardY = panelY + 82;
+    game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, 34 + i * (cardW + 8), cardY, cardW, 122));
+    addButton(lw / 2 - 150, panelY + panelH - 54, 300, 42, "Keep Climbing", () => action("skipShop"));
+  } else {
+    const cardW = Math.min(230, (lw - 360) / 3);
+    const startX = lw / 2 - (cardW * 3 + 20) / 2;
+    game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, startX + i * (cardW + 10), panelY + 58, cardW, 78));
+    addButton(lw - 190, panelY + 58, 150, 78, "Keep Climbing", () => action("skipShop"));
+  }
+}
+
+function drawCompactShopCard(item, index, x, y, w, h) {
+  const meta = rewardTypeMeta(item);
+  const color = item.rarityColor || meta.color || C.gold;
+  const cost = Number(item.shopCost) || 0;
+  const canBuy = seatBankroll(mySeat() || game.seats[0]) >= cost;
+  gradientRound(x, y, w, h, 12, canBuy ? [[0, "rgba(43,34,52,.9)"], [1, "rgba(13,10,18,.92)"]] : [[0, "rgba(25,22,28,.78)"], [1, "rgba(9,8,11,.9)"]], true);
+  strokeRound(x, y, w, h, 12, canBuy ? hexToRgba(color, .75) : "rgba(238,231,215,.18)", 2);
+  const iconSize = Math.min(42, h * .46);
+  drawMapRewardIcon(item, x + 28, y + h / 2 - 8, iconSize, color);
+  textFit(item.name, x + 54, y + 26, w - 62, 14, color);
+  textFit(meta.label, x + 54, y + 46, w - 62, 11, C.muted);
+  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
 }
 
 function drawShopRelicCard(relic, index, x, y) {
