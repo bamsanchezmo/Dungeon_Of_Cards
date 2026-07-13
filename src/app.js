@@ -60,10 +60,12 @@ const TABLE_MOTIF_PLACEMENT = {
 
 // Elevator door tuning knobs.
 // doorWidth: width of each half-door as a fraction of the full screen/doorway width.
+// doorScale: uniform scale applied to the entire half-door asset after fitting.
 // openDistance: how far the doors slide apart as the animation opens.
 // staggerLeft/staggerRight: shop-stop asymmetry for the weird half-open gremlin-shop door look.
 const ELEVATOR_DOOR_TUNING = {
   doorWidth: .55,
+  doorScale: 1,
   openDistance: .82,
   staggerLeft: .72,
   staggerRight: 1.16
@@ -4618,12 +4620,16 @@ function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
   const leftShift = stagger ? gap * ELEVATOR_DOOR_TUNING.staggerLeft : gap;
   const rightShift = stagger ? gap * ELEVATOR_DOOR_TUNING.staggerRight : gap;
   const halfW = w * ELEVATOR_DOOR_TUNING.doorWidth;
+  const doorScale = ELEVATOR_DOOR_TUNING.doorScale;
+  const scaledW = halfW * doorScale;
+  const scaledH = h * doorScale;
+  const scaledY = y + (h - scaledH) / 2;
   if (handAssetReady(key)) {
-    drawRawAssetContain(key, x - leftShift, y, halfW, h, .98);
-    drawMirroredAssetContain(key, x + w - halfW + rightShift, y + (stagger ? h * .035 : 0), halfW, h, .98);
+    drawRawAssetContain(key, x - leftShift + (halfW - scaledW) / 2, scaledY, scaledW, scaledH, .98);
+    drawMirroredAssetContain(key, x + w - halfW + rightShift + (halfW - scaledW) / 2, scaledY + (stagger ? h * .035 : 0), scaledW, scaledH, .98);
   } else {
-    gradientRound(x - leftShift, y, halfW, h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
-    gradientRound(x + w - halfW + rightShift, y, halfW, h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
+    gradientRound(x - leftShift + (halfW - scaledW) / 2, scaledY, scaledW, scaledH, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
+    gradientRound(x + w - halfW + rightShift + (halfW - scaledW) / 2, scaledY, scaledW, scaledH, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
   }
   if (gap > 2) shadow(0, 0, 24, hexToRgba(C.gold, .35 + open * .25), () => strokeRound(x + w / 2 - gap / 2, y + 18, gap, h - 36, 12, hexToRgba(C.gold, .45), 2));
 }
