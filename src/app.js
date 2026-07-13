@@ -3954,7 +3954,8 @@ function drawTable() {
   text("DUNGEON OF CARDS", felt.x + felt.w / 2, felt.y + felt.h - 34, viewport.portrait ? 22 : 25, ui.titleWarm, "center", "serif");
   ctx.restore();
   const tableRect = drawEncounterTableArt(felt, scene);
-  drawDeck(felt.x + felt.w - 125, felt.y + 50);
+  const deck = deckPositionForFelt(felt);
+  drawDeck(deck.x, deck.y);
   drawDealer(felt, tableRect);
   drawSeats(felt);
   drawSidePanel();
@@ -6786,7 +6787,14 @@ function deckPosition() {
   const felt = viewport.portrait
     ? { x: 24, y: 42, w: layoutW() - 48, h: 730 }
     : { x: 40, y: 50, w: layoutW() - (isTouchLandscape() ? 570 : 380), h: 730 };
-  return { x: felt.x + felt.w - 125, y: felt.y + 50 };
+  return deckPositionForFelt(felt);
+}
+
+function deckPositionForFelt(felt) {
+  return {
+    x: felt.x + felt.w - 125,
+    y: felt.y + (viewport.portrait ? 132 : 50)
+  };
 }
 
 function lerp(a, b, t) {
