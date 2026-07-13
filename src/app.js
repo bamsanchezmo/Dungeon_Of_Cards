@@ -4476,19 +4476,20 @@ function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopSt
   const lw = layoutW(), portrait = viewport.portrait;
   const display = progress < .5 ? from : to;
   const nextAlpha = clamp((progress - .42) / .24, 0, 1);
-  const boxW = portrait ? 180 : 220;
-  const boxH = portrait ? 96 : 86;
+  const boxW = portrait ? 172 : 220;
+  const boxH = portrait ? 78 : 86;
   const x = lw / 2 - boxW / 2;
-  const y = portrait ? 34 : 28;
-  shadow(0, 12, 32, "rgba(0,0,0,.5)", () => gradientRound(x, y, boxW, boxH, 16, [[0, "#322414"], [1, "#09080b"]], true));
+  const y = portrait ? 54 : 34;
+  shadow(0, 12, 34, "rgba(0,0,0,.7)", () => gradientRound(x, y, boxW, boxH, 14, [[0, "#060507"], [.55, "#000000"], [1, "#080609"]], true));
   strokeRound(x, y, boxW, boxH, 16, C.gold, 3);
-  text(shopStop ? "SERVICE STOP" : "FLOOR", x + boxW / 2, y + 27, portrait ? 16 : 14, C.muted, "center");
+  fill("rgba(255,255,255,.05)", x + 10, y + 8, boxW - 20, 1, 1);
+  text(shopStop ? "SERVICE STOP" : "FLOOR", x + boxW / 2, y + (portrait ? 22 : 25), portrait ? 13 : 14, C.muted, "center");
   const numberText = shopStop && progress > .72 ? `${from}.5` : String(display);
-  text(numberText, x + boxW / 2, y + (portrait ? 72 : 68), portrait ? 46 : 42, C.gold, "center", "serif");
+  text(numberText, x + boxW / 2, y + (portrait ? 62 : 68), portrait ? 40 : 42, C.gold, "center", "serif");
   if (!shopStop) {
     ctx.save();
     ctx.globalAlpha = nextAlpha;
-    text(String(to), x + boxW / 2, y + (portrait ? 72 : 68), portrait ? 46 : 42, "#fff3ad", "center", "serif");
+    text(String(to), x + boxW / 2, y + (portrait ? 62 : 68), portrait ? 40 : 42, "#fff3ad", "center", "serif");
     ctx.restore();
   }
 }
@@ -4602,10 +4603,10 @@ function drawDeveloperTableNavigatorControls() {
 
 function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
   const key = "elevatorDoorHalf";
-  const gap = w * (.08 + open * .72);
+  const gap = w * open * .82;
   const leftShift = stagger ? gap * .72 : gap;
   const rightShift = stagger ? gap * 1.16 : gap;
-  const halfW = w * .62;
+  const halfW = w * .55;
   if (handAssetReady(key)) {
     drawRawAssetContain(key, x - leftShift, y, halfW, h, .98);
     drawMirroredAssetContain(key, x + w - halfW + rightShift, y + (stagger ? h * .035 : 0), halfW, h, .98);
@@ -4613,7 +4614,7 @@ function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
     gradientRound(x - leftShift, y, halfW, h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
     gradientRound(x + w - halfW + rightShift, y, halfW, h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
   }
-  shadow(0, 0, 24, hexToRgba(C.gold, .35 + open * .25), () => strokeRound(x + w / 2 - gap / 2, y + 18, gap, h - 36, 12, hexToRgba(C.gold, .45), 2));
+  if (gap > 2) shadow(0, 0, 24, hexToRgba(C.gold, .35 + open * .25), () => strokeRound(x + w / 2 - gap / 2, y + 18, gap, h - 36, 12, hexToRgba(C.gold, .45), 2));
 }
 
 function drawMapConnections(mapX, mapY, mapW, mapH) {
