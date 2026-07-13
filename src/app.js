@@ -359,6 +359,7 @@ let leaderboardStatus = "Loading global top 5...";
 let leaderboardRefreshAt = 0;
 let leaderboardRefreshInFlight = false;
 let leaderboardSyncInFlight = false;
+let leaderboardTab = localStorage.getItem("dungeon-leaderboard-tab") === "quick" ? "quick" : "tower";
 
 let enemyTemplates = [];
 
@@ -2614,7 +2615,7 @@ function updateLeaderboardName(name, previousName = "") {
 function loadLeaderboard() {
   try {
     const raw = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
-    return sortLeaderboard(Array.isArray(raw) ? raw.filter((entry) => entry && entry.runKey) : []);
+    return sortLeaderboard(Array.isArray(raw) ? raw.filter((entry) => entry && entry.runKey).map(normalizeLeaderboardEntry) : []);
   } catch {
     return [];
   }
@@ -2622,14 +2623,37 @@ function loadLeaderboard() {
 
 function saveLeaderboard(entries) {
   try {
-    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(sortLeaderboard(entries).slice(0, LEADERBOARD_MAX)));
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(trimLeaderboardEntries(entries)));
   } catch {
     notify("Leaderboard could not be saved on this device.");
   }
 }
 
-function displayLeaderboard() {
-  return (leaderboardOnline.length ? leaderboardOnline : loadLeaderboard()).slice(0, LEADERBOARD_VISIBLE);
+function trimLeaderboardEntries(entries) {
+  const sorted = sortLeaderboard((entries || []).map(normalizeLeaderboardEntry));
+  const tower = sorted.filter((entry) => leaderboardEntryRunType(entry) === "tower").slice(0, LEADERBOARD_MAX);
+  const quick = sorted.filter((entry) => leaderboardEntryRunType(entry) === "quick").slice(0, LEADERBOARD_MAX);
+  return sortLeaderboard([...tower, ...quick]);
+}
+
+function displayLeaderboard(tab = leaderboardTab) {
+  return (leaderboardOnline.length ? leaderboardOnline : loadLeaderboard())
+    .map(normalizeLeaderboardEntry)
+    .filter((entry) => leaderboardEntryRunType(entry) === tab)
+    .slice(0, LEADERBOARD_VISIBLE);
+}
+
+function normalizeLeaderboardEntry(entry) {
+  if (!entry) return entry;
+  const runType = leaderboardEntryRunType(entry);
+  return { ...entry, runType };
+}
+
+function leaderboardEntryRunType(entry) {
+  if (entry?.runType === "quick" || entry?.runType === "tower") return entry.runType;
+  const mode = String(entry?.mode || "");
+  if (/quick/i.test(mode)) return "quick";
+  return "tower";
 }
 
 function leaderboardDbRow(entry) {
@@ -2656,6 +2680,7 @@ function leaderboardEntryFromDb(row) {
     score: Number(row.score) || 0,
     result: row.result,
     mode: row.mode,
+    runType: /quick/i.test(row.mode || "") ? "quick" : "tower",
     floor: Number(row.floor) || 1,
     totalFloors: Number(row.total_floors) || 1,
     gold: Number(row.gold) || 0,
@@ -2683,10 +2708,10 @@ async function refreshLeaderboard(force = false) {
       .select("run_key,name,score,result,mode,floor,total_floors,gold,debt,profit,rounds,played_at,created_at")
       .order("score", { ascending: false })
       .order("played_at", { ascending: false })
-      .limit(LEADERBOARD_MAX);
+      .limit(LEADERBOARD_MAX * 2);
     if (error) throw error;
-    leaderboardOnline = sortLeaderboard((data || []).map(leaderboardEntryFromDb)).slice(0, LEADERBOARD_MAX);
-    leaderboardStatus = "Global top 5";
+    leaderboardOnline = trimLeaderboardEntries((data || []).map(leaderboardEntryFromDb));
+    leaderboardStatus = "Global top 5 by mode";
   } catch {
     leaderboardStatus = loadLeaderboard().length ? "Local top 5 - global unavailable" : "Global leaderboard unavailable";
   } finally {
@@ -2696,7 +2721,7 @@ async function refreshLeaderboard(force = false) {
 
 async function syncLocalLeaderboardEntries() {
   if (leaderboardSyncInFlight) return;
-  const localEntries = normalizeLocalLeaderboardName().slice(0, LEADERBOARD_MAX);
+  const localEntries = trimLeaderboardEntries(normalizeLocalLeaderboardName());
   if (!localEntries.length) return;
   leaderboardSyncInFlight = true;
   try {
@@ -2774,7 +2799,8 @@ function recordLeaderboardIfNeeded() {
     runKey,
     name: cleanPlayerName(seat.name) || savedPlayerName("Player"),
     result: victory ? "Win" : "Loss",
-    mode: modeLabels[game.mode] || "Classic Turns",
+    runType: game.runType || "tower",
+    mode: `${runTypeLabels[game.runType || "tower"] || "Tower Run"} • ${modeLabels[game.mode] || "Classic Turns"}`,
     floor,
     totalFloors,
     gold,
@@ -3805,15 +3831,16 @@ function drawLeaderboardPanel(x, y, w, h) {
   strokeRound(x, y, w, h, 14, "rgba(220,180,70,.34)", 1.5);
   text("LEADERBOARD", x + 22, y + (portrait ? 39 : roomy ? 38 : 29), portrait ? 25 : roomy ? 22 : 16, C.gold, "left", "serif");
   text(fitLabel(leaderboardStatus, w * .48, portrait ? 17 : roomy ? 14 : 12), x + w - 22, y + (portrait ? 38 : roomy ? 37 : 29), portrait ? 17 : roomy ? 14 : 12, C.muted, "right");
+  drawLeaderboardTabs(x + 16, y + (portrait ? 56 : roomy ? 58 : 40), w - 32, portrait ? 42 : roomy ? 36 : 28);
   if (!entries.length) {
-    text("No completed runs yet.", x + w / 2, y + h / 2 + 18, portrait ? 22 : roomy ? 18 : 15, C.muted, "center");
+    text(`No ${leaderboardTab === "quick" ? "Quick Run" : "Tower Run"} scores yet.`, x + w / 2, y + h / 2 + 26, portrait ? 22 : roomy ? 18 : 15, C.muted, "center");
     return;
   }
-  const rowTop = y + (portrait ? 68 : roomy ? 82 : 45);
-  const rowH = portrait ? 40 : roomy ? 78 : 13;
+  const rowTop = y + (portrait ? 116 : roomy ? 108 : 74);
+  const rowH = portrait ? 38 : roomy ? 62 : 13;
   entries.forEach((entry, i) => {
     const ry = rowTop + i * rowH;
-    if (portrait || roomy) fill(i % 2 ? "rgba(238,231,215,.035)" : "rgba(220,180,70,.055)", x + 14, ry - (roomy ? 31 : 23), w - 28, roomy ? 62 : 34, 8);
+    if (portrait || roomy) fill(i % 2 ? "rgba(238,231,215,.035)" : "rgba(220,180,70,.055)", x + 14, ry - (roomy ? 25 : 22), w - 28, roomy ? 52 : 32, 8);
     const rankX = x + (portrait ? 28 : roomy ? 30 : 18);
     const nameX = x + (portrait ? 76 : roomy ? 76 : 54);
     const statsX = x + w - (portrait ? 24 : roomy ? 28 : 18);
@@ -3822,12 +3849,34 @@ function drawLeaderboardPanel(x, y, w, h) {
     const name = fitLabel(entry.name || "Player", w * (portrait ? .33 : .30), nameSize);
     const profit = Number(entry.profit) || 0;
     const debt = Number(entry.debt) || 0;
-    const stat = `${entry.result} F${entry.floor}/${entry.totalFloors} ${entry.gold}g ${profit >= 0 ? "+" : ""}${profit}${debt ? ` D${debt}` : ""}`;
+    const prefix = leaderboardEntryRunType(entry) === "quick" ? "T" : "F";
+    const stat = `${entry.result} ${prefix}${entry.floor}/${entry.totalFloors} ${entry.gold}g ${profit >= 0 ? "+" : ""}${profit}${debt ? ` D${debt}` : ""}`;
     text(`#${i + 1}`, rankX, ry, nameSize, i === 0 ? C.gold : C.muted);
     text(name, nameX, ry, nameSize, C.text);
     text(fitLabel(stat, Math.max(120, statsX - nameX - w * (roomy ? .12 : .34)), statSize), statsX, roomy ? ry + 24 : ry, statSize, entry.result === "Win" ? C.green : C.muted, "right");
     if (roomy) text(fitLabel(entry.mode || "Classic Turns", w - 82, 12), nameX, ry + 24, 12, C.muted);
   });
+}
+
+function drawLeaderboardTabs(x, y, w, h) {
+  const gap = 8;
+  const tabW = (w - gap) / 2;
+  drawLeaderboardTab(x, y, tabW, h, "Tower", "tower");
+  drawLeaderboardTab(x + tabW + gap, y, tabW, h, "Quick", "quick");
+}
+
+function drawLeaderboardTab(x, y, w, h, label, tab) {
+  const active = leaderboardTab === tab;
+  const theme = tab === "quick" ? "#42a5ff" : C.gold;
+  gradientRound(x, y, w, h, 10, active
+    ? [[0, hexToRgba(theme, .38)], [1, "rgba(8,6,12,.92)"]]
+    : [[0, "rgba(238,231,215,.06)"], [1, "rgba(8,6,12,.72)"]], true);
+  strokeRound(x, y, w, h, 10, active ? hexToRgba(theme, .9) : "rgba(238,231,215,.16)", active ? 2 : 1);
+  text(label, x + w / 2, y + h / 2 + (viewport.portrait ? 7 : 5), viewport.portrait ? 20 : 14, active ? theme : C.muted, "center");
+  buttons.push({ x, y, w, h, onClick: () => {
+    leaderboardTab = tab;
+    localStorage.setItem("dungeon-leaderboard-tab", leaderboardTab);
+  } });
 }
 
 function drawTable() {
