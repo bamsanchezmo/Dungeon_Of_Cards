@@ -4457,17 +4457,6 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
 function openMapNodeDetail(node) {
   if (!node) return;
   const ui = activeFloorUi();
-  if (node.reward) {
-    const rewardColor = node.reward.rarityColor || node.rarity?.color || ui.titleWarm;
-    mapInfoDetail = {
-      title: node.reward.name,
-      subtitle: mapRewardSubtitle(node.reward),
-      color: rewardColor,
-      body: node.reward.description,
-      relic: node.reward.type === "relic" ? node.reward : null
-    };
-    return;
-  }
   if (node.encounter) {
     const rewardColor = node.reward?.rarityColor || node.rarity?.color || ui.titleWarm;
     mapInfoDetail = {
@@ -4478,6 +4467,17 @@ function openMapNodeDetail(node) {
       color: node.kind === "boss" ? (node.bossColor || ui.titleWarm) : difficultyGlowColor(node.threat || 1),
       rewardColor,
       body: `${node.encounter.description} Higher threat tables hit harder, pay better rewards, and usually have nastier house rules.`
+    };
+    return;
+  }
+  if (node.reward) {
+    const rewardColor = node.reward.rarityColor || node.rarity?.color || ui.titleWarm;
+    mapInfoDetail = {
+      title: node.reward.name,
+      subtitle: mapRewardSubtitle(node.reward),
+      color: rewardColor,
+      body: node.reward.description,
+      relic: node.reward.type === "relic" ? node.reward : null
     };
     return;
   }
