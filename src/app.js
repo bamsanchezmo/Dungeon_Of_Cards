@@ -5185,8 +5185,13 @@ function drawRelicRewardPopup() {
 
 function drawSoloMapControls(x, y, w, h, node, portrait) {
   const canEnter = node.reachable && node.kind !== "elevator";
-  const label = canEnter ? "Enter Table" : node.cleared ? "Already Cleared" : "Inspecting";
-  addButton(x + 24, y + h - (portrait ? 86 : 68), w - 48, portrait ? 62 : 50, label, () => action(`enterMap:${node.id}`), true, canEnter);
+  const buttonH = portrait ? 62 : 50;
+  const buttonY = y + h - (portrait ? 86 : 68);
+  const gap = portrait ? 12 : 8;
+  const buttonW = Math.floor((w - 48 - gap * 2) / 3);
+  addButton(x + 24, buttonY, buttonW, buttonH, "Scout", () => openMapNodeDetail(node), true, true);
+  addRelicsPulseButton(x + 24 + buttonW + gap, buttonY, buttonW, buttonH);
+  addButton(x + 24 + (buttonW + gap) * 2, buttonY, buttonW, buttonH, canEnter ? "Enter" : node.cleared ? "Cleared" : "Inspect", () => action(`enterMap:${node.id}`), true, canEnter);
 }
 
 function drawPartyMapControls(x, y, w, h, node, portrait) {
@@ -5204,9 +5209,13 @@ function drawPartyMapControls(x, y, w, h, node, portrait) {
   const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
   const ready = !!game.mapReady?.[localPlayerId];
-  const buttonW = Math.floor((w - 58) / 2);
-  addButton(x + 24, y + h - (portrait ? 86 : 68), buttonW, portrait ? 62 : 50, myVote ? "Voted" : "Vote", () => action(`select:${node.id}`), true, canVote);
-  addButton(x + 34 + buttonW, y + h - (portrait ? 86 : 68), buttonW, portrait ? 62 : 50, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+  const buttonH = portrait ? 62 : 50;
+  const buttonY = y + h - (portrait ? 86 : 68);
+  const gap = portrait ? 12 : 8;
+  const buttonW = Math.floor((w - 48 - gap * 2) / 3);
+  addButton(x + 24, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${node.id}`), true, canVote);
+  addRelicsPulseButton(x + 24 + buttonW + gap, buttonY, buttonW, buttonH);
+  addButton(x + 24 + (buttonW + gap) * 2, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
 }
 
 function drawMapNode(node, mapX, mapY, mapW, mapH) {
