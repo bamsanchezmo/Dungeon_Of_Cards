@@ -284,6 +284,7 @@ const handdrawnAssetFiles = {
   glyphBang: "art/glyphs/glyph_bang.png",
   glyphQuestion: "art/glyphs/glyph_question.png",
   "tableBase:grunt": "art/table_bases/grunt_table_master.png",
+  quickRunCardBack: "art/cards/quick_run_card_back.png",
   "grunt:bookie": "art/dealers/grunts/grunt_bookie.png",
   "grunt:bouncer": "art/dealers/grunts/grunt_bouncer.png",
   "grunt:cardsharp": "art/dealers/grunts/grunt_cardsharp.png",
@@ -3395,6 +3396,7 @@ function fallbackMusicPathFor(path) {
 
 function desiredMusicPath() {
   if (!game || appScene === "splash" || appScene === "menu") return musicPath(musicTracks.menu);
+  if (isQuickRun()) return musicPath(musicTracks.menu);
   const floorIndex = clamp((Number(game.map?.sourceFloor) || ((Number(game.floor) || 0) + 1)) - 1, 0, musicTracks.floors.length - 1);
   const activeNode = getMapNode(game.activeEncounterId);
   const inBossTable = game.phase !== "map" && activeNode?.kind === "boss";
@@ -4530,7 +4532,9 @@ function drawDeveloperTableNavigatorControls() {
 function drawMapConnections(mapX, mapY, mapW, mapH) {
   ctx.save();
   ctx.lineCap = "round";
-  const selectedRouteId = game.mapVotes?.[localPlayerId] || game.selectedNodeId || "";
+  const selectedCandidateId = game.mapVotes?.[localPlayerId] || game.selectedNodeId || inspectedNodeId || "";
+  const selectedCandidate = getMapNode(selectedCandidateId);
+  const selectedRouteId = selectedCandidate?.reachable ? selectedCandidate.id : "";
   const ui = activeFloorUi();
   const vertical = isPortraitMap();
   for (const node of game.map.nodes) {
@@ -5711,9 +5715,9 @@ function drawMobileGameplayDock() {
 
   drawActionButtons(x + 24, y + 112);
 
-  const trayY = y + dockH - 76;
-  drawMobileRelicIconTray(x + 22, trayY, 238, 54);
-  drawLogPreview(x + 286, trayY + 25, w - 312, 42, 15);
+  const trayY = y + dockH - 96;
+  drawMobileRelicIconTray(x + 22, trayY, 238, 74);
+  drawLogPreview(x + 286, trayY + 8, w - 312, 66, 15);
 }
 
 function mobileGameplayDockHeight() {
@@ -6378,6 +6382,7 @@ function developerScenarios() {
     { label: "Death Audio Flow", run: devScenarioDeathAudio },
     { label: "HP + Money Animations", run: devScenarioFeedbackAnimations },
     { label: "Map Navigator", run: devScenarioMapNavigator, primary: true },
+    { label: "Quick Run Clear Tester", run: devScenarioQuickRunClear, primary: true },
     { label: "Dev: Prev Floor", run: devMapPreviousFloor, enabled: !!game?.developerTest },
     { label: "Dev: Next Floor", run: devMapNextFloor, enabled: !!game?.developerTest },
     { label: "Dev: Enter Selected", run: devMapEnterSelected, enabled: !!game?.developerTest },
@@ -6411,7 +6416,7 @@ function cycleDeveloperSplitLimit() {
   notify(`Test split cap set to ${developerSplitLimit}.`);
 }
 
-function beginDeveloperTest(title, mode = "classic", players = [{ id: hostId, name: savedPlayerName("You") }], code = "") {
+function beginDeveloperTest(title, mode = "classic", players = [{ id: hostId, name: savedPlayerName("You") }], code = "", options = {}) {
   stopDeathAudioClips();
   peer?.peer?.destroy?.();
   peer = null;
@@ -6422,7 +6427,7 @@ function beginDeveloperTest(title, mode = "classic", players = [{ id: hostId, na
   handCarousel = {};
   handCarouselAnim = {};
   handCarouselActiveIndex = {};
-  newGame(players, code, mode);
+  newGame(players, code, mode, options);
   game.developerTest = true;
   game.log = [`Developer test: ${title}.`];
   game.gold = 300;
@@ -6727,6 +6732,21 @@ function devMapClearEncounter() {
   game.developerTest = true;
   developerPanelOpen = false;
   notify(`Cleared ${node.label}`);
+}
+
+function devScenarioQuickRunClear() {
+  const seat = beginDeveloperTest("Quick Run clear tester", "classic", [{ id: hostId, name: savedPlayerName("You") }], "", { runType: "quick", quickDifficulty: "normal" });
+  game.phase = "betting";
+  game.floor = Math.max(0, Number(game.floor) || 0);
+  game.enemy = cloneEnemy(game.floor);
+  applyQuickDifficultyToEnemy();
+  game.activeEncounterId = "";
+  game.shop = [];
+  seat.ready = false;
+  seat.hands = [];
+  finishDeveloperSetup(seat, "betting");
+  game.log.push("Developer quick tester: use Clear Floor to simulate beating the current Quick Floor.");
+  notify("Quick Run tester ready — use Clear Floor");
 }
 
 function devMapClearFloor() {
@@ -7315,6 +7335,7 @@ function suitAssetKey(suit) {
 }
 
 function currentFloorCardBackKey() {
+  if (isQuickRun()) return "quickRunCardBack";
   const floor = clamp((Number(game?.floor) || 0) + 1, 1, FLOORS);
   return `floor${String(floor).padStart(2, "0")}CardBack`;
 }
