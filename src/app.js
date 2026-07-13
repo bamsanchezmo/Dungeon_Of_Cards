@@ -983,31 +983,19 @@ function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
 function createQuickRewardChoices() {
   const quickFloor = Math.max(1, (Number(game?.floor) || 0) + 1);
   const picker = createFloorRewardPicker();
-  const rewards = [];
-  const add = (reward) => {
-    if (!reward || rewards.some((r) => r.type === reward.type && r.name === reward.name)) return;
-    rewards.push(reward);
-  };
   const rarityForChoice = (boost = 0) => rarityForFloor(Math.min(FLOORS - 1, Math.floor((quickFloor - 1) / 2)), boost + Math.floor(quickFloor / 5));
-  add(createRewardRelic(rarityForChoice(0), picker()));
-  const types = shuffle(["gold", "heal", "maxHp", "damage", "relic"]);
-  for (const type of types) {
-    if (rewards.length >= 3) break;
-    const rarity = rarityForChoice(rewards.length);
-    if (type === "relic") add(createRewardRelic(rarity, picker()));
-    else add(createQuickPerkReward(type, quickFloor, rarity));
-  }
-  let guard = 0;
-  while (rewards.length < 3 && guard++ < 12) {
-    const rarity = rarityForChoice(guard);
-    add(createQuickPerkReward(["gold", "heal", "maxHp", "damage"][guard % 4], quickFloor, rarity));
-  }
-  return rewards.slice(0, 3);
+  const healthType = Math.random() < .48 ? "heal" : "maxHp";
+  return shuffle([
+    createRewardRelic(rarityForChoice(0), picker()),
+    createQuickPerkReward("damage", quickFloor, rarityForChoice(1)),
+    createQuickPerkReward(healthType, quickFloor, rarityForChoice(2))
+  ]);
 }
 
 function createQuickPerkReward(type, quickFloor, rarity) {
   const rarityMult = Number(rarity?.scale || rarity?.mult || 1) || 1;
-  const scale = 1 + Math.sqrt(Math.max(1, quickFloor)) * .12 + quickFloor * .025;
+  const variance = .9 + Math.random() * .24;
+  const scale = (1 + Math.sqrt(Math.max(1, quickFloor)) * .12 + quickFloor * .025) * variance;
   if (type === "gold") {
     const amount = Math.round((45 + quickFloor * 12) * scale * rarityMult / 5) * 5;
     return {
@@ -1288,7 +1276,7 @@ function rarityForFloor(floorIndex, boost = 0) {
 
 function createRewardRelic(rarity, baseRelic = null) {
   const base = baseRelic || relicPool[Math.floor(Math.random() * relicPool.length)];
-  const scaled = { ...base, baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color };
+  const scaled = { ...base, type: "relic", baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color };
   for (const [key, value] of Object.entries(scaled)) {
     if (typeof value === "number" && !["foresightUses"].includes(key)) {
       scaled[key] = value < 1 ? Number(Math.min(.95, value * rarity.scale).toFixed(2)) : Math.max(1, Math.round(value * rarity.scale));
