@@ -58,6 +58,17 @@ const TABLE_MOTIF_PLACEMENT = {
   alpha: .8
 };
 
+// Elevator door tuning knobs.
+// doorWidth: width of each half-door as a fraction of the full screen/doorway width.
+// openDistance: how far the doors slide apart as the animation opens.
+// staggerLeft/staggerRight: shop-stop asymmetry for the weird half-open gremlin-shop door look.
+const ELEVATOR_DOOR_TUNING = {
+  doorWidth: .55,
+  openDistance: .82,
+  staggerLeft: .72,
+  staggerRight: 1.16
+};
+
 const musicTracks = {
   menu: "menu_theme.mp3",
   floors: [
@@ -4603,10 +4614,10 @@ function drawDeveloperTableNavigatorControls() {
 
 function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
   const key = "elevatorDoorHalf";
-  const gap = w * open * .82;
-  const leftShift = stagger ? gap * .72 : gap;
-  const rightShift = stagger ? gap * 1.16 : gap;
-  const halfW = w * .55;
+  const gap = w * open * ELEVATOR_DOOR_TUNING.openDistance;
+  const leftShift = stagger ? gap * ELEVATOR_DOOR_TUNING.staggerLeft : gap;
+  const rightShift = stagger ? gap * ELEVATOR_DOOR_TUNING.staggerRight : gap;
+  const halfW = w * ELEVATOR_DOOR_TUNING.doorWidth;
   if (handAssetReady(key)) {
     drawRawAssetContain(key, x - leftShift, y, halfW, h, .98);
     drawMirroredAssetContain(key, x + w - halfW + rightShift, y + (stagger ? h * .035 : 0), halfW, h, .98);
