@@ -5727,7 +5727,7 @@ function drawMobileGameplayDock() {
 
   const trayY = y + dockH - 96;
   drawMobileRelicIconTray(x + 22, trayY, 238, 74);
-  drawLogPreview(x + 286, trayY + 8, w - 312, 66, 15);
+  drawLogPreview(x + 286, trayY + 22, w - 312, 74, 15);
 }
 
 function mobileGameplayDockHeight() {
@@ -5746,43 +5746,42 @@ function mobilePhaseSummary() {
 
 function drawMobileRelicIconTray(x, y, w, h) {
   const ui = activeFloorUi();
-  const hasRelics = (game.relics || []).length > 0;
-  const pulse = hasRelics ? .5 + .5 * Math.sin(performance.now() * .004) : 0;
-  shadow(0, 0, hasRelics ? 16 + pulse * 14 : 0, hexToRgba(C.gold, hasRelics ? .32 + pulse * .28 : 0), () => {
+  const items = loadoutItems();
+  const hasItems = items.length > 0;
+  const pulse = hasItems ? .5 + .5 * Math.sin(performance.now() * .004) : 0;
+  shadow(0, 0, hasItems ? 16 + pulse * 14 : 0, hexToRgba(C.gold, hasItems ? .32 + pulse * .28 : 0), () => {
     fill("rgba(5,4,8,.56)", x, y, w, h, 14);
   });
-  strokeRound(x, y, w, h, 14, hasRelics ? hexToRgba(C.gold, .62 + pulse * .28) : hexToRgba(ui.border, .42), hasRelics ? 2.2 : 1.5);
-  const relics = game.relics || [];
-  if (!relics.length) {
-    text("Relics", x + w / 2, y + 33, 16, C.muted, "center");
+  strokeRound(x, y, w, h, 14, hasItems ? hexToRgba(C.gold, .62 + pulse * .28) : hexToRgba(ui.border, .42), hasItems ? 2.2 : 1.5);
+  if (!items.length) {
+    text("Relics + Upgrades", x + w / 2, y + h / 2 + 5, 15, C.muted, "center");
   } else {
-    const iconSize = 38;
+    const iconSize = 34;
     const gap = 8;
-    const shown = relics.slice(-5);
+    const shown = items.slice(-5);
     const startX = x + 14;
-    shown.forEach((relic, i) => {
-      drawRelicIcon(relic, startX + i * (iconSize + gap) + iconSize / 2, y + h / 2, iconSize, relic.rarityColor || C.gold);
-    });
-    if (relics.length > shown.length) text(`+${relics.length - shown.length}`, x + w - 22, y + 34, 15, ui.title, "center");
-    text("Tap relics", x + w / 2, y + h + 16, 12, hexToRgba(C.gold, .72 + pulse * .22), "center");
+    shown.forEach((item, i) => drawLoadoutIcon(item, startX + i * (iconSize + gap) + iconSize / 2, y + h / 2, iconSize));
+    if (items.length > shown.length) text(`+${items.length - shown.length}`, x + w - 22, y + h / 2 + 5, 15, ui.title, "center");
+    text("Tap loadout", x + w / 2, y + h + 16, 12, hexToRgba(C.gold, .72 + pulse * .22), "center");
   }
   buttons.push({ x, y, w, h, onClick: () => { relicsOpen = true; relicPage = 0; } });
 }
 
 function drawRelicPanel(x, y, w) {
   const portrait = viewport.portrait;
-  text("Relics", x, y, portrait ? 24 : 18, activeFloorUi().title);
-  if (!game.relics.length) {
+  const items = loadoutItems();
+  text("Relics + Upgrades", x, y, portrait ? 24 : 18, activeFloorUi().title);
+  if (!items.length) {
     text("None yet", x, y + (portrait ? 38 : 28), portrait ? 19 : 14, C.muted);
     return;
   }
-  const newest = game.relics.find((r) => r.name === lastRelicName);
+  const newest = items.find((item) => item.kind === "relic" && item.relic.name === lastRelicName);
   const shown = newest
-    ? [newest, ...game.relics.filter((r) => r.name !== newest.name)]
-    : game.relics;
-  shown.slice(0, 2).forEach((r, i) => drawRelicRow(r, x, y + (portrait ? 40 : 28) + i * (portrait ? 84 : 62), w, r.name === lastRelicName));
-  if (game.relics.length > 2) {
-    text(`+${game.relics.length - 2} more`, x, y + (portrait ? 220 : 154), portrait ? 17 : 13, C.muted);
+    ? [newest, ...items.filter((item) => item !== newest)]
+    : items;
+  shown.slice(0, 2).forEach((item, i) => drawLoadoutRow(item, x, y + (portrait ? 40 : 28) + i * (portrait ? 84 : 62), w, item === newest));
+  if (items.length > 2) {
+    text(`+${items.length - 2} more`, x, y + (portrait ? 220 : 154), portrait ? 17 : 13, C.muted);
   }
   buttons.push({ x, y: y - 20, w, h: portrait ? 250 : 180, onClick: () => { relicsOpen = true; relicPage = 0; } });
 }
@@ -5802,8 +5801,9 @@ function drawTouchLandscapePanel() {
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
   text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
   drawActionButtons(x + 20, 310);
-  text("Relics", x + 24, 560, 24, ui.title);
-  const relicSummary = game.relics.length ? `${game.relics.length} collected — tap to view` : "None yet";
+  text("Relics + Upgrades", x + 24, 560, 24, ui.title);
+  const itemCount = loadoutItems().length;
+  const relicSummary = itemCount ? `${itemCount} collected — tap to view` : "None yet";
   text(relicSummary, x + 24, 598, 20, C.muted);
   buttons.push({ x: x + 18, y: 530, w: w - 36, h: 94, onClick: () => { relicsOpen = true; relicPage = 0; } });
   const latest = game.log[0] || "";
@@ -5818,6 +5818,67 @@ function drawLogPreview(x, y, w, h, size) {
   textFit(latest, x, y, w, size, C.muted);
   text("Click for full log", x, y + Math.max(18, size + 8), Math.max(11, size - 4), activeFloorUi().title);
   buttons.push({ x: x - 8, y: y - 22, w: w + 16, h, onClick: () => { logOpen = true; } });
+}
+
+function baseRunMaxHp() {
+  return 100 + Math.max(0, (game?.seats?.length || 1) - 1) * 40;
+}
+
+function loadoutItems() {
+  const relics = (game?.relics || []).map((relic) => ({
+    kind: "relic",
+    relic,
+    name: relic.name,
+    description: relic.description,
+    color: relic.rarityColor || C.gold
+  }));
+  const upgrades = [];
+  const maxHpBonus = Math.max(0, (Number(game?.maxHp) || baseRunMaxHp()) - baseRunMaxHp());
+  if (maxHpBonus > 0) {
+    upgrades.push({
+      kind: "upgrade",
+      type: "maxHp",
+      name: "Max Life Upgrade",
+      description: `Max HP +${maxHpBonus}. Current HP ${game.hp}/${game.maxHp}.`,
+      icon: "\u2764\uFE0F",
+      color: C.green
+    });
+  }
+  if (quickDamageMultiplier() > 1) {
+    upgrades.push({
+      kind: "upgrade",
+      type: "damage",
+      name: "Damage Upgrade",
+      description: `Winning hands deal ${quickDamageLabel()} damage.`,
+      icon: "\u2694\uFE0F",
+      color: C.red
+    });
+  }
+  return [...relics, ...upgrades];
+}
+
+function drawLoadoutIcon(item, cx, cy, size) {
+  if (item?.kind === "relic") return drawRelicIcon(item.relic, cx, cy, size, item.color || C.gold);
+  const color = item?.color || C.gold;
+  const r = size / 2;
+  shadow(0, 0, 12, hexToRgba(color, .35), () => {
+    fill("rgba(8,6,12,.86)", cx - r, cy - r, size, size, Math.max(8, size * .2));
+    strokeRound(cx - r, cy - r, size, size, Math.max(8, size * .2), color, 2);
+  });
+  text(item?.icon || "?", cx, cy + size * .12, size * .42, color, "center");
+  return true;
+}
+
+function drawLoadoutRow(item, x, y, w, highlight = false) {
+  if (item?.kind === "relic") return drawRelicRow(item.relic, x, y, w, highlight);
+  const portrait = viewport.portrait;
+  const rowH = portrait ? 74 : 54;
+  const ui = activeFloorUi();
+  gradientRound(x, y - 14, w, rowH, 8, highlight ? [[0, ui.panelTop], [1, ui.panelBottom]] : [[0, "#1d1624"], [1, "#100d15"]]);
+  strokeRound(x, y - 14, w, rowH, 8, highlight ? ui.title : hexToRgba(item.color || C.gold, .28), 1);
+  drawLoadoutIcon(item, x + (portrait ? 29 : 23), y + (portrait ? 22 : 13), portrait ? 44 : 34);
+  textFit(item.name, x + (portrait ? 62 : 50), y + (portrait ? 8 : 4), w - (portrait ? 74 : 58), portrait ? 18 : 14, item.color || C.gold);
+  wrapTextSized(item.description, x + (portrait ? 62 : 50), y + (portrait ? 34 : 24), w - (portrait ? 74 : 58), portrait ? 18 : 14, portrait ? 15 : 12, C.muted, 2);
 }
 
 function drawRelicRow(relic, x, y, w, highlight = false) {
@@ -8166,18 +8227,19 @@ function drawRelicsOverlay() {
   buttons = [];
   const lw = layoutW(), lh = layoutH(), portrait = viewport.portrait;
   const x = 30, y = 40, w = lw - 60, h = lh - 80;
+  const items = loadoutItems();
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   gradientRound(x, y, w, h, 18, [[0, "#302640"], [1, "#111018"]], true);
   strokeRound(x, y, w, h, 18, C.goldDim, 2);
-  text("RELIC COLLECTION", lw / 2, y + 58, portrait ? 34 : 31, C.gold, "center", "serif");
+  text("RELICS & UPGRADES", lw / 2, y + 58, portrait ? 34 : 31, C.gold, "center", "serif");
   const perPage = portrait ? 6 : 8;
-  const pages = Math.max(1, Math.ceil(game.relics.length / perPage));
+  const pages = Math.max(1, Math.ceil(items.length / perPage));
   relicPage = clamp(relicPage, 0, pages - 1);
-  const shown = game.relics.slice(relicPage * perPage, relicPage * perPage + perPage);
+  const shown = items.slice(relicPage * perPage, relicPage * perPage + perPage);
   const cols = portrait ? 1 : 2;
   const colW = (w - 80 - (cols - 1) * 22) / cols;
-  shown.forEach((r, i) => drawRelicRow(r, x + 40 + (i % cols) * (colW + 22), y + 112 + Math.floor(i / cols) * (portrait ? 110 : 105), colW));
-  if (!shown.length) text("No relics yet.", lw / 2, y + 180, 22, C.muted, "center");
+  shown.forEach((item, i) => drawLoadoutRow(item, x + 40 + (i % cols) * (colW + 22), y + 112 + Math.floor(i / cols) * (portrait ? 110 : 105), colW));
+  if (!shown.length) text("No relics or upgrades yet.", lw / 2, y + 180, 22, C.muted, "center");
   addButton(x + 40, y + h - 68, 120, 44, "Previous", () => relicPage--, false, relicPage > 0);
   text(`${relicPage + 1}/${pages}`, lw / 2, y + h - 40, 17, C.muted, "center");
   addButton(x + w - 160, y + h - 68, 120, 44, relicPage + 1 < pages ? "Next" : "Close", () => relicPage + 1 < pages ? relicPage++ : relicsOpen = false);
