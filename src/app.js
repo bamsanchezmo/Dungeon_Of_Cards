@@ -271,6 +271,8 @@ const handdrawnAssetFiles = {
   heartbeat: "art/effects/heartbeat.png",
   doodle: "art/ui/doodle.png",
   texture: "art/ui/texture.png",
+  elevatorDoorHalf: "art/elevator/door_half.png",
+  elevatorGremlinShop: "art/elevator/gremlin_shop.png",
   suitS: "art/suits/suit_S.png",
   suitH: "art/suits/suit_H.png",
   suitD: "art/suits/suit_D.png",
@@ -760,7 +762,7 @@ function isQuickRun() {
 }
 
 function canUseRelicChoiceScreen() {
-  return isQuickRun() || !!game?.developerTest;
+  return isQuickRun() || game?.shopContext?.kind === "towerElevator" || !!game?.developerTest;
 }
 
 function runFloorCount() {
@@ -989,6 +991,24 @@ function createQuickRewardChoices() {
     createRewardRelic(rarityForChoice(0), picker()),
     createQuickPerkReward("damage", quickFloor, rarityForChoice(1)),
     createQuickPerkReward(healthType, quickFloor, rarityForChoice(2))
+  ]);
+}
+
+function createTowerElevatorShopChoices(fromFloor, toFloor) {
+  const floorIndex = clamp((Number(toFloor) || fromFloor || 1) - 1, 0, FLOORS - 1);
+  const picker = createFloorRewardPicker();
+  const rarity = (boost = 0) => rarityForFloor(floorIndex, boost + 1);
+  const costBase = 55 + floorIndex * 28;
+  const withCost = (reward, mult = 1) => ({
+    ...reward,
+    shopCost: Math.max(25, Math.round(costBase * mult / 5) * 5),
+    shopOnly: true
+  });
+  const healthType = Math.random() < .5 ? "heal" : "maxHp";
+  return shuffle([
+    withCost(createRewardRelic(rarity(0), picker()), 1.45),
+    withCost(createQuickPerkReward("damage", Math.max(1, Number(toFloor) || 1), rarity(1)), 1.25),
+    withCost(createQuickPerkReward(healthType, Math.max(1, Number(toFloor) || 1), rarity(2)), healthType === "heal" ? .75 : 1.05)
   ]);
 }
 
@@ -1563,7 +1583,7 @@ function applyAction(playerId, name) {
   if (game.phase === "roundOver" || game.phase === "shop" || game.phase === "victory" || game.phase === "defeat") {
     if (name === "continue") continueAfterRound();
     if (name.startsWith("buy:")) game.code ? voteRelic(playerId, Number(name.slice(4))) : buyRelic(Number(name.slice(4)));
-    if (name === "skipShop") game.code ? voteRelic(playerId, -1) : nextBattle();
+    if (name === "skipShop") game.code ? voteRelic(playerId, -1) : skipShop();
     return;
   }
 
@@ -1820,7 +1840,7 @@ function completeMapEncounter() {
     const fromFloor = game.floor + 1;
     const toFloor = fromFloor + 1;
     game.phase = "floorTransition";
-    game.floorTransition = { from: fromFloor, to: toFloor, startedAt: Date.now(), duration: 2800 };
+    game.floorTransition = { from: fromFloor, to: toFloor, startedAt: Date.now(), duration: 3200, stopAtShop: fromFloor % 2 === 0 };
     sfx("floorClear");
     log(`Floor ${fromFloor} cleared. Elevator climbing to Floor ${toFloor}.`);
   } else {
@@ -1843,6 +1863,22 @@ function completeMapEncounter() {
 function finishFloorTransition() {
   if (!game || game.phase !== "floorTransition") return;
   const targetFloor = clamp((game.floorTransition?.to || game.floor + 2) - 1, 0, towerFloorCount() - 1);
+  if (game.floorTransition?.stopAtShop && !game.floorTransition?.shopVisited) {
+    const fromFloor = game.floorTransition.from || game.floor + 1;
+    const toFloor = game.floorTransition.to || fromFloor + 1;
+    game.phase = "shop";
+    game.shopContext = { kind: "towerElevator", fromFloor, toFloor };
+    game.shop = createTowerElevatorShopChoices(fromFloor, toFloor);
+    game.relicVotes = {};
+    game.floorTransition.shopVisited = true;
+    log(`The elevator stalls at Floor ${fromFloor}.5. A gremlin shop opens between floors.`);
+    return;
+  }
+  enterTowerFloor(targetFloor);
+}
+
+function enterTowerFloor(targetFloor) {
+  if (!game) return;
   game.floor = targetFloor;
   setGameMapForFloor(game.floor);
   game.currentNodeId = "start";
@@ -2248,7 +2284,7 @@ function lossResultPayload(seat, h, lostAmount, msg, grossLoss = lostAmount) {
 function bossDamageForWin(hand, amount) {
   let mult = Number(bossRuleValue("bossDamageMult", 1)) || 1;
   mult *= Number(bossRuleValue("winDamageMult", 1)) || 1;
-  if (isQuickRun()) mult *= quickDamageMultiplier();
+  mult *= quickDamageMultiplier();
   if (isBlackjack(hand)) mult *= Number(bossRuleValue("blackjackDamageMult", 1)) || 1;
   if (handTotal(hand) === 21) mult *= Number(bossRuleValue("exact21DamageMult", 1)) || 1;
   return Math.max(1, Math.round(amount * mult));
@@ -2292,6 +2328,15 @@ function buyRelic(index) {
   const relic = game.shop[index];
   if (!relic) return;
   if (!canUseRelicChoiceScreen()) return;
+  if (game.shopContext?.kind === "towerElevator") {
+    const cost = Number(relic.shopCost) || 0;
+    const buyer = mySeat() || game.seats[0];
+    if (!spendGold(buyer, cost)) return flashMsg("Not enough gold");
+    sfx("coinDown");
+    claimMapReward(relic);
+    resumeTowerAfterElevatorShop();
+    return;
+  }
   if (isQuickRun()) {
     sfx("coinDown");
     claimQuickReward(relic);
@@ -2308,6 +2353,23 @@ function buyRelic(index) {
   sfx("coinDown");
   gainRelic(relic);
   nextBattle();
+}
+
+function skipShop() {
+  if (game?.shopContext?.kind === "towerElevator") {
+    resumeTowerAfterElevatorShop();
+    return;
+  }
+  nextBattle();
+}
+
+function resumeTowerAfterElevatorShop() {
+  if (!game?.shopContext || !game.floorTransition) return;
+  const targetFloor = clamp((Number(game.shopContext.toFloor) || game.floor + 2) - 1, 0, towerFloorCount() - 1);
+  game.shop = [];
+  game.shopContext = null;
+  game.relicVotes = {};
+  enterTowerFloor(targetFloor);
 }
 
 function nextBattle() {
@@ -3340,7 +3402,7 @@ function voteRelic(playerId, index) {
     counts.set(vote, (counts.get(vote) || 0) + 1);
   });
   const winner = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] === -1 ? 1 : b[0] === -1 ? -1 : a[0] - b[0]))[0][0];
-  if (winner === -1) nextBattle(); else buyRelic(winner);
+  if (winner === -1) skipShop(); else buyRelic(winner);
 }
 
 function startAudio() {
@@ -4383,6 +4445,21 @@ function drawFloorTransition() {
   const shaftH = Math.max(220, shaftBottom - shaftTop);
   strokeRound(shaftX - 78, shaftTop - 24, 156, shaftH + 48, 28, "rgba(238,231,215,.18)", 2);
   fill("rgba(0,0,0,.28)", shaftX - 62, shaftTop - 10, 124, shaftH + 20, 22);
+  const doorX = shaftX - 86;
+  const doorY = shaftTop - 34;
+  const doorW = 172;
+  const doorH = shaftH + 68;
+  ctx.save();
+  pathRound(doorX, doorY, doorW, doorH, 30);
+  ctx.clip();
+  const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
+  const revealKey = game.floorTransition?.stopAtShop ? "elevatorGremlinShop" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
+  if (revealKey) drawRawAssetCover(revealKey, doorX, doorY, doorW, doorH, game.floorTransition?.stopAtShop ? .82 : .9);
+  fill("rgba(0,0,0,.25)", doorX, doorY, doorW, doorH, 0);
+  const openBase = clamp((progress - .25) / .68, 0, 1);
+  const open = game.floorTransition?.stopAtShop ? Math.min(.46, openBase * .58) : openBase;
+  drawElevatorDoors(doorX, doorY, doorW, doorH, open, !!game.floorTransition?.stopAtShop);
+  ctx.restore();
   const floorY = (floor) => shaftTop + shaftH - ((floor - 1) / Math.max(1, totalFloors - 1)) * shaftH;
   const fromY = floorY(from);
   const toY = floorY(to);
@@ -4515,6 +4592,22 @@ function drawDeveloperTableNavigatorControls() {
     addButton(x + 14 + (buttonW + gap) * 3, rowY, buttonW, 38, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
     addButton(x + 14 + (buttonW + gap) * 4, rowY, buttonW, 38, "Clear Floor", devMapClearFloor, true);
   }
+}
+
+function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
+  const key = "elevatorDoorHalf";
+  const gap = w * (.08 + open * .72);
+  const leftShift = stagger ? gap * .72 : gap;
+  const rightShift = stagger ? gap * 1.16 : gap;
+  const halfW = w * .62;
+  if (handAssetReady(key)) {
+    drawRawAssetContain(key, x - leftShift, y, halfW, h, .98);
+    drawMirroredAssetContain(key, x + w - halfW + rightShift, y + (stagger ? h * .035 : 0), halfW, h, .98);
+  } else {
+    gradientRound(x - leftShift, y, halfW, h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
+    gradientRound(x + w - halfW + rightShift, y, halfW, h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
+  }
+  shadow(0, 0, 24, hexToRgba(C.gold, .35 + open * .25), () => strokeRound(x + w / 2 - gap / 2, y + 18, gap, h - 36, 12, hexToRgba(C.gold, .45), 2));
 }
 
 function drawMapConnections(mapX, mapY, mapW, mapH) {
@@ -6015,23 +6108,30 @@ function drawShop() {
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
+  const towerShop = game.shopContext?.kind === "towerElevator";
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
+  if (towerShop && handAssetReady("elevatorGremlinShop")) {
+    const shopW = Math.min(lw * (portrait ? .72 : .38), portrait ? 520 : 560);
+    const shopH = portrait ? 360 : 300;
+    drawRawAssetContain("elevatorGremlinShop", lw / 2 - shopW / 2, portrait ? 118 : 82, shopW, shopH, .82);
+  }
   gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
   strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
-  text(isQuickRun() ? "QUICK FLOOR CLEARED" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
-  text(isQuickRun() ? `Choose one reward before Quick Floor ${game.floor + 2}.` : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
+  text(towerShop ? `ELEVATOR SHOP ${game.shopContext.fromFloor}.5` : isQuickRun() ? "QUICK FLOOR CLEARED" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
+  text(towerShop ? "Buy now, or save gold for the tables above." : isQuickRun() ? `Choose one reward before Quick Floor ${game.floor + 2}.` : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
   if (portrait) {
-    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, 205 + i * 340));
-    if (!isQuickRun()) addButton(lw / 2 - 170, 1225, 340, 72, "Skip Shop", () => action("skipShop"));
+    const startY = towerShop ? 400 : 205;
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, startY + i * 340));
+    if (!isQuickRun()) addButton(lw / 2 - 170, Math.min(lh - 92, startY + 1018), 340, 72, towerShop ? "Keep Climbing" : "Skip Shop", () => action("skipShop"));
   } else {
     const cardsX = lw / 2 - 455;
-    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, cardsX + i * 315, 205));
-    if (!isQuickRun()) addButton(lw / 2 - 112, 595, 224, 54, "Skip Shop", () => action("skipShop"));
+    game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, cardsX + i * 315, towerShop ? 250 : 205));
+    if (!isQuickRun()) addButton(lw / 2 - 112, 640, 224, 54, towerShop ? "Keep Climbing" : "Skip Shop", () => action("skipShop"));
   }
 }
 
 function drawShopRelicCard(relic, index, x, y) {
-  const cost = 45 + game.floor * 15;
+  const cost = Number(relic.shopCost) || (45 + game.floor * 15);
   const canBuy = isQuickRun() || (game.code && isFreeForAll()) ? true : seatBankroll(mySeat() || game.seats[0]) >= cost;
   const portrait = viewport.portrait;
   const meta = rewardTypeMeta(relic);
@@ -7321,6 +7421,25 @@ function drawRawAssetContain(key, x, y, w, h, alpha = 1) {
   const dw = size.w * scale;
   const dh = size.h * scale;
   return drawRawAsset(key, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, alpha);
+}
+
+function drawMirroredAssetContain(key, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const img = chromaKeyedHandAsset(key) || handdrawnImages[key];
+  const size = handAssetSize(key);
+  const scale = Math.min(w / Math.max(1, size.w), h / Math.max(1, size.h));
+  const dw = size.w * scale;
+  const dh = size.h * scale;
+  const dx = x + (w - dw) / 2;
+  const dy = y + (h - dh) / 2;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.translate(dx + dw, dy);
+  ctx.scale(-1, 1);
+  ctx.drawImage(img, 0, 0, dw, dh);
+  ctx.restore();
+  return true;
 }
 
 function drawRawAssetCover(key, x, y, w, h, alpha = 1) {
