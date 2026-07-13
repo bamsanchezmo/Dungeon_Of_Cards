@@ -4596,21 +4596,158 @@ function encounterRulesForDetail(enemy) {
   return rules.slice(0, 8);
 }
 
+function threatLabel(threat = 1) {
+  const labels = ["Low", "Guarded", "Risky", "Dangerous", "Deadly"];
+  return labels[clamp(Math.round(threat) - 1, 0, labels.length - 1)] || "Unknown";
+}
+
+function mapNodeRouteStatus(node) {
+  if (node.reachable) return "Reachable now";
+  if (node.cleared) return "Already cleared";
+  if (node.current) return "Current position";
+  return "Future path preview";
+}
+
+function rewardDecisionSummary(reward) {
+  if (!reward) return "No reward listed for this stop.";
+  const rarity = reward.rarityName ? `${reward.rarityName} ` : "";
+  if (reward.type === "relic") return `${rarity}relic: ${reward.name}. ${reward.description}`;
+  if (reward.type === "gold") return `${rarity}cash: +${reward.amount || 0} gold. ${reward.description}`;
+  if (reward.type === "heal") return `${rarity}heal: restore ${reward.amount || 0} HP. ${reward.description}`;
+  if (reward.type === "maxHp") return `${rarity}vitality: max HP +${reward.amount || 0}. ${reward.description}`;
+  return `${reward.name}: ${reward.description || "Reward after clearing the table."}`;
+}
+
+function encounterDecisionLines(node, enemy) {
+  const lines = [];
+  const hp = Math.ceil(enemy.maxHp || enemy.hp || 0);
+  lines.push(`${mapNodeRouteStatus(node)}. ${node.reachable ? "You can choose this table now." : "Selecting it only previews the route."}`);
+  lines.push(`Threat ${node.threat || 1}/5 (${threatLabel(node.threat || 1)}). Enemy life: ${hp} HP.`);
+  if (enemy.isBoss) lines.push("Boss fight: longer HP bar, phase changes, and stronger special rules.");
+  if (enemy.lossHpMult && enemy.lossHpMult !== 1) lines.push(`Risk: losses hit ${Math.round(enemy.lossHpMult * 100)}% as hard.`);
+  if (enemy.hitFee) lines.push(`Risk: every hit costs ${enemy.hitFee} gold.`);
+  if (enemy.noSurrender || enemy.noDouble || enemy.noInsurance) {
+    const locked = [enemy.noSurrender && "surrender", enemy.noDouble && "double", enemy.noInsurance && "insurance"].filter(Boolean).join(", ");
+    lines.push(`Locked option${locked.includes(",") ? "s" : ""}: ${locked}.`);
+  }
+  if (enemy.luck) lines.push(`Dealer pressure: +${enemy.luck} luck means the table tends to play cleaner.`);
+  lines.push(`Reward: ${rewardDecisionSummary(node.reward)}`);
+  return lines.slice(0, 7);
+}
+
 function drawMapEncounterPortrait(node, cx, y, size) {
   const enemy = node?.encounter;
   if (!enemy) return false;
   const key = node.kind === "boss" ? mapNodeDrawableAsset(node) : gruntAssetKeyForEnemy(enemy);
   const glow = node.kind === "boss" ? (node.bossColor || activeFloorUi().titleWarm) : difficultyGlowColor(node.threat || 1);
-  shadow(0, 0, 24, hexToRgba(glow, .45), () => {
-    fill("rgba(5,5,8,.68)", cx - size / 2, y, size, size, 18);
-    strokeRound(cx - size / 2, y, size, size, 18, glow, 2);
+  shadow(0, 0, 42, hexToRgba(glow, .72), () => {
+    fill(hexToRgba(glow, .13), cx - size / 2 - 10, y - 10, size + 20, size + 20, 24);
+    strokeRound(cx - size / 2 - 10, y - 10, size + 20, size + 20, 24, hexToRgba(glow, .82), 4);
+  });
+  shadow(0, 0, 26, hexToRgba(glow, .62), () => {
+    fill("rgba(5,5,8,.76)", cx - size / 2, y, size, size, 18);
+    strokeRound(cx - size / 2, y, size, size, 18, glow, 3);
   });
   if (key && drawRawAssetContain(key, cx - size / 2 + 8, y + 8, size - 16, size - 16, .98)) return true;
   text(node.kind === "boss" ? "BOSS" : "GRUNT", cx, y + size * .56, size * .16, glow, "center", "serif");
   return false;
 }
 
+function drawDecisionMetricCard(x, y, w, h, label, value, color, body = "") {
+  fill("rgba(0,0,0,.28)", x, y, w, h, 16);
+  strokeRound(x, y, w, h, 16, hexToRgba(color, .52), 1.5);
+  text(label, x + 14, y + 25, Math.min(16, h * .24), C.muted);
+  textFit(value, x + 14, y + 52, w - 28, Math.min(21, h * .32), color);
+  if (body) textFit(body, x + 14, y + h - 16, w - 28, Math.min(14, h * .22), C.text);
+}
+
+function drawMapEncounterScoutOverlay(detail) {
+  const node = detail.node;
+  const enemy = node?.encounter;
+  if (!node || !enemy) return;
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const compact = portrait && lh < 760;
+  const ui = activeFloorUi();
+  const color = detail.color || ui.titleWarm;
+  const threatColor = difficultyGlowColor(node.threat || 1);
+  const rewardColor = node.reward?.rarityColor || detail.rewardColor || color;
+  const w = portrait ? Math.min(lw - 28, 660) : Math.min(lw - 72, 860);
+  const h = portrait ? Math.min(lh - 20, 820) : Math.min(lh - 44, 620);
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  const pad = portrait ? 18 : 28;
+  const portraitSize = portrait ? Math.min(compact ? 118 : 170, w * .36) : 160;
+  const portraitY = y + (portrait ? 72 : 58);
+  buttons = [];
+
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  shadow(0, 30, 82, "rgba(0,0,0,.64)", () => {
+    gradientRound(x, y, w, h, 24, [[0, hexToRgba(color, .30)], [.42, ui.panelMid], [1, ui.panelBottom]], true);
+  });
+  strokeRound(x, y, w, h, 24, color, 3);
+  text(node.kind === "boss" ? "FLOOR BOSS SCOUTING" : "TABLE SCOUTING REPORT", x + w / 2, y + 38, portrait ? 22 : 18, C.muted, "center", "serif");
+
+  drawMapEncounterPortrait(node, x + w / 2, portraitY, portraitSize);
+  const pillW = Math.min(w - pad * 2, 300);
+  const pillH = portrait ? 34 : 30;
+  const pillX = x + w / 2 - pillW / 2;
+  const pillY = portraitY + portraitSize + (portrait ? 12 : 10);
+  fill("rgba(5,5,8,.86)", pillX, pillY, pillW, pillH, 16);
+  strokeRound(pillX, pillY, pillW, pillH, 16, threatColor, 2.5);
+  text(`Threat ${node.threat || 1}/5 - ${threatLabel(node.threat || 1)}`, x + w / 2, pillY + (portrait ? 23 : 20), portrait ? 17 : 14, threatColor, "center");
+
+  const nameY = pillY + (portrait ? 62 : 54);
+  textFit(enemy.name, x + pad, nameY, w - pad * 2, portrait ? 30 : 26, color, "center", "serif");
+  textFit(`${node.label} - ${mapNodeRouteStatus(node)}`, x + pad, nameY + (portrait ? 34 : 30), w - pad * 2, portrait ? 17 : 15, C.muted, "center");
+
+  const cardGap = portrait ? 10 : 14;
+  const cardY = nameY + (portrait ? 58 : 54);
+  const cardH = portrait ? 76 : 74;
+  const hp = Math.ceil(enemy.hp || enemy.maxHp || 0);
+  const maxHp = Math.ceil(enemy.maxHp || enemy.hp || 0);
+  if (portrait) {
+    const cardW = (w - pad * 2 - cardGap) / 2;
+    drawDecisionMetricCard(x + pad, cardY, cardW, cardH, "Life", `${hp}/${maxHp} HP`, C.text, enemy.isBoss ? "Boss health" : "Table health");
+    drawDecisionMetricCard(x + pad + cardW + cardGap, cardY, cardW, cardH, "Status", mapNodeRouteStatus(node), node.reachable ? C.green : C.muted, node.reachable ? "Can enter" : "Preview only");
+  } else {
+    const cardW = (w - pad * 2 - cardGap * 2) / 3;
+    drawDecisionMetricCard(x + pad, cardY, cardW, cardH, "Life", `${hp}/${maxHp} HP`, C.text, enemy.isBoss ? "Boss health" : "Table health");
+    drawDecisionMetricCard(x + pad + cardW + cardGap, cardY, cardW, cardH, "Difficulty", threatLabel(node.threat || 1), threatColor, `Threat ${node.threat || 1}/5`);
+    drawDecisionMetricCard(x + pad + (cardW + cardGap) * 2, cardY, cardW, cardH, "Status", mapNodeRouteStatus(node), node.reachable ? C.green : C.muted, node.reachable ? "Can enter" : "Preview only");
+  }
+
+  const closeH = portrait ? 58 : 48;
+  const closeY = y + h - pad - closeH;
+  const infoY = cardY + cardH + (portrait ? 18 : 16);
+  const infoH = Math.max(120, closeY - infoY - 14);
+  fill("rgba(0,0,0,.28)", x + pad, infoY, w - pad * 2, infoH, 18);
+  strokeRound(x + pad, infoY, w - pad * 2, infoH, 18, hexToRgba(color, .32), 1.5);
+  text("Decision Info", x + pad + 18, infoY + 30, portrait ? 20 : 16, ui.title);
+  if (node.reward) drawMapRewardIcon(node.reward, x + w - pad - 40, infoY + 40, portrait ? 48 : 40, rewardColor);
+
+  const descriptionW = w - pad * 2 - (node.reward ? 96 : 36);
+  wrapTextSized(enemy.description || "Standard table.", x + pad + 18, infoY + (portrait ? 58 : 52), descriptionW, portrait ? 18 : 14, portrait ? 15 : 12, C.text, 2);
+  const lines = [
+    ...encounterDecisionLines(node, enemy),
+    ...encounterRulesForDetail(enemy).map((rule) => `Rule: ${rule}`)
+  ];
+  const lineStep = portrait ? (compact ? 23 : 27) : 23;
+  const listY = infoY + (portrait ? (compact ? 106 : 120) : 98);
+  const maxLines = clamp(Math.floor((closeY - 20 - listY) / lineStep), 0, portrait ? 9 : 11);
+  lines.slice(0, maxLines).forEach((line, i) => {
+    const isReward = line.startsWith("Reward:");
+    const isRisk = line.startsWith("Risk:") || line.startsWith("Locked") || line.startsWith("Rule:");
+    const lineColor = isReward ? rewardColor : isRisk ? C.muted : C.text;
+    textFit(`- ${line}`, x + pad + 22, listY + i * lineStep, w - pad * 2 - 44, portrait ? (compact ? 14 : 16) : 13, lineColor);
+  });
+
+  addButton(x + pad, closeY, w - pad * 2, closeH, "Close", () => { mapInfoDetail = null; }, true);
+}
+
 function drawMapEncounterDetailOverlay(detail) {
+  return drawMapEncounterScoutOverlay(detail);
   const node = detail.node;
   const enemy = node?.encounter;
   if (!node || !enemy) return;
