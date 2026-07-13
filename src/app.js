@@ -3680,8 +3680,8 @@ function drawMenu() {
   text("of CARDS", cx, portrait ? 208 : 224, portrait ? 54 : 64, C.parchment, "center", "serif");
   drawMainMenuContent(table, cx, portrait);
   if (portrait) {
-    const boardY = table.y + table.h - 300;
-    const boardH = Math.max(220, Math.min(275, table.y + table.h - boardY - 34));
+    const boardY = table.y + table.h - 395;
+    const boardH = Math.max(310, Math.min(370, table.y + table.h - boardY - 26));
     drawLeaderboardPanel(table.x + 44, boardY, table.w - 88, boardH);
   } else {
     drawLeaderboardPanel(side.x + 18, side.y + 24, side.w - 36, side.h - 48);
