@@ -856,6 +856,26 @@ function createFloorMap(floorIndex, options = {}) {
       node("elevator", "Elevator", "elevator", .92, .50, [])
     ]
   };
+  normalizeRouteColumnSpacing(map, encounterStartX, encounterEndX);
+  return map;
+}
+
+function normalizeRouteColumnSpacing(map, startX = .22, endX = .75) {
+  const columns = [...new Set((map?.nodes || [])
+    .map((n) => String(n.id || "").match(/^c(\d+)-/))
+    .filter(Boolean)
+    .map((m) => Number(m[1])))]
+    .sort((a, b) => a - b);
+  const count = columns.length;
+  if (!count) return map;
+  const columnX = new Map(columns.map((columnIndex, visualIndex) => {
+    const t = (visualIndex + 1) / (count + 1);
+    return [columnIndex, lerp(startX, endX, t)];
+  }));
+  (map.nodes || []).forEach((node) => {
+    const match = String(node.id || "").match(/^c(\d+)-/);
+    if (match && columnX.has(Number(match[1]))) node.x = columnX.get(Number(match[1]));
+  });
   return map;
 }
 
@@ -4786,7 +4806,7 @@ function drawMapEncounterScoutOverlay(detail) {
   const closeY = y + h - pad - closeH;
   const infoY = cardY + cardH + (portrait ? 18 : 16);
   const infoH = Math.max(120, closeY - infoY - 14);
-  const rewardH = node.reward ? (portrait ? 150 : 124) : 0;
+  const rewardH = node.reward ? (portrait ? 174 : 138) : 0;
   const rewardY = node.reward ? infoY + infoH - rewardH - 12 : 0;
   const decisionBottom = node.reward ? rewardY - 10 : closeY - 20;
   fill("rgba(0,0,0,.28)", x + pad, infoY, w - pad * 2, infoH, 18);
@@ -4810,16 +4830,17 @@ function drawMapEncounterScoutOverlay(detail) {
   if (node.reward) {
     fill("rgba(8,6,12,.40)", x + pad + 16, rewardY, w - pad * 2 - 32, rewardH, 16);
     strokeRound(x + pad + 16, rewardY, w - pad * 2 - 32, rewardH, 16, hexToRgba(rewardColor, .55), 1.8);
-    const iconSize = portrait ? 58 : 50;
-    const iconX = x + pad + 52;
-    const iconY = rewardY + 58;
+    const iconSize = portrait ? 70 : 56;
+    const iconX = x + pad + 62;
+    const iconY = rewardY + 68;
     drawPulsingMapRewardIcon(node.reward, iconX, iconY, iconSize, rewardColor);
-    const textX = x + pad + 92;
-    const textW = w - pad * 2 - 124;
-    text("Reward", textX, rewardY + 25, portrait ? 17 : 14, C.muted);
-    textFit(node.reward.name, textX, rewardY + 50, textW, portrait ? 18 : 15, rewardColor);
-    text("Description", textX, rewardY + 74, portrait ? 14 : 12, C.gold);
-    drawNoEllipsisWrappedText(node.reward.description || rewardDecisionSummary(node.reward), textX, rewardY + 96, textW, rewardH - 108, C.text, portrait ? 14 : 12);
+    text("Tap", iconX, rewardY + rewardH - 20, 12, hexToRgba(C.gold, .78), "center");
+    const textX = x + pad + 112;
+    const textW = w - pad * 2 - 144;
+    text("Reward", textX, rewardY + 26, portrait ? 17 : 14, C.muted);
+    textFit(node.reward.name, textX, rewardY + 52, textW, portrait ? 20 : 16, rewardColor);
+    text("Description", textX, rewardY + 82, portrait ? 14 : 12, C.gold);
+    drawNoEllipsisWrappedText(node.reward.description || rewardDecisionSummary(node.reward), textX, rewardY + 106, textW, rewardH - 118, C.text, portrait ? 15 : 13);
     buttons.push({ x: x + pad + 16, y: rewardY, w: w - pad * 2 - 32, h: rewardH, onClick: () => openRewardDetail(node.reward, rewardColor) });
   }
 
@@ -5097,16 +5118,23 @@ function portraitMapProgress(node) {
   if (node.kind === "start") return .995;
   const match = String(node.id || "").match(/^c(\d+)-/);
   if (match) {
-    const columns = Math.max(1, (game?.map?.nodes || [])
-      .map((n) => String(n.id || "").match(/^c(\d+)-/))
-      .filter(Boolean)
-      .reduce((max, m) => Math.max(max, Number(m[1]) + 1), 0));
-    const rungTop = .28;
-    const rungBottom = .70;
-    const t = columns <= 1 ? .5 : Number(match[1]) / Math.max(1, columns - 1);
+    const columns = actualRouteColumnIndices();
+    const visualIndex = Math.max(0, columns.indexOf(Number(match[1])));
+    const count = Math.max(1, columns.length);
+    const rungTop = .24;
+    const rungBottom = .74;
+    const t = count <= 1 ? .5 : visualIndex / Math.max(1, count - 1);
     return lerp(rungBottom, rungTop, t);
   }
   return clamp(1 - (Number(node.x) || .5), .08, .92);
+}
+
+function actualRouteColumnIndices() {
+  return [...new Set((game?.map?.nodes || [])
+      .map((n) => String(n.id || "").match(/^c(\d+)-/))
+      .filter(Boolean)
+      .map((m) => Number(m[1])))]
+      .sort((a, b) => a - b);
 }
 
 function isPortraitMap() {
