@@ -4660,7 +4660,6 @@ function encounterDecisionLines(node, enemy) {
     lines.push(`Locked option${locked.includes(",") ? "s" : ""}: ${locked}.`);
   }
   if (enemy.luck) lines.push(`Dealer pressure: +${enemy.luck} luck means the table tends to play cleaner.`);
-  lines.push(`Reward: ${rewardDecisionSummary(node.reward)}`);
   return lines.slice(0, 7);
 }
 
@@ -4680,6 +4679,39 @@ function drawMapEncounterPortrait(node, cx, y, size) {
   if (key && drawRawAssetContain(key, cx - size / 2 + 8, y + 8, size - 16, size - 16, .98)) return true;
   text(node.kind === "boss" ? "BOSS" : "GRUNT", cx, y + size * .56, size * .16, glow, "center", "serif");
   return false;
+}
+
+function openRewardDetail(reward, fallbackColor = C.gold) {
+  if (!reward) return;
+  const color = reward.rarityColor || fallbackColor;
+  mapInfoDetail = {
+    title: reward.name,
+    subtitle: mapRewardSubtitle(reward),
+    color,
+    body: reward.description,
+    relic: reward.type === "relic" ? reward : null
+  };
+}
+
+function drawPulsingMapRewardIcon(reward, cx, cy, size, color) {
+  const pulse = .5 + .5 * Math.sin(performance.now() * .004);
+  shadow(0, 0, 18 + pulse * 16, hexToRgba(C.gold, .42 + pulse * .34), () => {
+    fill(hexToRgba(C.gold, .08 + pulse * .05), cx - size / 2 - 8, cy - size / 2 - 8, size + 16, size + 16, 18);
+    strokeRound(cx - size / 2 - 8, cy - size / 2 - 8, size + 16, size + 16, 18, hexToRgba(C.gold, .62 + pulse * .3), 2.5);
+  });
+  drawMapRewardIcon(reward, cx, cy, size, color);
+}
+
+function drawNoEllipsisWrappedText(str, x, y, w, availableH, color, preferredSize = 14) {
+  let size = preferredSize;
+  let lineH = Math.ceil(size * 1.25);
+  let lines = wrapLines(str || "", w, size);
+  while (size > 10 && lines.length * lineH > availableH) {
+    size -= 1;
+    lineH = Math.ceil(size * 1.22);
+    lines = wrapLines(str || "", w, size);
+  }
+  lines.forEach((line, i) => text(line, x, y + i * lineH, size, color));
 }
 
 function drawDecisionMetricCard(x, y, w, h, label, value, color, body = "") {
@@ -4754,12 +4786,14 @@ function drawMapEncounterScoutOverlay(detail) {
   const closeY = y + h - pad - closeH;
   const infoY = cardY + cardH + (portrait ? 18 : 16);
   const infoH = Math.max(120, closeY - infoY - 14);
+  const rewardH = node.reward ? (portrait ? 150 : 124) : 0;
+  const rewardY = node.reward ? infoY + infoH - rewardH - 12 : 0;
+  const decisionBottom = node.reward ? rewardY - 10 : closeY - 20;
   fill("rgba(0,0,0,.28)", x + pad, infoY, w - pad * 2, infoH, 18);
   strokeRound(x + pad, infoY, w - pad * 2, infoH, 18, hexToRgba(color, .32), 1.5);
   text("Decision Info", x + pad + 18, infoY + 30, portrait ? 20 : 16, ui.title);
-  if (node.reward) drawMapRewardIcon(node.reward, x + w - pad - 40, infoY + 40, portrait ? 48 : 40, rewardColor);
 
-  const descriptionW = w - pad * 2 - (node.reward ? 96 : 36);
+  const descriptionW = w - pad * 2 - 36;
   wrapTextSized(enemy.description || "Standard table.", x + pad + 18, infoY + (portrait ? 58 : 52), descriptionW, portrait ? 18 : 14, portrait ? 15 : 12, C.text, 2);
   const lines = [
     ...encounterDecisionLines(node, enemy),
@@ -4767,13 +4801,27 @@ function drawMapEncounterScoutOverlay(detail) {
   ];
   const lineStep = portrait ? (compact ? 23 : 27) : 23;
   const listY = infoY + (portrait ? (compact ? 106 : 120) : 98);
-  const maxLines = clamp(Math.floor((closeY - 20 - listY) / lineStep), 0, portrait ? 9 : 11);
+  const maxLines = clamp(Math.floor((decisionBottom - listY) / lineStep), 0, portrait ? 7 : 8);
   lines.slice(0, maxLines).forEach((line, i) => {
-    const isReward = line.startsWith("Reward:");
     const isRisk = line.startsWith("Risk:") || line.startsWith("Locked") || line.startsWith("Rule:");
-    const lineColor = isReward ? rewardColor : isRisk ? C.muted : C.text;
+    const lineColor = isRisk ? C.muted : C.text;
     textFit(`- ${line}`, x + pad + 22, listY + i * lineStep, w - pad * 2 - 44, portrait ? (compact ? 14 : 16) : 13, lineColor);
   });
+  if (node.reward) {
+    fill("rgba(8,6,12,.40)", x + pad + 16, rewardY, w - pad * 2 - 32, rewardH, 16);
+    strokeRound(x + pad + 16, rewardY, w - pad * 2 - 32, rewardH, 16, hexToRgba(rewardColor, .55), 1.8);
+    const iconSize = portrait ? 58 : 50;
+    const iconX = x + pad + 52;
+    const iconY = rewardY + 58;
+    drawPulsingMapRewardIcon(node.reward, iconX, iconY, iconSize, rewardColor);
+    const textX = x + pad + 92;
+    const textW = w - pad * 2 - 124;
+    text("Reward", textX, rewardY + 25, portrait ? 17 : 14, C.muted);
+    textFit(node.reward.name, textX, rewardY + 50, textW, portrait ? 18 : 15, rewardColor);
+    text("Description", textX, rewardY + 74, portrait ? 14 : 12, C.gold);
+    drawNoEllipsisWrappedText(node.reward.description || rewardDecisionSummary(node.reward), textX, rewardY + 96, textW, rewardH - 108, C.text, portrait ? 14 : 12);
+    buttons.push({ x: x + pad + 16, y: rewardY, w: w - pad * 2 - 32, h: rewardH, onClick: () => openRewardDetail(node.reward, rewardColor) });
+  }
 
   addButton(x + pad, closeY, w - pad * 2, closeH, "Close", () => { mapInfoDetail = null; }, true);
 }
