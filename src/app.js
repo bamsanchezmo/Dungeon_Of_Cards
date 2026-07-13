@@ -4458,7 +4458,7 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
   const barX = mapX + 18;
   const barY = mapY + 18;
   const barW = portrait ? Math.min(mapW - 36, 520) : Math.min(mapW - 36, 600);
-  const barH = portrait ? 162 : 92;
+  const barH = portrait ? 218 : 92;
   shadow(0, 16, 32, "rgba(0,0,0,.38)", () => {
     gradientRound(barX, barY, barW, barH, 16, [[0, "rgba(48,35,63,.95)"], [1, "rgba(13,10,18,.94)"]], true);
   });
@@ -4477,12 +4477,14 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
     addButton(barX + 14 + half + gap, buttonY, half, 48, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(barX + 14, buttonY + 56, half, 48, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + half + gap, buttonY + 56, half, 48, "Clear", devMapClearEncounter, false, canClear);
+    addButton(barX + 14, buttonY + 112, rowW, 48, "Clear Floor", devMapClearFloor, true);
   } else {
-    const buttonW = (rowW - gap * 3) / 4;
+    const buttonW = (rowW - gap * 4) / 5;
     addButton(barX + 14, buttonY, buttonW, 42, "← Floor", devMapPreviousFloor, false, game.floor > 0);
     addButton(barX + 14 + (buttonW + gap), buttonY, buttonW, 42, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(barX + 14 + (buttonW + gap) * 2, buttonY, buttonW, 42, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + (buttonW + gap) * 3, buttonY, buttonW, 42, "Clear", devMapClearEncounter, false, canClear);
+    addButton(barX + 14 + (buttonW + gap) * 4, buttonY, buttonW, 42, "Clear Floor", devMapClearFloor, true);
   }
   if (selected?.encounter) {
     const hintY = portrait ? panelY - 12 : mapY + mapH - 18;
@@ -4494,8 +4496,8 @@ function drawDeveloperTableNavigatorControls() {
   if (!game?.developerTest) return;
   const lw = layoutW();
   const portrait = viewport.portrait;
-  const w = portrait ? Math.min(lw - 32, 560) : 660;
-  const h = portrait ? 150 : 78;
+  const w = portrait ? Math.min(lw - 32, 560) : 760;
+  const h = portrait ? 202 : 78;
   const x = lw / 2 - w / 2;
   const y = portrait ? 18 : 18;
   shadow(0, 16, 34, "rgba(0,0,0,.44)", () => {
@@ -4512,12 +4514,14 @@ function drawDeveloperTableNavigatorControls() {
     addButton(x + 22 + half, rowY, half, 44, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(x + 14, rowY + 52, half, 44, "Back to Map", devMapReturnToMap, true);
     addButton(x + 22 + half, rowY + 52, half, 44, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
+    addButton(x + 14, rowY + 104, w - 28, 44, "Clear Floor", devMapClearFloor, true);
   } else {
-    const buttonW = (w - 44 - gap * 3) / 4;
+    const buttonW = (w - 44 - gap * 4) / 5;
     addButton(x + 14, rowY, buttonW, 38, "← Floor", devMapPreviousFloor, false, game.floor > 0);
     addButton(x + 14 + (buttonW + gap), rowY, buttonW, 38, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(x + 14 + (buttonW + gap) * 2, rowY, buttonW, 38, "Back to Map", devMapReturnToMap, true);
     addButton(x + 14 + (buttonW + gap) * 3, rowY, buttonW, 38, "Clear Table", devMapClearEncounter, false, !!game.activeEncounterId);
+    addButton(x + 14 + (buttonW + gap) * 4, rowY, buttonW, 38, "Clear Floor", devMapClearFloor, true);
   }
 }
 
@@ -6375,7 +6379,8 @@ function developerScenarios() {
     { label: "Dev: Prev Floor", run: devMapPreviousFloor, enabled: !!game?.developerTest },
     { label: "Dev: Next Floor", run: devMapNextFloor, enabled: !!game?.developerTest },
     { label: "Dev: Enter Selected", run: devMapEnterSelected, enabled: !!game?.developerTest },
-    { label: "Dev: Clear Encounter", run: devMapClearEncounter, enabled: !!game?.developerTest }
+    { label: "Dev: Clear Encounter", run: devMapClearEncounter, enabled: !!game?.developerTest },
+    { label: "Dev: Clear Floor", run: devMapClearFloor, enabled: !!game?.developerTest }
   ];
 }
 
@@ -6720,6 +6725,28 @@ function devMapClearEncounter() {
   game.developerTest = true;
   developerPanelOpen = false;
   notify(`Cleared ${node.label}`);
+}
+
+function devMapClearFloor() {
+  if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  developerPanelOpen = false;
+  if (isQuickRun()) {
+    if (!game.enemy) game.enemy = cloneEnemy(Number(game.floor) || 0);
+    game.enemy.hp = 0;
+    completeQuickEncounter();
+    game.developerTest = true;
+    notify(`Cleared Quick Floor ${game.floor + 1}`);
+    return;
+  }
+  if (!game.map) setGameMapForFloor(Number(game.floor) || 0);
+  const boss = (game.map?.nodes || []).find((node) => node.kind === "boss" && node.encounter);
+  if (!boss) return flashMsg("No floor boss found");
+  game.activeEncounterId = boss.id;
+  inspectedNodeId = boss.id;
+  game.enemy = { ...boss.encounter, hp: 0, maxHp: boss.encounter.maxHp || boss.encounter.hp };
+  completeMapEncounter();
+  game.developerTest = true;
+  notify(`Cleared Floor ${game.floor + 1}`);
 }
 
 function setHandCarousel(seatId, next, count = Infinity) {
