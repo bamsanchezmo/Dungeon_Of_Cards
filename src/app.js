@@ -4091,7 +4091,7 @@ function drawMapHeader(lw, portrait) {
     });
     strokeRound(statsX, topY - 2, statsW, 54, 16, hexToRgba(ui.border, .52), 1.5);
     textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, topY + 31, statsW - 18, 16, C.text, "center");
-    addButton(lw - 134, 32, 108, 52, "Menu", () => menuOpen = true);
+    addButton(lw - 126, 24, 104, 52, "Menu", () => menuOpen = true);
     return;
   }
   const titleY = portrait ? 58 : 34;
@@ -4456,7 +4456,7 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const canEnter = selected.reachable && selected.kind !== "elevator";
   if (solo) {
     addButton(leftX, buttonY, buttonW, buttonH, "Scout", () => openMapNodeDetail(selected), true, true);
-    addButton(midX, buttonY, buttonW, buttonH, "Relics", () => { relicsOpen = true; relicPage = 0; }, false, true);
+    addRelicsPulseButton(midX, buttonY, buttonW, buttonH);
     addButton(rightX, buttonY, buttonW, buttonH, canEnter ? "Enter" : selected.cleared ? "Cleared" : "Inspect", () => action(`enterMap:${selected.id}`), true, canEnter);
     return;
   }
@@ -4468,8 +4468,19 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const activeCount = Math.max(1, game.seats.filter((seat) => !seat.spectating).length);
   text(`${readyCount}/${activeCount} ready`, lw / 2, buttonY - 8, 16, C.muted, "center");
   addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${selected.id}`), true, canEnter);
-  addButton(midX, buttonY, buttonW, buttonH, "Relics", () => { relicsOpen = true; relicPage = 0; }, false, true);
+  addRelicsPulseButton(midX, buttonY, buttonW, buttonH);
   addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+}
+
+function addRelicsPulseButton(x, y, w, h) {
+  const hasRelics = (game.relics || []).length > 0;
+  if (hasRelics) {
+    const pulse = .5 + .5 * Math.sin(performance.now() * .004);
+    shadow(0, 0, 18 + pulse * 14, hexToRgba(C.gold, .38 + pulse * .3), () => {
+      strokeRound(x - 2, y - 2, w + 4, h + 4, 12, hexToRgba(C.gold, .58 + pulse * .3), 3);
+    });
+  }
+  addButton(x, y, w, h, "Relics", () => { relicsOpen = true; relicPage = 0; }, false, true);
 }
 
 function openMapNodeDetail(node) {
@@ -4674,9 +4685,12 @@ function drawMapEncounterPortrait(node, cx, y, size) {
 function drawDecisionMetricCard(x, y, w, h, label, value, color, body = "") {
   fill("rgba(0,0,0,.28)", x, y, w, h, 16);
   strokeRound(x, y, w, h, 16, hexToRgba(color, .52), 1.5);
-  text(label, x + 14, y + 25, Math.min(16, h * .24), C.muted);
-  textFit(value, x + 14, y + 52, w - 28, Math.min(21, h * .32), color);
-  if (body) textFit(body, x + 14, y + h - 16, w - 28, Math.min(14, h * .22), C.text);
+  const labelY = y + h * .28;
+  const valueY = y + h * .58;
+  const bodyY = y + h * .82;
+  text(label, x + 14, labelY, Math.min(16, h * .22), C.muted);
+  textFit(value, x + 14, valueY, w - 28, Math.min(21, h * .28), color);
+  if (body) textFit(body, x + 14, bodyY, w - 28, Math.min(14, h * .18), C.text);
 }
 
 function drawMapEncounterScoutOverlay(detail) {
@@ -5126,12 +5140,25 @@ function drawSeats(felt) {
           ctx.save();
           ctx.globalAlpha = isFocused ? 1 : clamp(.72 - depth * .18, .42, .68);
           const scale = isFocused ? 1 : clamp(.86 - depth * .12, .68, .82);
-          const handX = centerX + offset * (portrait ? 86 * cardScale : 108);
-          const handY = (portrait ? cardY : y + 8) + depth * (portrait ? 12 * cardScale : 24);
-          ctx.translate(handX + (CARD_W * cardScale) / 2, handY + (CARD_H * cardScale) / 2);
-          ctx.rotate(offset * -.11);
-          ctx.scale(scale * cardScale, scale * cardScale);
-          drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, maxHandW, true, { x: handX, y: handY });
+          if (portrait) {
+            const metrics = handDrawMetrics(hand.cards, maxHandW);
+            const outerScale = scale * cardScale;
+            const handCenterX = panelX + panelW / 2 + offset * 84 * cardScale;
+            const handY = cardY + depth * 12 * cardScale;
+            const visualW = metrics.visualW * outerScale;
+            const visualH = CARD_H * metrics.scale * outerScale;
+            ctx.translate(handCenterX, handY + visualH / 2);
+            ctx.rotate(offset * -.11);
+            ctx.scale(outerScale, outerScale);
+            drawHand(hand.cards, -metrics.visualW / 2, -CARD_H * metrics.scale / 2, isPlayingHand, maxHandW, true, { x: handCenterX - visualW / 2, y: handY });
+          } else {
+            const handX = centerX + offset * 108;
+            const handY = y + 8 + depth * 24;
+            ctx.translate(handX + CARD_W / 2, handY + CARD_H / 2);
+            ctx.rotate(offset * -.11);
+            ctx.scale(scale, scale);
+            drawHand(hand.cards, -CARD_W / 2, -CARD_H / 2, isPlayingHand, maxHandW, true, { x: handX, y: handY });
+          }
           ctx.restore();
         });
         const labelColor = selected === activeIndex && isActive ? C.gold : handColor(seat.hands[selected]);
@@ -5248,13 +5275,14 @@ function drawMobileGameplayDock() {
   text(`F${game.floor + 1}/${enemyTemplates.length}`, x + 28, statY, 22, C.text);
   drawGoldDebtLine(x + 96, statY, 21);
   const hpW = 180;
-  meter(x + w - hpW - 24, statY - 13, hpW, 14, game.hp / game.maxHp, C.red, C.green);
-  text(`HP ${game.hp}/${game.maxHp}`, x + w - hpW / 2 - 24, statY + 20, 16, C.text, "center");
-  addButton(x + w - 130, y + 48, 104, 46, "Menu", () => menuOpen = true);
+  const hpX = x + w - hpW - 24;
+  text(`HP ${game.hp}/${game.maxHp}`, hpX - 12, statY + 2, 16, C.text, "right");
+  meter(hpX, statY - 13, hpW, 14, game.hp / game.maxHp, C.red, C.green);
+  addButton(layoutW() - 132, 28, 104, 48, "Menu", () => menuOpen = true);
 
   const phaseY = y + 62;
   const phaseX = x + 18;
-  const phaseW = w - 160;
+  const phaseW = w - 36;
   gradientRound(phaseX, phaseY - 28, phaseW, 54, 12, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .05)]], true);
   strokeRound(phaseX, phaseY - 28, phaseW, 54, 12, hexToRgba(ui.border, .24), 1);
   ctx.save();
@@ -5291,8 +5319,12 @@ function mobilePhaseSummary() {
 
 function drawMobileRelicIconTray(x, y, w, h) {
   const ui = activeFloorUi();
-  fill("rgba(5,4,8,.56)", x, y, w, h, 14);
-  strokeRound(x, y, w, h, 14, hexToRgba(ui.border, .42), 1.5);
+  const hasRelics = (game.relics || []).length > 0;
+  const pulse = hasRelics ? .5 + .5 * Math.sin(performance.now() * .004) : 0;
+  shadow(0, 0, hasRelics ? 16 + pulse * 14 : 0, hexToRgba(C.gold, hasRelics ? .32 + pulse * .28 : 0), () => {
+    fill("rgba(5,4,8,.56)", x, y, w, h, 14);
+  });
+  strokeRound(x, y, w, h, 14, hasRelics ? hexToRgba(C.gold, .62 + pulse * .28) : hexToRgba(ui.border, .42), hasRelics ? 2.2 : 1.5);
   const relics = game.relics || [];
   if (!relics.length) {
     text("Relics", x + w / 2, y + 33, 16, C.muted, "center");
@@ -5305,6 +5337,7 @@ function drawMobileRelicIconTray(x, y, w, h) {
       drawRelicIcon(relic, startX + i * (iconSize + gap) + iconSize / 2, y + h / 2, iconSize, relic.rarityColor || C.gold);
     });
     if (relics.length > shown.length) text(`+${relics.length - shown.length}`, x + w - 22, y + 34, 15, ui.title, "center");
+    text("Tap relics", x + w / 2, y + h + 16, 12, hexToRgba(C.gold, .72 + pulse * .22), "center");
   }
   buttons.push({ x, y, w, h, onClick: () => { relicsOpen = true; relicPage = 0; } });
 }
@@ -6282,10 +6315,16 @@ function drawCardOutlineGlow(x = 0, y = 0) {
   drawCardGoldOutline(x, y, CARD_W, CARD_H, true);
 }
 
-function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true, animationBase = null) {
-  const step = cards.length < 2 ? 0 : Math.max(10, Math.min(62, (maxWidth - CARD_W) / Math.max(1, cards.length - 1)));
-  const handW = cards.length < 2 ? CARD_W : CARD_W + step * (cards.length - 1);
+function handDrawMetrics(cards, maxWidth = Infinity) {
+  const count = Math.max(0, cards?.length || 0);
+  const step = count < 2 ? 0 : Math.max(10, Math.min(62, (maxWidth - CARD_W) / Math.max(1, count - 1)));
+  const handW = count < 2 ? CARD_W : CARD_W + step * (count - 1);
   const scale = Number.isFinite(maxWidth) && handW > maxWidth ? clamp(maxWidth / handW, .62, 1) : 1;
+  return { step, handW, scale, visualW: handW * scale };
+}
+
+function drawHand(cards, x, y, highlight, maxWidth = Infinity, animate = true, animationBase = null) {
+  const { step, scale } = handDrawMetrics(cards, maxWidth);
   cards.forEach((card, i) => {
     const cx = x + i * step;
     const cy = y + Math.sin(i * .6) * 2;
