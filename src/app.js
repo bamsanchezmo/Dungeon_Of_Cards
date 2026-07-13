@@ -58,17 +58,30 @@ const TABLE_MOTIF_PLACEMENT = {
   alpha: .8
 };
 
+// Elevator layout copied from Elevator.pptx.
+// These are normalized to the 2:3 elevator interior frame from the slides:
+// Slide 1 = closed doors, Slide 2 = shop stop, Slide 3 = floor reveal.
+// x/y/w/h are relative to the drawn elevator frame, not the whole canvas.
+const ELEVATOR_PPT_LAYOUT = {
+  shaft: { x: .114, y: .178, w: .771, h: .771 },
+  shop: { x: .075, y: .052, w: .851, h: .851 },
+  closedLeft: { x: .018, y: .124, w: .617, h: .867 },
+  closedRight: { x: .378, y: .124, w: .617, h: .867 },
+  shopOpenLeft: { x: -.213, y: .097, w: .617, h: .867 },
+  shopOpenRight: { x: .609, y: .097, w: .617, h: .867 },
+  floorOpenLeft: { x: -.235, y: .122, w: .617, h: .867 },
+  floorOpenRight: { x: .618, y: .122, w: .617, h: .867 }
+};
+
 // Elevator door tuning knobs.
-// doorWidth: width of each half-door as a fraction of the full screen/doorway width.
-// doorScale: uniform scale applied to the entire half-door asset after fitting.
-// openDistance: how far the doors slide apart as the animation opens.
-// staggerLeft/staggerRight: shop-stop asymmetry for the weird half-open gremlin-shop door look.
+// doorScale: uniform scale applied to the entire half-door asset around its center.
+// openDistance: multiplies how far doors move from the PPT closed pose to the PPT open pose.
+// staggerLeft/staggerRight: extra shop-stop asymmetry if you want the pulley-shop doors uneven.
 const ELEVATOR_DOOR_TUNING = {
-  doorWidth: .55,
   doorScale: 1,
-  openDistance: .82,
-  staggerLeft: .72,
-  staggerRight: 1.16
+  openDistance: 1,
+  staggerLeft: 1,
+  staggerRight: 1
 };
 
 const musicTracks = {
@@ -4443,24 +4456,71 @@ function drawFloorTransition() {
   const from = clamp(t.from || 1, 1, totalFloors);
   const to = clamp(t.to || from + 1, 1, totalFloors);
   const ui = activeFloorUi();
+  const stage = elevatorStageRect(lw, lh);
   fill("#050409", 0, 0, lw, lh);
   const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
   const shopStop = !!game.floorTransition?.stopAtShop;
   const revealKey = shopStop ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
   if (revealKey) drawRawAssetCover(revealKey, 0, 0, lw, lh, shopStop ? .96 : .9);
   else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
-  if (shopStop && handAssetReady("elevatorGremlinShop")) {
-    const shopW = Math.min(lw * (portrait ? .86 : .52), portrait ? 620 : 760);
-    const shopH = Math.min(lh * .72, portrait ? 760 : 620);
-    drawRawAssetContain("elevatorGremlinShop", lw / 2 - shopW / 2, lh / 2 - shopH / 2 + (portrait ? 40 : 20), shopW, shopH, .94);
+  if (shopStop) {
+    const shaftRect = elevatorLayoutRect(stage, ELEVATOR_PPT_LAYOUT.shaft);
+    if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
+    if (handAssetReady("elevatorGremlinShop")) {
+      const shopRect = elevatorLayoutRect(stage, ELEVATOR_PPT_LAYOUT.shop);
+      drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
+    }
   }
   fill("rgba(0,0,0,.18)", 0, 0, lw, lh);
   const openBase = clamp((progress - .25) / .68, 0, 1);
-  const open = shopStop ? Math.min(.52, openBase * .64) : openBase;
-  drawElevatorDoors(0, 0, lw, lh, open, shopStop);
-  if (handAssetReady("elevatorInteriorFrame")) drawRawAssetCover("elevatorInteriorFrame", 0, 0, lw, lh, .98);
-  drawElevatorFloorIndicator(from, to, progress, eased, shopStop);
+  const open = shopStop ? Math.min(1, openBase * 1.15) : openBase;
+  drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, shopStop);
+  if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
+  drawElevatorFloorIndicator(from, to, progress, eased, shopStop, stage);
   text(shopStop ? "The elevator rattles. A pulley shop catches the shaft." : "Doors opening to the next floor.", lw / 2, lh - (portrait ? 54 : 38), portrait ? 20 : 18, C.text, "center");
+}
+
+function elevatorStageRect(lw = layoutW(), lh = layoutH()) {
+  const aspect = 2 / 3;
+  const shouldCover = viewport.portrait || lw / Math.max(1, lh) < aspect;
+  const w = shouldCover ? Math.max(lw, lh * aspect) : lh * aspect;
+  const h = shouldCover ? Math.max(lh, w / aspect) : lh;
+  return {
+    x: (lw - w) / 2,
+    y: (lh - h) / 2,
+    w,
+    h
+  };
+}
+
+function elevatorLayoutRect(stage, rect) {
+  return {
+    x: stage.x + rect.x * stage.w,
+    y: stage.y + rect.y * stage.h,
+    w: rect.w * stage.w,
+    h: rect.h * stage.h
+  };
+}
+
+function lerpRect(a, b, t) {
+  return {
+    x: lerp(a.x, b.x, t),
+    y: lerp(a.y, b.y, t),
+    w: lerp(a.w, b.w, t),
+    h: lerp(a.h, b.h, t)
+  };
+}
+
+function scaleRectFromCenter(rect, scale) {
+  if (Math.abs(scale - 1) < .001) return rect;
+  const w = rect.w * scale;
+  const h = rect.h * scale;
+  return {
+    x: rect.x + (rect.w - w) / 2,
+    y: rect.y + (rect.h - h) / 2,
+    w,
+    h
+  };
 }
 
 function drawElevatorShaftLines(x, y, w, h, ui, progress = 0) {
@@ -4485,14 +4545,15 @@ function drawElevatorShaftLines(x, y, w, h, ui, progress = 0) {
   ctx.restore();
 }
 
-function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false) {
+function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false, stage = null) {
   const lw = layoutW(), portrait = viewport.portrait;
+  const anchor = stage || { x: 0, y: 0, w: lw, h: layoutH() };
   const display = progress < .5 ? from : to;
   const nextAlpha = clamp((progress - .42) / .24, 0, 1);
   const boxW = portrait ? 172 : 220;
   const boxH = portrait ? 78 : 86;
-  const x = lw / 2 - boxW / 2;
-  const y = portrait ? 54 : 34;
+  const x = anchor.x + anchor.w / 2 - boxW / 2;
+  const y = anchor.y + (portrait ? 54 : 34);
   shadow(0, 12, 34, "rgba(0,0,0,.7)", () => gradientRound(x, y, boxW, boxH, 14, [[0, "#060507"], [.55, "#000000"], [1, "#080609"]], true));
   strokeRound(x, y, boxW, boxH, 16, C.gold, 3);
   fill("rgba(255,255,255,.05)", x + 10, y + 8, boxW - 20, 1, 1);
@@ -4616,22 +4677,23 @@ function drawDeveloperTableNavigatorControls() {
 
 function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
   const key = "elevatorDoorHalf";
-  const gap = w * open * ELEVATOR_DOOR_TUNING.openDistance;
-  const leftShift = stagger ? gap * ELEVATOR_DOOR_TUNING.staggerLeft : gap;
-  const rightShift = stagger ? gap * ELEVATOR_DOOR_TUNING.staggerRight : gap;
-  const halfW = w * ELEVATOR_DOOR_TUNING.doorWidth;
-  const doorScale = ELEVATOR_DOOR_TUNING.doorScale;
-  const scaledW = halfW * doorScale;
-  const scaledH = h * doorScale;
-  const scaledY = y + (h - scaledH) / 2;
+  const stage = { x, y, w, h };
+  const openAmount = clamp(open * ELEVATOR_DOOR_TUNING.openDistance, 0, 1.35);
+  const targetLeft = stagger ? ELEVATOR_PPT_LAYOUT.shopOpenLeft : ELEVATOR_PPT_LAYOUT.floorOpenLeft;
+  const targetRight = stagger ? ELEVATOR_PPT_LAYOUT.shopOpenRight : ELEVATOR_PPT_LAYOUT.floorOpenRight;
+  const leftT = clamp(openAmount * (stagger ? ELEVATOR_DOOR_TUNING.staggerLeft : 1), 0, 1.35);
+  const rightT = clamp(openAmount * (stagger ? ELEVATOR_DOOR_TUNING.staggerRight : 1), 0, 1.35);
+  const leftRect = scaleRectFromCenter(elevatorLayoutRect(stage, lerpRect(ELEVATOR_PPT_LAYOUT.closedLeft, targetLeft, leftT)), ELEVATOR_DOOR_TUNING.doorScale);
+  const rightRect = scaleRectFromCenter(elevatorLayoutRect(stage, lerpRect(ELEVATOR_PPT_LAYOUT.closedRight, targetRight, rightT)), ELEVATOR_DOOR_TUNING.doorScale);
   if (handAssetReady(key)) {
-    drawRawAssetContain(key, x - leftShift + (halfW - scaledW) / 2, scaledY, scaledW, scaledH, .98);
-    drawMirroredAssetContain(key, x + w - halfW + rightShift + (halfW - scaledW) / 2, scaledY + (stagger ? h * .035 : 0), scaledW, scaledH, .98);
+    drawRawAsset(key, leftRect.x, leftRect.y, leftRect.w, leftRect.h, .98);
+    drawMirroredAsset(key, rightRect.x, rightRect.y, rightRect.w, rightRect.h, .98);
   } else {
-    gradientRound(x - leftShift + (halfW - scaledW) / 2, scaledY, scaledW, scaledH, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
-    gradientRound(x + w - halfW + rightShift + (halfW - scaledW) / 2, scaledY, scaledW, scaledH, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
+    gradientRound(leftRect.x, leftRect.y, leftRect.w, leftRect.h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
+    gradientRound(rightRect.x, rightRect.y, rightRect.w, rightRect.h, 18, [[0, "#36271a"], [1, "#0e0b10"]], true);
   }
-  if (gap > 2) shadow(0, 0, 24, hexToRgba(C.gold, .35 + open * .25), () => strokeRound(x + w / 2 - gap / 2, y + 18, gap, h - 36, 12, hexToRgba(C.gold, .45), 2));
+  const seamGap = Math.max(0, rightRect.x - (leftRect.x + leftRect.w));
+  if (seamGap > 2) shadow(0, 0, 24, hexToRgba(C.gold, .35 + clamp(open, 0, 1) * .25), () => strokeRound(leftRect.x + leftRect.w, y + 18, seamGap, h - 36, 12, hexToRgba(C.gold, .45), 2));
 }
 
 function drawMapConnections(mapX, mapY, mapW, mapH) {
@@ -6154,16 +6216,19 @@ function drawShop() {
 }
 
 function drawTowerElevatorShop(lw, lh, portrait) {
+  const stage = elevatorStageRect(lw, lh);
   fill("#050409", 0, 0, lw, lh);
   if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
   else drawElevatorShaftLines(0, 0, lw, lh, activeFloorUi(), .5);
+  const shaftRect = elevatorLayoutRect(stage, ELEVATOR_PPT_LAYOUT.shaft);
+  if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
   if (handAssetReady("elevatorGremlinShop")) {
-    const shopW = Math.min(lw * (portrait ? .92 : .56), portrait ? 680 : 840);
-    const shopH = Math.min(lh * (portrait ? .62 : .68), portrait ? 760 : 660);
-    drawRawAssetContain("elevatorGremlinShop", lw / 2 - shopW / 2, lh * (portrait ? .15 : .10), shopW, shopH, .96);
+    const shopRect = elevatorLayoutRect(stage, ELEVATOR_PPT_LAYOUT.shop);
+    drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
   }
-  if (handAssetReady("elevatorInteriorFrame")) drawRawAssetCover("elevatorInteriorFrame", 0, 0, lw, lh, .98);
-  drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true);
+  drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, 1, true);
+  if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
+  drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true, stage);
   const panelH = portrait ? 260 : 150;
   const panelY = lh - panelH - (portrait ? 18 : 20);
   shadow(0, -10, 36, "rgba(0,0,0,.55)", () => gradientRound(24, panelY, lw - 48, panelH, 20, [[0, "rgba(12,9,15,.62)"], [1, "rgba(8,6,10,.92)"]], true));
@@ -7477,6 +7542,19 @@ function drawRawAsset(key, x, y, w, h, alpha = 1) {
   ctx.globalAlpha *= alpha;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(asset, x, y, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawMirroredAsset(key, x, y, w, h, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const img = chromaKeyedHandAsset(key) || handdrawnImages[key];
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.translate(x + w, y);
+  ctx.scale(-1, 1);
+  ctx.drawImage(img, 0, 0, w, h);
   ctx.restore();
   return true;
 }
