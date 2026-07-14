@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 231;
+const APP_PUSH_NUMBER = 232;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -30,6 +30,7 @@ const DEATH_WARP_MS = 1000;
 const DEATH_SILENCE_MS = 900;
 const DEATH_REVERSE_FADE_MS = 5200;
 const FLOORS = 10;
+const GENERATED_SCENE_FLOOR_COUNT = 5;
 const AUDIO_CACHE_BUST = Date.now().toString(36);
 
 const rarityTiers = [
@@ -2143,6 +2144,7 @@ function beginFloorTransitionFromCeremony() {
 function prepareFloorTransitionAssets(t = game?.floorTransition) {
   if (!t || t.assetPromise) return t?.assetPromise || Promise.resolve(true);
   const targetFloorIndex = clamp((Number(t.to) || 1) - 1, 0, Math.max(0, towerFloorCount() - 1));
+  releaseFloorSceneAssetsExcept(targetFloorIndex);
   const keys = floorTransitionAssetKeys(targetFloorIndex, !!t.stopAtShop || !!t.afterShop);
   t.assetsReady = false;
   t.assetPromise = preloadAssetKeys(keys, t.stopAtShop ? "Loading elevator shop" : `Loading Floor ${targetFloorIndex + 1}`).then(() => {
@@ -8500,7 +8502,8 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
   ];
   if (hasSceneArt) {
     keys.push(
-      `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+      `map:floor${floor}:background`, `map:floor${floor}:table`, `map:floor${floor}:bossTable`,
+      `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
       `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
       `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`
     );
@@ -8620,7 +8623,46 @@ function ensureRequiredAssetKeys(keys = [], label = "Loading required art", atte
 }
 
 function floorHasGeneratedSceneArt(floorIndex = 0) {
-  return clamp(Number(floorIndex) || 0, 0, FLOORS - 1) <= 3;
+  return clamp(Number(floorIndex) || 0, 0, FLOORS - 1) < GENERATED_SCENE_FLOOR_COUNT;
+}
+
+function floorSceneAssetKeys(floorIndex = 0) {
+  const floor = String(clamp(Number(floorIndex) || 0, 0, FLOORS - 1) + 1).padStart(2, "0");
+  return [
+    `floor${floor}CardBack`,
+    `tableMotif:floor${floor}`,
+    `map:floor${floor}:background`,
+    `map:floor${floor}:table`,
+    `map:floor${floor}:bossTable`,
+    `map:floor${floor}:bossPortrait`,
+    `map:floor${floor}:elevator`,
+    `map:floor${floor}:decoration`,
+    `tableScene:floor${floor}:background`,
+    `tableScene:floor${floor}:table`,
+    `tableScene:floor${floor}:bossTable`,
+    `tableScene:floor${floor}:bossPortrait`,
+    `tableScene:floor${floor}:decoration`
+  ].filter((key) => handdrawnAssetFiles[key]);
+}
+
+function releaseFloorSceneAssetsExcept(targetFloorIndex = 0) {
+  const keep = clamp(Number(targetFloorIndex) || 0, 0, FLOORS - 1);
+  let released = false;
+  for (let i = 0; i < FLOORS; i++) {
+    if (i === keep) continue;
+    floorSceneAssetKeys(i).forEach((key) => {
+      if (handdrawnImages[key]) {
+        delete handdrawnImages[key];
+        assetRetryCounts.delete(key);
+        chromaKeyedAssetCache.delete(key);
+        released = true;
+      }
+    });
+  }
+  if (released) {
+    tintedHanddrawnCache.clear();
+    paletteShiftedAssetCache.clear();
+  }
 }
 
 function criticalAssetKeys() {
