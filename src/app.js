@@ -6,8 +6,11 @@ const PORTRAIT_W = 760;
 const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
+const MOBILE_IDLE_FPS = 24;
+const MOBILE_PLAY_FPS = 30;
+const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 220;
+const APP_PUSH_NUMBER = 221;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -240,6 +243,7 @@ let buttons = [];
 let hover = { x: -1, y: -1 };
 let pointerStart = null;
 let last = performance.now();
+let lastFrameAt = performance.now();
 let musicStarted = false;
 let musicPausedForFocus = false;
 let audio = null;
@@ -712,6 +716,13 @@ resizeCanvas();
 void refreshLeaderboard();
 
 function tick(now) {
+  const targetFps = targetRenderFps();
+  const minFrameMs = 1000 / Math.max(1, targetFps);
+  if (now - lastFrameAt < minFrameMs) {
+    requestAnimationFrame(tick);
+    return;
+  }
+  lastFrameAt = now;
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   if (flashTimer > 0) flashTimer -= dt;
@@ -745,6 +756,27 @@ function tick(now) {
   }
   draw();
   requestAnimationFrame(tick);
+}
+
+function targetRenderFps() {
+  if (!isMobileDevice()) return FPS;
+  if (isRenderAnimationActive()) return MOBILE_ANIMATION_FPS;
+  if (!game || appScene === "splash" || appScene === "menu" || game.phase === "map" || game.phase === "shop") return MOBILE_IDLE_FPS;
+  return MOBILE_PLAY_FPS;
+}
+
+function isRenderAnimationActive() {
+  return cardAnimations.length > 0
+    || moneyAnimations.length > 0
+    || !!hpAnimation
+    || flashTimer > 0
+    || toastTimer > 0
+    || !!game?.peekCard
+    || game?.phase === "dealer"
+    || game?.phase === "dealerReveal"
+    || game?.phase === "floorTransition"
+    || !!game?.floorClearCeremony
+    || !!game?.relicPopup;
 }
 
 function newGame(players, code = "", mode = modePreference, options = {}) {
@@ -9620,9 +9652,20 @@ function isTouchLandscape() {
   return !viewport.portrait && viewport.cssH <= 540 && viewport.cssW <= 1100;
 }
 
+function isMobileDevice() {
+  return (navigator.maxTouchPoints || 0) > 0
+    && Math.min(window.innerWidth || viewport.cssW || 9999, window.innerHeight || viewport.cssH || 9999) <= 920;
+}
+
 function isIOSDevice() {
   return /iP(hone|ad|od)/.test(navigator.userAgent)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function renderDprCap() {
+  if (!isMobileDevice()) return 2.25;
+  if (isIOSDevice()) return 1.4;
+  return 1.5;
 }
 
 function clamp(v, min, max) {
@@ -9633,7 +9676,7 @@ function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   const cssW = Math.max(1, Math.round(rect.width));
   const cssH = Math.max(1, Math.round(rect.height));
-  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const dpr = Math.min(window.devicePixelRatio || 1, renderDprCap());
   const pixelW = Math.round(cssW * dpr);
   const pixelH = Math.round(cssH * dpr);
   if (canvas.width !== pixelW || canvas.height !== pixelH) {
