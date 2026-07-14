@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 238;
+const APP_PUSH_NUMBER = 239;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -49,13 +49,23 @@ const rewardBalance = {
   shopCostFloor: 36,
   shopCostRarity: .32,
   statCaps: {
-    luck: [35, 75],
-    refund: .65,
-    bustRefund: .60,
+    luck: [20, 45],
+    refund: .45,
+    bustRefund: .35,
+    totalLossRefund: .65,
     damageBonus: [65, 150],
     chipBonus: [40, 90],
     heal: [28, 60]
   }
+};
+
+const relicNumericBaseValues = {
+  heal: 12,
+  refund: .15,
+  bustRefund: .15,
+  damageBonus: 12,
+  chipBonus: 8,
+  luck: 12
 };
 
 const threatColors = [
@@ -1291,6 +1301,14 @@ function tableThreatForFloor(floorIndex, threatBoost = 0) {
   return clamp(1 + Math.floor(floorIndex / 2) + Math.max(0, Math.round(threatBoost)), 1, 5);
 }
 
+function threatBasisLine(node, enemy) {
+  const floorPart = `floor ${Math.max(1, (Number(game?.floor) || 0) + 1)}`;
+  const routePart = node?.kind === "boss" ? "boss bonus" : `route pressure +${Math.max(0, (Number(node?.threat) || 1) - (1 + Math.floor((Number(game?.floor) || 0) / 2)))}`;
+  const ruleCount = encounterRulesForDetail(enemy).length;
+  const dealerPressure = Number(enemy?.luck) || 0;
+  return `Threat comes from ${floorPart}, ${routePart}, ${ruleCount} rule${ruleCount === 1 ? "" : "s"}, ${Math.ceil(enemy?.maxHp || enemy?.hp || 0)} HP${dealerPressure ? `, and dealer luck +${dealerPressure}` : ""}.`;
+}
+
 function branchNextIds(index, count, nextIds) {
   if (!nextIds?.length) return [];
   if (nextIds.length <= 2) return [...nextIds];
@@ -1538,12 +1556,15 @@ function createRewardRelic(rarity, baseRelic = null) {
   const scaled = { ...base, type: "relic", baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color, rarityScale: rarity.scale };
   for (const [key, value] of Object.entries(scaled)) {
     if (typeof value === "number" && !["foresightUses"].includes(key)) {
-      scaled[key] = value < 1 ? Number(Math.min(.95, value * rarity.scale).toFixed(2)) : Math.max(1, Math.round(value * rarity.scale));
+      const baseValue = Object.prototype.hasOwnProperty.call(relicNumericBaseValues, key) ? relicNumericBaseValues[key] : value;
+      scaled[key] = baseValue < 1
+        ? Number(Math.min(.95, baseValue * rarity.scale).toFixed(2))
+        : Math.max(1, Math.round(baseValue * rarity.scale));
     }
   }
-  if (scaled.refund) scaled.refund = Number(Math.min(.65, scaled.refund).toFixed(2));
-  if (scaled.bustRefund) scaled.bustRefund = Number(Math.min(.60, scaled.bustRefund).toFixed(2));
-  if (scaled.luck) scaled.luck = Math.min(70, scaled.luck);
+  if (scaled.refund) scaled.refund = Number(Math.min(rewardBalance.statCaps.refund, scaled.refund).toFixed(2));
+  if (scaled.bustRefund) scaled.bustRefund = Number(Math.min(rewardBalance.statCaps.bustRefund, scaled.bustRefund).toFixed(2));
+  if (scaled.luck) scaled.luck = Math.min(45, scaled.luck);
   if (scaled.heal) scaled.heal = Math.min(60, scaled.heal);
   if (scaled.damageBonus) scaled.damageBonus = Math.min(150, scaled.damageBonus);
   if (scaled.chipBonus) scaled.chipBonus = Math.min(90, scaled.chipBonus);
@@ -1711,8 +1732,8 @@ function drawCard(faceUp = true, currentTotal = 0, target = "player", dealKind =
     game.roundDealCount++;
     return dealt;
   };
-  if (luck && Math.random() < Math.min(1, Math.abs(luck) / 100)) {
-    const peek = game.deck.slice(-4);
+  if (luck && Math.random() < Math.min(.55, Math.abs(luck) / 160)) {
+    const peek = game.deck.slice(-3);
     let chosen = peek[0];
     let score = luck > 0 ? Infinity : -Infinity;
     for (const c of peek) {
@@ -2626,7 +2647,7 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
     return lossResultPayload(seat, h, lost, has("freeSurrender") ? "Surrender refunded" : `Surrender -${lost}g`, lost);
   }
   if (isBust(h)) {
-    const refund = cappedRefund(Math.floor(h.bet * (relicStat("refund") + relicStat("bustRefund"))));
+    const refund = cappedRefund(Math.floor(h.bet * relicLossRefundRate(true)));
     addGold(seat, refund, 0);
     return lossResultPayload(seat, h, h.bet - refund, `Bust -${h.bet - refund}g`, h.bet);
   }
@@ -2692,7 +2713,7 @@ function lifeLossForBetLoss(seat, hand, betAtRisk) {
 }
 
 function loseResult(seat, h, msg) {
-  const refund = Math.max(0, Math.min(Math.floor(h.bet * relicStat("refund")), h.bet - 1));
+  const refund = Math.max(0, Math.min(Math.floor(h.bet * relicLossRefundRate(false)), h.bet - 1));
   addGold(seat, refund, 0);
   return lossResultPayload(seat, h, h.bet - refund, `${msg} -${h.bet - refund}g`, h.bet);
 }
@@ -2986,6 +3007,12 @@ function relicStat(prop) {
   if (prop === "bustRefund") return Math.min(caps.bustRefund, raw);
   if (Array.isArray(caps[prop])) return softCapStat(raw, caps[prop][0], caps[prop][1]);
   return raw;
+}
+
+function relicLossRefundRate(includeBust = false) {
+  const caps = rewardBalance.statCaps;
+  const base = relicStat("refund") + (includeBust ? relicStat("bustRefund") : 0);
+  return Math.min(includeBust ? caps.totalLossRefund : caps.refund, base);
 }
 
 function log(text) {
@@ -4115,10 +4142,15 @@ function moneyAfterBetForSeat(seat) {
 }
 
 function safeMaxBetForSeat(seat) {
-  const max = maxBetForSeat(seat);
   const fee = Number(game?.enemy?.hitFee) || 0;
-  if (!fee || max <= MIN_BET) return max;
-  return Math.max(MIN_BET, max - fee);
+  const reserve = fee > 0 ? fee : 0;
+  if (isFreeForAll()) {
+    const available = seatBankroll(seat) - reserve;
+    return Math.max(0, Math.min(MAX_BET, available));
+  }
+  const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
+  const available = (Number(game.gold) || 0) - committedByOthers - reserve;
+  return Math.max(0, Math.min(MAX_BET, available));
 }
 
 function warnHitFeeReserve(seat, fromMaxButton = false) {
@@ -6286,6 +6318,7 @@ function encounterDecisionLines(node, enemy) {
   const hp = Math.ceil(enemy.maxHp || enemy.hp || 0);
   lines.push(`${mapNodeRouteStatus(node)}. ${node.reachable ? "You can choose this table now." : "Selecting it only previews the route."}`);
   lines.push(`Threat ${node.threat || 1}/5 (${threatLabel(node.threat || 1)}). Enemy life: ${hp} HP.`);
+  lines.push(threatBasisLine(node, enemy));
   if (enemy.isBoss) lines.push("Boss fight: longer HP bar, phase changes, and stronger special rules.");
   if (enemy.lossHpMult && enemy.lossHpMult !== 1) lines.push(`Risk: losses hit ${Math.round(enemy.lossHpMult * 100)}% as hard.`);
   if (enemy.hitFee) lines.push(`Risk: every hit costs ${enemy.hitFee} gold.`);
@@ -6294,7 +6327,7 @@ function encounterDecisionLines(node, enemy) {
     lines.push(`Locked option${locked.includes(",") ? "s" : ""}: ${locked}.`);
   }
   if (enemy.luck) lines.push(`Dealer pressure: +${enemy.luck} luck means the table tends to play cleaner.`);
-  return lines.slice(0, 7);
+  return lines.slice(0, 8);
 }
 
 function drawMapEncounterPortrait(node, cx, y, size) {
