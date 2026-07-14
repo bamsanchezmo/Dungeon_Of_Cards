@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 219;
+const APP_PUSH_NUMBER = 220;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -8324,18 +8324,27 @@ function cardPlayAssetKeys() {
 
 function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, includeShop = false) {
   const floor = String(clamp(floorIndex, 0, FLOORS - 1) + 1).padStart(2, "0");
+  const hasSceneArt = floorHasGeneratedSceneArt(floorIndex);
   const keys = [
     "elevatorInteriorFrame", "elevatorDoorHalf",
     `floor${floor}CardBack`, `tableMotif:floor${floor}`,
-    `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-    `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
-    `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`,
     ...cardPlayAssetKeys(),
     "tableBase:grunt",
     "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
   ];
+  if (hasSceneArt) {
+    keys.push(
+      `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
+      `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`
+    );
+  }
   if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
   return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+}
+
+function floorHasGeneratedSceneArt(floorIndex = 0) {
+  return clamp(Number(floorIndex) || 0, 0, FLOORS - 1) <= 3;
 }
 
 function criticalAssetKeys() {
@@ -8360,17 +8369,23 @@ function ensureAssetKey(key, priority = false) {
   if (!key || !handdrawnAssetFiles[key]) return null;
   if (handdrawnImages[key]) return handdrawnImages[key];
   const img = new Image();
+  img._assetKey = key;
+  img._failed = false;
   img.loading = priority ? "eager" : "lazy";
   img.decoding = "async";
   img.fetchPriority = priority || key === "splashBackground" || key === "mainMenuBackground" ? "high" : "auto";
-  img.src = `./assets/${handdrawnAssetFiles[key]}`;
   img.onload = () => {
+    img._failed = false;
     tintedHanddrawnCache.clear();
     chromaKeyedAssetCache.delete(key);
     paletteShiftedAssetCache.clear();
     draw();
   };
-  img.onerror = () => draw();
+  img.onerror = () => {
+    img._failed = true;
+    draw();
+  };
+  img.src = `./assets/${handdrawnAssetFiles[key]}`;
   handdrawnImages[key] = img;
   return img;
 }
@@ -8419,9 +8434,9 @@ function preloadAssetKeys(keys = [], label = "Loading art") {
     started: true,
     label,
     total: valid.length,
-    loaded: valid.filter(handAssetReady).length,
+    loaded: valid.filter(assetLoadSettled).length,
     criticalTotal: valid.length,
-    criticalLoaded: valid.filter(handAssetReady).length,
+    criticalLoaded: valid.filter(assetLoadSettled).length,
     key: preloadKey
   };
   if (!valid.length || assetWarmup.loaded >= valid.length) {
@@ -8447,17 +8462,30 @@ function preloadAssetKeys(keys = [], label = "Loading art") {
 function warmAssetKey(key) {
   const img = ensureAssetKey(key, true);
   if (!img) return Promise.resolve(false);
+  if (img._failed) return Promise.resolve(false);
   if (img.complete && img.naturalWidth > 0) {
     return (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => true);
   }
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
     const done = () => {
-      if (img.decode) img.decode().catch(() => {}).finally(() => resolve(true));
-      else resolve(true);
+      if (img.decode) img.decode().catch(() => {}).finally(() => finish(true));
+      else finish(true);
     };
     img.addEventListener("load", done, { once: true });
-    img.addEventListener("error", () => resolve(false), { once: true });
+    img.addEventListener("error", () => finish(false), { once: true });
+    setTimeout(() => finish(false), 6500);
   });
+}
+
+function assetLoadSettled(key) {
+  const img = handdrawnImages[key];
+  return !!img && ((img.complete && img.naturalWidth > 0) || img._failed);
 }
 
 function warmupAssets(priorityOnly = false) {
