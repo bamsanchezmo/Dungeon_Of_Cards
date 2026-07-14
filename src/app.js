@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 208;
+const APP_PUSH_NUMBER = 209;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -6710,6 +6710,7 @@ function drawTowerElevatorShop(lw, lh, portrait) {
   drawElevatorExteriorMask(stage);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true, stage);
+  drawElevatorShopStatusHeader(lw, portrait);
   const panelH = portrait ? 260 : 150;
   const panelCenterY = lh * (portrait ? .76 : .72);
   const panelY = Math.min(lh - panelH - (portrait ? 18 : 20), Math.max(lh * .55, panelCenterY - panelH / 2));
@@ -6745,6 +6746,22 @@ function drawElevatorMerchantDialog(line, cx, y, w, portrait) {
   wrapTextSized(line, x + 28, y + (portrait ? 58 : 49), w - 56, portrait ? 20 : 17, portrait ? 16 : 14, C.text, 2);
 }
 
+function drawElevatorShopStatusHeader(lw, portrait) {
+  const ui = activeFloorUi();
+  const topY = portrait ? 24 : 22;
+  const statsX = portrait ? 20 : 28;
+  const statsW = portrait ? Math.min(184, lw * .32) : Math.min(330, lw * .28);
+  const statsH = portrait ? 52 : 42;
+  shadow(0, 12, 28, "rgba(0,0,0,.45)", () => {
+    gradientRound(statsX, topY, statsW, statsH, 14, [[0, "rgba(8,6,12,.80)"], [1, hexToRgba(ui.panelBottom, .92)]], true);
+  });
+  strokeRound(statsX, topY, statsW, statsH, 14, hexToRgba(ui.border, .55), 1.5);
+  textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, topY + statsH / 2 + 5, statsW - 18, portrait ? 14 : 15, C.text, "center");
+  const menuW = portrait ? 92 : 96;
+  const menuH = portrait ? 46 : 38;
+  addButton(lw - menuW - (portrait ? 20 : 28), topY + (portrait ? 2 : 0), menuW, menuH, "Menu", () => menuOpen = true);
+}
+
 function drawCompactShopCard(item, index, x, y, w, h) {
   const meta = rewardTypeMeta(item);
   const color = item.rarityColor || meta.color || C.gold;
@@ -6756,7 +6773,7 @@ function drawCompactShopCard(item, index, x, y, w, h) {
   drawMapRewardIcon(item, x + 28, y + h / 2 - 8, iconSize, color);
   textFit(item.name, x + 54, y + 26, w - 62, 14, color);
   textFit(meta.label, x + 54, y + 46, w - 62, 11, C.muted);
-  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
+  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, true);
 }
 
 function drawShopRelicCard(relic, index, x, y) {
