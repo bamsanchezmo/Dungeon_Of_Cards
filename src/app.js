@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 195;
+const APP_PUSH_NUMBER = 196;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -283,6 +283,38 @@ const quickDifficultyLabels = {
   normal: "Normal",
   fast: "Fast",
   brutal: "Brutal"
+};
+const ELEVATOR_MERCHANT_NAME = "Grindle Crankpocket";
+const elevatorMerchantDialogs = {
+  first: [
+    "Pssst. Pardon the ride interruption. I gots some goods to offload, and this elevator ain't exactly inspected.",
+    "Don't scream. Screaming makes the pulleys nervous. Name's Grindle. I sell miracles with suspicious dents.",
+    "First time in my shaft, eh? Relax. Mostly safe. Legally unrelated to the casino."
+  ],
+  repeat: [
+    "Ah, my favorite vertical trespasser. Back for more questionably sourced excellence?",
+    "Look who survived another floor. I was almost worried. Almost is free; worry costs extra.",
+    "You again. Good. The elevator remembers your smell, and so do my invoices.",
+    "Climbin' higher, pockets heavier. Funny how fate keeps stoppin' near my merchandise."
+  ],
+  bought: [
+    "Pleasure doin' business. I would've sold it cheaper, but then we'd both respect me less.",
+    "No refunds, no witnesses, no paperwork. Beautiful transaction.",
+    "You bought the good one. Or the cursed one. Hard to tell under elevator light.",
+    "A fine purchase. If anyone asks, you found it in a respectable trash fire."
+  ],
+  close: [
+    "Suit yourself. More suspicious bargains for the next desperate climber.",
+    "No sale? Cold. I risked at least two fingers stoppin' this thing.",
+    "Fine, close the door. I'll just sit here with my legal-adjacent inventory.",
+    "Walk away now. Dream about discounts later. That's how I get ya."
+  ],
+  broke: [
+    "Oof. Those pockets echo louder than the shaft.",
+    "I accept gold, gems, secrets, and dignity. Looks like you're short on all four.",
+    "Broke? In a casino elevator? That is almost art.",
+    "Come back when your wallet stops wheezing."
+  ]
 };
 const savedMode = localStorage.getItem("dungeon-mode");
 let modePreference = modeLabels[savedMode] ? savedMode : (localStorage.getItem("dungeon-free-play") === "true" ? "freePlay" : "classic");
@@ -1082,6 +1114,21 @@ function createTowerElevatorShopChoices(fromFloor, toFloor) {
     withCost(createQuickPerkReward("damage", Math.max(1, Number(toFloor) || 1), rarity(1)), 1.25),
     withCost(createQuickPerkReward(healthType, Math.max(1, Number(toFloor) || 1), rarity(2)), healthType === "heal" ? .75 : 1.05)
   ]);
+}
+
+function pickElevatorMerchantDialog(kind, visit = game?.elevatorMerchantVisits || 0) {
+  const firstVisit = (Number(visit) || 0) <= 1;
+  const key = kind === "greeting" ? (firstVisit ? "first" : "repeat") : kind;
+  const pool = elevatorMerchantDialogs[key] || elevatorMerchantDialogs.repeat;
+  return pool[Math.floor(Math.random() * pool.length)] || "";
+}
+
+function setElevatorMerchantDialog(kind) {
+  if (!game?.shopContext) return "";
+  const line = pickElevatorMerchantDialog(kind, game.shopContext.visitNumber || game.elevatorMerchantVisits || 1);
+  game.shopContext.dialog = line;
+  game.shopContext.dialogKind = kind;
+  return line;
 }
 
 function createQuickPerkReward(type, quickFloor, rarity) {
@@ -1991,7 +2038,17 @@ function finishFloorTransition() {
     const fromFloor = game.floorTransition.from || game.floor + 1;
     const toFloor = game.floorTransition.to || fromFloor + 1;
     game.phase = "shop";
-    game.shopContext = { kind: "towerElevator", fromFloor, toFloor };
+    const visitNumber = (Number(game.elevatorMerchantVisits) || 0) + 1;
+    game.elevatorMerchantVisits = visitNumber;
+    game.shopContext = {
+      kind: "towerElevator",
+      fromFloor,
+      toFloor,
+      visitNumber,
+      merchantName: ELEVATOR_MERCHANT_NAME
+    };
+    game.shopContext.dialog = pickElevatorMerchantDialog("greeting", visitNumber);
+    game.shopContext.dialogKind = "greeting";
     game.shop = createTowerElevatorShopChoices(fromFloor, toFloor);
     game.relicVotes = {};
     game.floorTransition.shopVisited = true;
@@ -2455,10 +2512,14 @@ function buyRelic(index) {
   if (game.shopContext?.kind === "towerElevator") {
     const cost = Number(relic.shopCost) || 0;
     const buyer = mySeat() || game.seats[0];
-    if (!spendGold(buyer, cost)) return flashMsg("Not enough gold");
+    if (!spendGold(buyer, cost)) {
+      setElevatorMerchantDialog("broke");
+      sfx("lose");
+      return flashMsg("Not enough gold");
+    }
     sfx("coinDown");
     claimMapReward(relic);
-    resumeTowerAfterElevatorShop();
+    resumeTowerAfterElevatorShop("bought");
     return;
   }
   if (isQuickRun()) {
@@ -2481,19 +2542,30 @@ function buyRelic(index) {
 
 function skipShop() {
   if (game?.shopContext?.kind === "towerElevator") {
-    resumeTowerAfterElevatorShop();
+    resumeTowerAfterElevatorShop("close");
     return;
   }
   nextBattle();
 }
 
-function resumeTowerAfterElevatorShop() {
+function resumeTowerAfterElevatorShop(outcome = "close") {
   if (!game?.shopContext || !game.floorTransition) return;
-  const targetFloor = clamp((Number(game.shopContext.toFloor) || game.floor + 2) - 1, 0, towerFloorCount() - 1);
+  const fromFloor = Number(game.shopContext.fromFloor) || game.floor + 1;
+  const toFloor = Number(game.shopContext.toFloor) || game.floor + 2;
+  const line = setElevatorMerchantDialog(outcome === "bought" ? "bought" : "close");
   game.shop = [];
   game.shopContext = null;
   game.relicVotes = {};
-  enterTowerFloor(targetFloor);
+  game.phase = "floorTransition";
+  game.floorTransition = {
+    from: fromFloor,
+    to: toFloor,
+    startedAt: Date.now(),
+    duration: 4300,
+    stopAtShop: false,
+    afterShop: true,
+    shopFarewell: line
+  };
 }
 
 function nextBattle() {
@@ -4632,7 +4704,9 @@ function drawFloorTransition() {
   const ui = activeFloorUi();
   const stage = elevatorStageRect(lw, lh);
   const shopStop = !!game.floorTransition?.stopAtShop;
-  if (shopStop) {
+  const afterShop = !!game.floorTransition?.afterShop;
+  const afterShopClosing = afterShop && progress < .42;
+  if (shopStop || afterShopClosing) {
     const rawShake = clamp((progress - .28) / .12, 0, 1) * clamp((.72 - progress) / .32, 0, 1);
     const shake = rawShake * (portrait ? 10 : 7);
     stage.x += Math.sin(progress * 190) * shake;
@@ -4640,9 +4714,9 @@ function drawFloorTransition() {
   }
   fill("#050409", 0, 0, lw, lh);
   const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
-  const revealKey = shopStop ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
-  if (shopStop) {
-    if (revealKey) drawRawAssetCover(revealKey, 0, 0, lw, lh, .96);
+  const revealKey = (shopStop || afterShopClosing) ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
+  if (shopStop || afterShopClosing) {
+    if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
     else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
     const shaftRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
     if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
@@ -4657,12 +4731,24 @@ function drawFloorTransition() {
     drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
   }
   fill("rgba(0,0,0,.18)", 0, 0, lw, lh);
-  const openBase = clamp((progress - .25) / .68, 0, 1);
-  const open = shopStop ? Math.min(1, openBase * 1.15) : openBase;
-  drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, shopStop);
+  let open = 0;
+  let doorStagger = shopStop || afterShopClosing;
+  if (afterShop) {
+    open = afterShopClosing
+      ? 1 - clamp(progress / .42, 0, 1)
+      : clamp((progress - .55) / .42, 0, 1);
+    doorStagger = afterShopClosing;
+  } else {
+    const openBase = clamp((progress - .25) / .68, 0, 1);
+    open = shopStop ? Math.min(1, openBase * 1.15) : openBase;
+  }
+  drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, doorStagger);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
-  drawElevatorFloorIndicator(from, to, progress, eased, shopStop, stage);
-  text(shopStop ? "The elevator rattles. A pulley shop catches the shaft." : "Doors opening to the next floor.", lw / 2, lh - (portrait ? 54 : 38), portrait ? 20 : 18, C.text, "center");
+  drawElevatorFloorIndicator(from, to, progress, eased, shopStop && !afterShop, stage, afterShop);
+  if (afterShopClosing && t.shopFarewell) {
+    drawElevatorMerchantDialog(t.shopFarewell, lw / 2, lh * (portrait ? .64 : .60), Math.min(lw - 80, portrait ? 620 : 760), portrait);
+  }
+  text(shopStop ? "The elevator rattles. A pulley shop catches the shaft." : afterShop ? "The doors close. The climb resumes." : "Doors opening to the next floor.", lw / 2, lh - (portrait ? 54 : 38), portrait ? 20 : 18, C.text, "center");
 }
 
 function elevatorStageRect(lw = layoutW(), lh = layoutH()) {
@@ -4741,7 +4827,7 @@ function drawElevatorShaftLines(x, y, w, h, ui, progress = 0) {
   ctx.restore();
 }
 
-function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false, stage = null) {
+function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false, stage = null, forceDestination = false) {
   const lw = layoutW(), portrait = viewport.portrait;
   const anchor = stage || { x: 0, y: 0, w: lw, h: layoutH() };
   const display = progress < .5 ? from : to;
@@ -4756,7 +4842,9 @@ function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopSt
   text(shopStop ? "SERVICE STOP" : "FLOOR", x + boxW / 2, y + (portrait ? 22 : 25), portrait ? 13 : 14, C.muted, "center");
   const numberY = y + (portrait ? 62 : 68);
   const numberSize = portrait ? 40 : 42;
-  if (shopStop) {
+  if (forceDestination) {
+    text(String(to), x + boxW / 2, numberY, numberSize, "#fff3ad", "center", "serif");
+  } else if (shopStop) {
     const splitY = y + (portrait ? 34 : 38);
     const splitH = boxH - (portrait ? 42 : 46);
     ctx.save();
@@ -6473,6 +6561,9 @@ function drawTowerElevatorShop(lw, lh, portrait) {
   const panelH = portrait ? 260 : 150;
   const panelCenterY = lh * (portrait ? .76 : .72);
   const panelY = Math.min(lh - panelH - (portrait ? 18 : 20), Math.max(lh * .55, panelCenterY - panelH / 2));
+  const dialogW = Math.min(lw - 80, portrait ? 620 : 780);
+  const dialogY = Math.max(90, panelY - (portrait ? 132 : 106));
+  drawElevatorMerchantDialog(game.shopContext?.dialog || pickElevatorMerchantDialog("greeting", game.shopContext?.visitNumber || 1), lw / 2, dialogY, dialogW, portrait);
   shadow(0, -10, 36, "rgba(0,0,0,.55)", () => gradientRound(24, panelY, lw - 48, panelH, 20, [[0, "rgba(12,9,15,.62)"], [1, "rgba(8,6,10,.92)"]], true));
   strokeRound(24, panelY, lw - 48, panelH, 20, hexToRgba(C.gold, .45), 2);
   text(`ELEVATOR SHOP ${game.shopContext.fromFloor}.5`, lw / 2, panelY + (portrait ? 34 : 30), portrait ? 24 : 22, C.gold, "center", "serif");
@@ -6490,6 +6581,18 @@ function drawTowerElevatorShop(lw, lh, portrait) {
   }
 }
 
+function drawElevatorMerchantDialog(line, cx, y, w, portrait) {
+  const h = portrait ? 104 : 86;
+  const x = cx - w / 2;
+  shadow(0, 12, 34, "rgba(0,0,0,.56)", () => {
+    gradientRound(x, y, w, h, 18, [[0, "rgba(31,23,38,.94)"], [1, "rgba(9,7,12,.94)"]], true);
+  });
+  strokeRound(x, y, w, h, 18, "rgba(220,180,70,.65)", 2);
+  fill("rgba(128,210,99,.1)", x + 14, y + 12, w - 28, portrait ? 26 : 22, 11);
+  text(`${ELEVATOR_MERCHANT_NAME}:`, x + 28, y + (portrait ? 32 : 28), portrait ? 17 : 14, "#a8ff78", "left", "serif");
+  wrapTextSized(line, x + 28, y + (portrait ? 58 : 49), w - 56, portrait ? 20 : 17, portrait ? 16 : 14, C.text, 2);
+}
+
 function drawCompactShopCard(item, index, x, y, w, h) {
   const meta = rewardTypeMeta(item);
   const color = item.rarityColor || meta.color || C.gold;
@@ -6501,7 +6604,7 @@ function drawCompactShopCard(item, index, x, y, w, h) {
   drawMapRewardIcon(item, x + 28, y + h / 2 - 8, iconSize, color);
   textFit(item.name, x + 54, y + 26, w - 62, 14, color);
   textFit(meta.label, x + 54, y + 46, w - 62, 11, C.muted);
-  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
+  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, true);
 }
 
 function drawShopRelicCard(relic, index, x, y) {
