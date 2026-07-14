@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 202;
+const APP_PUSH_NUMBER = 203;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -306,37 +306,37 @@ const quickDifficultyLabels = {
 const ELEVATOR_MERCHANT_NAME = "Grindle Crankpocket";
 const elevatorMerchantDialogs = {
   first: [
-    "Pssst. Don't touch the emergency bell. It owes me money. Name's Grindle, and these goods fell off a very slow elevator.",
-    "First time gettin' mugged politely between floors? Relax. If the casino wanted me gone, it should've used better bolts.",
-    "Welcome to my shaft, high-roller. I live here because every respectable basement voted me out."
+    "Pssst. Don't yell. Security thinks they sealed this shaft. Name's Grindle. I sell what the casino was careless enough to lose.",
+    "First time between floors? Good. Less chance you've heard the slander. I'm Grindle, and every word of it is mostly true.",
+    "Welcome to my shop. The casino banned me, the dealers hate me, and the elevator still lets me in. Says plenty, don't it?"
   ],
   repeat: [
-    "Ah, my favorite walking purse. Back for more miracles with bite marks?",
-    "Look who survived another floor. Shame. I had a lovely price planned for your unattended wallet.",
-    "You again. Good. The elevator hates you slightly less than it hates me, so we're basically partners.",
-    "Climbin' higher, pockets heavier. Tragic condition. I can fix half of that.",
-    "I heard the dealers complainin' about you. Naturally, I took their side, then robbed their coatroom."
+    "Back again. Either you're desperate, or you've developed taste. I charge extra for both.",
+    "You keep climbing, I keep appearing. Horrible arrangement for everyone but me.",
+    "The pit bosses are looking for me. So if anyone asks, you bought nothing and saw an ugly pipe.",
+    "Higher floors, nastier tables, same honest Grindle. Well. Same Grindle.",
+    "I heard the dealers hate you now too. Finally, something we have in common."
   ],
   bought: [
-    "Pleasure doin' business. I would've sold it cheaper, but I enjoy who I am.",
-    "No refunds, no witnesses, no paperwork. If it screams, that's a feature.",
-    "You bought the good one. Or the cursed one. I rubbed the labels off for excitement.",
-    "A fine purchase. If anyone asks, you stole it from me and I cried. Makes us both look better.",
-    "Beautiful. I love a customer who confuses desperation for taste."
+    "Pleasure doing business. No refunds, no receipts, no crying where I can hear it.",
+    "Good choice. Probably. I don't test merchandise. That's what customers are for.",
+    "Take it quick. If security asks, you robbed me. They'll believe that before they believe I made an honest sale.",
+    "A fine purchase. Morally filthy, financially elegant.",
+    "Look at you, funding local elevator crime. Warms the little coal where my heart should be."
   ],
   close: [
-    "Suit yourself. I'll sell it to someone with courage, money, or worse parents.",
-    "No sale? Cold. I risked three fingers stoppin' this thing. Two weren't even mine.",
-    "Fine, close the door. I'll just sit here, beloved by mold and feared by inspectors.",
-    "Walk away now. Dream about discounts later. That's how I get ya.",
-    "Go on, then. Tell the next floor I said it looks cheap."
+    "No sale? Fine. I'll sit here with my goods and the mold. At least the mold listens.",
+    "Close the door, then. But when the next table cheats you, remember I offered solutions.",
+    "Suit yourself. The casino hates a cautious spender. I hate one too, but cheaper.",
+    "Fine, go climb. Try not to die before you owe me money.",
+    "Leaving empty-handed? Brave. Stupid and brave look similar from down here."
   ],
   broke: [
-    "Oof. Those pockets echo louder than the shaft. Embarrassin' acoustics.",
-    "I accept gold, gems, secrets, and dignity. Looks like you're short on all four.",
-    "Broke? In a casino elevator? That is almost art. Bad art, but still.",
-    "Come back when your wallet stops wheezing, charity case.",
-    "If poverty was currency, you'd own the building. Unfortunately, I invented that joke before I invented mercy."
+    "No gold? Then why did the elevator stop? I don't do charity, I do mistakes.",
+    "Your purse is empty. Tragic. Not for me, obviously, but someone should care.",
+    "Broke already? The tables upstairs are going to peel you like wallpaper.",
+    "Come back when your wallet has a pulse.",
+    "I take gold, valuables, and regrettable secrets. You appear to have brought vibes."
   ]
 };
 const savedMode = localStorage.getItem("dungeon-mode");
