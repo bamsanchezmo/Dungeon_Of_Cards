@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 229;
+const APP_PUSH_NUMBER = 230;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -3483,7 +3483,7 @@ function restoreGameFromSave(entry, scope = "solo") {
   game.mapReady = game.mapReady || {};
   game.log = Array.isArray(game.log) ? game.log : ["Save restored."];
   appScene = "game";
-  restoreAssetGate = { ready: false, label: "Loading save" };
+  restoreAssetGate = { ready: false, label: "Loading save", transition: createRestoreElevatorTransition(game) };
   localPlayerId = hostId;
   role = scope === "multi" ? "host" : "solo";
   cardAnimations = [];
@@ -3495,8 +3495,25 @@ function restoreGameFromSave(entry, scope = "solo") {
   preloadRelicAssets(game.relics || []);
   if (game.phase === "map") refreshReachableNodes();
   const keys = restoreAssetKeys();
-  restoreAssetGate.promise = preloadAssetKeys(keys, `Loading ${game.runType === "quick" ? "Quick Run" : `Floor ${(Number(game.floor) || 0) + 1}`} Save`).then(() => {
+  const required = restoreRequiredAssetKeys(game);
+  const label = `Loading ${game.runType === "quick" ? "Quick Run" : `Floor ${(Number(game.floor) || 0) + 1}`} Save`;
+  restoreAssetGate.promise = preloadAssetKeys(keys, label).then(() => ensureRequiredAssetKeys(required, label)).then((ok) => {
     if (!restoreAssetGate) return true;
+    if (!ok) {
+      restoreAssetGate.label = "Retrying table art";
+      setTimeout(() => {
+        if (!restoreAssetGate) return;
+        restoreAssetGate.promise = ensureRequiredAssetKeys(required, label).then((retryOk) => {
+          if (retryOk && restoreAssetGate) {
+            restoreAssetGate.ready = true;
+            restoreAssetGate = null;
+            draw();
+          }
+        });
+      }, 700);
+      draw();
+      return false;
+    }
     restoreAssetGate.ready = true;
     restoreAssetGate = null;
     draw();
@@ -4412,6 +4429,8 @@ function draw() {
     drawSplash();
   } else if (!game || appScene === "menu") {
     drawMenu();
+  } else if (restoreAssetGate && !restoreAssetGate.ready) {
+    drawRestoreLoadingOverlay();
   } else {
     if (game.phase === "map") {
       drawDungeonMap();
@@ -4426,13 +4445,6 @@ function draw() {
       if (game.peekCard) drawPeekOverlay();
       if (game.developerTest) drawDeveloperTableNavigatorControls();
     }
-  }
-  if (restoreAssetGate && !restoreAssetGate.ready) {
-    buttons = [];
-    drawRestoreLoadingOverlay();
-    ctx.restore();
-    drawFeedbackAnimations();
-    return;
   }
   if (statsPlayerId) drawStatsOverlay();
   if (rulesOpen) drawRulesOverlay();
@@ -4558,6 +4570,20 @@ function drawAssetWarmupHint(cx, cy, w) {
 }
 
 function drawRestoreLoadingOverlay() {
+  const gate = restoreAssetGate;
+  if (gate) {
+    const savedTransition = game.floorTransition;
+    const transition = gate.transition || createRestoreElevatorTransition(game);
+    transition.assetsReady = false;
+    transition.assetPromise = Promise.resolve(true);
+    game.floorTransition = transition;
+    drawFloorTransition();
+    game.floorTransition = savedTransition;
+    const lw = layoutW();
+    const lh = layoutH();
+    text("Restoring saved floor...", lw / 2, lh - (viewport.portrait ? 88 : 68), viewport.portrait ? 18 : 16, C.muted, "center");
+    return;
+  }
   const lw = layoutW();
   const lh = layoutH();
   const w = Math.min(lw - 80, viewport.portrait ? 500 : 560);
@@ -4579,6 +4605,20 @@ function drawRestoreLoadingOverlay() {
   ctx.restore();
   text("Loading save assets", lw / 2, y + (viewport.portrait ? 94 : 86), viewport.portrait ? 25 : 22, C.text, "center", "serif");
   drawAssetWarmupHint(lw / 2, y + h - 52, w - 72);
+}
+
+function createRestoreElevatorTransition(source = game) {
+  const floor = clamp((Number(source?.floor) || 0) + 1, 1, runFloorCount());
+  return {
+    from: Math.max(1, floor - 1),
+    to: floor,
+    startedAt: Date.now(),
+    duration: 3200,
+    assetsReady: false,
+    doorDingPlayed: false,
+    restoreLoading: true,
+    assetPromise: Promise.resolve(true)
+  };
 }
 
 function drawElevatorLoadingHint(cx, cy, w) {
@@ -8540,6 +8580,43 @@ function restoreAssetKeys(source = game) {
     ...collectRelicAssetKeysFromState(source)
   ];
   return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+}
+
+function restoreRequiredAssetKeys(source = game) {
+  const keys = [
+    "tableBase:grunt",
+    ...allGruntAssetKeys(),
+    ...collectRelicAssetKeysFromState(source)
+  ];
+  if (Array.isArray(source?.map?.nodes)) {
+    source.map.nodes.forEach((node) => {
+      if (node.kind === "table") {
+        keys.push("tableBase:grunt");
+        keys.push(node.encounter?.gruntArtKey);
+      }
+    });
+  }
+  if (source?.enemy && !source.enemy.isBoss) keys.push(source.enemy.gruntArtKey || gruntAssetKeyForEnemy(source.enemy));
+  return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+}
+
+function ensureRequiredAssetKeys(keys = [], label = "Loading required art", attempt = 0) {
+  const required = [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+  if (!required.length || required.every(handAssetReady)) return Promise.resolve(true);
+  assetWarmup.label = label;
+  assetWarmup.total = Math.max(assetWarmup.total || 0, required.length);
+  assetWarmup.criticalTotal = required.length;
+  assetWarmup.criticalLoaded = required.filter(handAssetReady).length;
+  return Promise.all(required.map((key) => warmAssetKey(key))).then(() => {
+    assetWarmup.criticalLoaded = required.filter(handAssetReady).length;
+    draw();
+    if (required.every(handAssetReady)) return true;
+    if (attempt >= 3) {
+      console.warn("Required art still missing after retries", required.filter((key) => !handAssetReady(key)));
+      return false;
+    }
+    return new Promise((resolve) => setTimeout(resolve, 350)).then(() => ensureRequiredAssetKeys(required, label, attempt + 1));
+  });
 }
 
 function floorHasGeneratedSceneArt(floorIndex = 0) {
