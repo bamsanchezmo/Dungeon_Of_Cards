@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 223;
+const APP_PUSH_NUMBER = 224;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4582,9 +4582,9 @@ function drawElevatorLoadingHint(cx, cy, w) {
 
 function drawMainMenuTitle(table, cx, portrait) {
   const now = performance.now();
-  const y = table.y + (portrait ? 58 : 60);
-  const plaqueW = Math.min(table.w - 110, portrait ? 520 : 600);
-  const plaqueH = portrait ? 150 : 142;
+  const y = table.y + (portrait ? 54 : 60);
+  const plaqueW = Math.min(table.w - (portrait ? 140 : 110), portrait ? 500 : 600);
+  const plaqueH = portrait ? 126 : 142;
   const x = cx - plaqueW / 2;
   const shimmer = .5 + .5 * Math.sin(now * .0021);
   shadow(0, 18, 38, "rgba(0,0,0,.45)", () => {
@@ -4598,15 +4598,15 @@ function drawMainMenuTitle(table, cx, portrait) {
   strokeRound(x + 12, y + 12, plaqueW - 24, plaqueH - 24, 17, "rgba(238,231,215,.10)", 1);
   fill("rgba(220,180,70,.10)", x + 26, y + 24, plaqueW - 52, 2, 1);
   fill("rgba(220,180,70,.10)", x + 26, y + plaqueH - 26, plaqueW - 52, 2, 1);
-  drawHandAssetFit("goldMark", x + 54, y + plaqueH / 2, portrait ? 42 : 36, C.gold, "center", .75);
-  drawHandAssetFit("goldMark", x + plaqueW - 54, y + plaqueH / 2, portrait ? 42 : 36, C.gold, "center", .75);
+  drawHandAssetFit("goldMark", x + 54, y + plaqueH / 2, portrait ? 34 : 36, C.gold, "center", .75);
+  drawHandAssetFit("goldMark", x + plaqueW - 54, y + plaqueH / 2, portrait ? 34 : 36, C.gold, "center", .75);
   ctx.save();
   ctx.shadowColor = `rgba(220,180,70,${.34 + shimmer * .28})`;
   ctx.shadowBlur = 18 + shimmer * 13;
-  text("DUNGEON", cx, y + (portrait ? 62 : 58), portrait ? 54 : 60, C.gold, "center", "serif");
+  text("DUNGEON", cx, y + (portrait ? 52 : 58), portrait ? 45 : 60, C.gold, "center", "serif");
   ctx.restore();
-  text("of CARDS", cx, y + (portrait ? 108 : 103), portrait ? 42 : 44, C.parchment, "center", "serif");
-  text("Blackjack roguelike casino climb", cx, y + plaqueH + (portrait ? 27 : 24), portrait ? 17 : 15, hexToRgba(C.text, .80), "center");
+  text("of CARDS", cx, y + (portrait ? 91 : 103), portrait ? 36 : 44, C.parchment, "center", "serif");
+  text("Blackjack roguelike casino climb", cx, y + plaqueH + (portrait ? 22 : 24), portrait ? 16 : 15, hexToRgba(C.text, .80), "center");
 }
 
 function drawMainMenuContentLegacyUnused(table, cx, portrait) {
@@ -4647,17 +4647,17 @@ function drawModeCardLegacyUnused(x, y, w, h, title, body, onClick, primary = fa
 function drawMainMenuContent(table, cx, portrait) {
   if (menuView === "tower") return drawRunSetupMenu(table, cx, portrait, "tower");
   if (menuView === "quick") return drawRunSetupMenu(table, cx, portrait, "quick");
-  const chooseY = table.y + (portrait ? 262 : 250);
+  const chooseY = table.y + (portrait ? 254 : 250);
   fill("rgba(7,6,10,.42)", cx - (portrait ? 220 : 190), chooseY - 27, portrait ? 440 : 380, portrait ? 48 : 40, 18);
   strokeRound(cx - (portrait ? 220 : 190), chooseY - 27, portrait ? 440 : 380, portrait ? 48 : 40, 18, "rgba(238,231,215,.10)", 1);
   text("Choose your run", cx, chooseY + (portrait ? 5 : 3), portrait ? 28 : 23, C.text, "center", "serif");
   const cardW = portrait ? table.w - 108 : Math.min(340, table.w * .38);
-  const cardH = portrait ? 188 : 210;
+  const cardH = portrait ? 204 : 210;
   const gap = portrait ? 24 : 28;
   const startY = chooseY + (portrait ? 70 : 68);
   const towerX = portrait ? table.x + 54 : cx - cardW - gap / 2;
   const quickX = portrait ? table.x + 54 : cx + gap / 2;
-  const quickY = portrait ? startY + cardH + 22 : startY;
+  const quickY = portrait ? startY + cardH + 20 : startY;
   drawModeCard(towerX, startY, cardW, cardH, "Tower Run", "Climb 2-10 casino floors with maps, bosses, routes, shops, and floor themes.", ["Campaign", "Maps", "Bosses"], () => {
     selectedRunType = "tower";
     menuView = "tower";
@@ -4668,7 +4668,7 @@ function drawMainMenuContent(table, cx, portrait) {
     menuView = "quick";
     localStorage.setItem("dungeon-run-type", selectedRunType);
   }, false);
-  const playerY = portrait ? quickY + cardH + 26 : startY + cardH + 36;
+  const playerY = portrait ? quickY + cardH + 24 : startY + cardH + 36;
   const buttonW = portrait ? Math.min(480, table.w - 120) : 300;
   addButton(cx - buttonW / 2, playerY, buttonW, portrait ? 66 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
 }
@@ -4676,6 +4676,26 @@ function drawMainMenuContent(table, cx, portrait) {
 function drawModeCard(x, y, w, h, title, body, tags = [], onClick = () => {}, primary = false) {
   const theme = primary ? C.gold : "#67c9ff";
   const hot = inRect(hover, { x, y, w, h });
+  if (viewport.portrait) {
+    shadow(0, hot ? 22 : 16, hot ? 46 : 34, hot ? hexToRgba(theme, .22) : "rgba(0,0,0,.42)", () => {
+      gradientRound(x, y, w, h, 20, [[0, hexToRgba(theme, primary ? .22 : .18)], [.52, "rgba(13,10,18,.92)"], [1, "rgba(22,16,30,.96)"]], true);
+    });
+    strokeRound(x, y, w, h, 20, hexToRgba(theme, hot ? .95 : .72), hot ? 3 : 2.2);
+    fill(hexToRgba(theme, .12), x + 16, y + 16, w - 32, 48, 16);
+    text(primary ? "♛" : "♠", x + 42, y + 50, 25, hexToRgba(theme, .9), "center", "serif");
+    text(title, x + 68, y + 48, 27, primary ? C.gold : C.parchment, "left", "serif");
+    wrapTextSized(body, x + 26, y + 84, w - 52, 19, 15, C.text, 2);
+    const tagY = y + 124;
+    const tagW = Math.floor((w - 60) / 3);
+    tags.slice(0, 3).forEach((tag, i) => {
+      const tx = x + 24 + i * (tagW + 6);
+      fill("rgba(238,231,215,.07)", tx, tagY, tagW, 28, 12);
+      strokeRound(tx, tagY, tagW, 28, 12, hexToRgba(theme, .25), 1);
+      textFit(tag, tx + tagW / 2, tagY + 19, tagW - 10, 12, C.muted, "center");
+    });
+    addButton(x + 28, y + h - 58, w - 56, 48, "Select", onClick, primary);
+    return;
+  }
   shadow(0, hot ? 22 : 16, hot ? 46 : 34, hot ? hexToRgba(theme, .22) : "rgba(0,0,0,.42)", () => {
     gradientRound(x, y, w, h, 20, [[0, hexToRgba(theme, primary ? .22 : .18)], [.52, "rgba(13,10,18,.92)"], [1, "rgba(22,16,30,.96)"]], true);
   });
@@ -4698,19 +4718,19 @@ function drawModeCard(x, y, w, h, title, body, tags = [], onClick = () => {}, pr
 function drawRunSetupMenu(table, cx, portrait, runType) {
   selectedRunType = runType;
   const title = runTypeLabels[runType];
-  const y0 = table.y + (portrait ? 266 : 252);
+  const y0 = table.y + (portrait ? 304 : 252);
   const theme = runType === "tower" ? C.gold : "#67c9ff";
   fill("rgba(7,6,10,.46)", cx - (portrait ? 240 : 230), y0 - 42, portrait ? 480 : 460, portrait ? 108 : 94, 22);
   strokeRound(cx - (portrait ? 240 : 230), y0 - 42, portrait ? 480 : 460, portrait ? 108 : 94, 22, hexToRgba(theme, .36), 1.5);
   text(title, cx, y0, portrait ? 38 : 32, theme, "center", "serif");
-  text(runType === "tower"
+  textFit(runType === "tower"
     ? "Map routes, floor bosses, elevator climb."
     : "Straight to blackjack tables and quick upgrade picks.",
-    cx, y0 + (portrait ? 42 : 36), portrait ? 21 : 17, C.muted, "center");
+    cx, y0 + (portrait ? 42 : 36), portrait ? 430 : 420, portrait ? 21 : 17, C.muted, "center");
   const buttonW = portrait ? Math.min(500, table.w - 100) : 360;
   const x = cx - buttonW / 2;
-  const h = portrait ? 66 : 46;
-  const gap = portrait ? 78 : 54;
+  const h = portrait ? 62 : 46;
+  const gap = portrait ? 72 : 54;
   const startY = y0 + (portrait ? 104 : 88);
   if (runType === "tower") {
     addButton(x, startY, buttonW, h, `Tower Length: ${towerLengthPreference} floors`, cycleTowerLengthPreference, false);
