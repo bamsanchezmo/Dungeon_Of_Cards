@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 235;
+const APP_PUSH_NUMBER = 236;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -754,6 +754,7 @@ function tick(now) {
     game.dealerTimer -= dt;
     if (game.dealerTimer <= 0) settleRound();
   }
+  updateRouteRoulette();
   updateFloorClearCeremony();
   updateFloorTransitionAudio();
   if (game?.phase === "floorTransition" && game.floorTransition?.assetsReady !== false && Date.now() - (game.floorTransition?.startedAt || Date.now()) > (game.floorTransition?.duration || 2600)) {
@@ -786,6 +787,7 @@ function isRenderAnimationActive() {
     || game?.phase === "dealerReveal"
     || game?.phase === "floorTransition"
     || !!game?.floorClearCeremony
+    || !!game?.routeRoulette
     || !!game?.relicPopup;
 }
 
@@ -1938,6 +1940,7 @@ function stand(seatIndex) {
 }
 
 function selectMapNode(playerId, nodeId) {
+  if (game.routeRoulette) return;
   refreshReachableNodes();
   const node = getMapNode(nodeId);
   if (!node || !node.reachable || node.kind === "start" || node.kind === "elevator") return;
@@ -1952,6 +1955,7 @@ function selectMapNode(playerId, nodeId) {
 }
 
 function readyMapPlayer(playerId) {
+  if (game.routeRoulette) return;
   refreshReachableNodes();
   const reachable = reachableMapNodes().filter((n) => n.kind !== "elevator");
   if (reachable.length === 1 && !game.mapVotes?.[playerId]) {
@@ -1973,16 +1977,47 @@ function travelToVotedNode() {
     const vote = game.mapVotes?.[s.id];
     if (vote && getMapNode(vote)?.reachable) counts.set(vote, (counts.get(vote) || 0) + 1);
   }
-  let winner = "";
   let best = -1;
   for (const [nodeId, count] of counts) {
-    if (count > best) {
-      winner = nodeId;
-      best = count;
-    }
+    if (count > best) best = count;
   }
+  const tied = [...counts.entries()].filter(([, count]) => count === best).map(([nodeId]) => nodeId);
+  if (tied.length > 1) return beginRouteRoulette(tied);
+  const winner = tied[0] || "";
   if (!winner) return;
   startMapEncounter(winner);
+}
+
+function beginRouteRoulette(nodeIds = []) {
+  const options = [...new Set(nodeIds.filter((id) => getMapNode(id)?.reachable))].slice(0, 2);
+  if (options.length < 2) return startMapEncounter(options[0] || "");
+  const winnerIndex = Math.floor(Math.random() * options.length);
+  game.routeRoulette = {
+    options,
+    winnerIndex,
+    winner: options[winnerIndex],
+    startedAt: performance.now(),
+    duration: 3600
+  };
+  game.mapReady = {};
+  log(`Route vote tied. The house spins the route wheel.`);
+  sfx("shuffle");
+}
+
+function updateRouteRoulette() {
+  const r = game?.routeRoulette;
+  if (!r) return;
+  if (role === "guest") return;
+  const elapsed = performance.now() - (r.startedAt || 0);
+  if (elapsed < (r.duration || 3600)) return;
+  const winner = r.winner;
+  const node = getMapNode(winner);
+  game.routeRoulette = null;
+  if (node?.encounter) {
+    log(`The route wheel lands on ${node.label}.`);
+    startMapEncounter(winner);
+    broadcast();
+  }
 }
 
 function startMapEncounter(nodeId) {
@@ -2759,6 +2794,15 @@ function enterBettingRound({ chargeInterest = false } = {}) {
   cardAnimations = [];
   seenCardIds = new Set();
   game.seats.forEach((s) => {
+    if (s.dead) {
+      s.bankrupt = true;
+      s.spectating = true;
+      s.ready = true;
+      s.hands = [];
+      s.finished = true;
+      s.bet = 0;
+      return;
+    }
     updateSeatBankruptcy(s);
     s.ready = false;
     s.hands = [];
@@ -3658,14 +3702,31 @@ function voteLoan(playerId, signed) {
   game.loanVotes ||= {};
   game.loanVotes[playerId] = signed ? "sign" : "decline";
   const seat = game.seats.find((s) => s.id === playerId);
-  if (!signed) {
+  const voters = loanVoters();
+  log(signed
+    ? `${seat?.name || "A player"} signed the contract vote.`
+    : `${seat?.name || "Someone"} refused the blood contract.`);
+  if (!voters.length || !voters.every((s) => game.loanVotes?.[s.id])) return;
+  const declined = voters.filter((s) => game.loanVotes?.[s.id] !== "sign");
+  if (!declined.length) return signLoan(game.loanSeatId || hostId);
+  declined.forEach((s) => {
+    s.bankrupt = true;
+    s.dead = true;
+    s.spectating = true;
+    s.finished = true;
+    s.ready = true;
+    s.bet = 0;
+    s.hands = [];
+    log(`${s.name} refused the contract and is claimed by the House.`);
+  });
+  const survivors = loanVoters();
+  if (!survivors.length) {
     game.phase = "defeat";
-    log(`${seat?.name || "Someone"} refused the blood contract.`);
+    log("No signatures remain. The run ends.");
     return;
   }
-  const voters = loanVoters();
-  log(`${seat?.name || "A player"} signed the contract vote.`);
-  if (voters.every((s) => game.loanVotes?.[s.id] === "sign")) signLoan(game.loanSeatId || hostId);
+  game.loanSeatId = survivors[0].id;
+  signLoan(game.loanSeatId);
 }
 
 function declineLoan(playerId) {
@@ -3721,7 +3782,14 @@ function signLoan(playerId) {
     game.gold += LOAN_AMOUNT;
     game.loanDebt = LOAN_AMOUNT + LOAN_INTEREST;
     game.loanUsed = true;
-    for (const s of game.seats) s.bet = Math.min(25, maxBetForSeat(s));
+    for (const s of game.seats) {
+      if (s.dead || s.spectating) {
+        s.bet = 0;
+        s.ready = true;
+      } else {
+        s.bet = Math.min(25, maxBetForSeat(s));
+      }
+    }
   }
   queueHpAnimation(0, reviveHp, game.maxHp);
   game.hp = reviveHp;
@@ -4458,6 +4526,7 @@ function draw() {
   if (relicsOpen) drawRelicsOverlay();
   if (logOpen) drawLogOverlay();
   if (mapInfoDetail) drawMapInfoOverlay();
+  if (game?.routeRoulette) drawRouteRouletteOverlay();
   if (game?.relicPopup && game.phase !== "floorTransition") drawRelicRewardPopup();
   drawFeedbackAnimations();
   if (menuOpen) {
@@ -7438,6 +7507,110 @@ function drawLoanOffer() {
   const declineLabel = sharedLoanNeedsVote() ? vote === "decline" ? "Declined" : "Decline Vote" : "Decline";
   addButton(x + 54, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, declineLabel, () => action("declineLoan"), false, vote !== "sign");
   addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, signLabel, () => action("signLoan"), true, vote !== "decline");
+}
+
+function drawRouteRouletteOverlay() {
+  const r = game?.routeRoulette;
+  if (!r) return;
+  buttons = [];
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const elapsed = performance.now() - (r.startedAt || performance.now());
+  const duration = Math.max(1, Number(r.duration) || 3600);
+  const p = clamp(elapsed / duration, 0, 1);
+  const easeOut = 1 - Math.pow(1 - p, 3);
+  const wheelR = Math.min(portrait ? lw * .36 : lh * .31, portrait ? 250 : 210);
+  const cx = lw / 2;
+  const cy = lh / 2 - (portrait ? 70 : 24);
+  const panelW = Math.min(lw - 56, portrait ? 650 : 780);
+  const panelH = portrait ? 720 : 520;
+  const x = (lw - panelW) / 2;
+  const y = Math.max(34, cy - panelH * .48);
+  const optionNodes = (r.options || []).slice(0, 2).map((id) => getMapNode(id));
+  const red = "#9b1d22";
+  const black = "#08070b";
+  const gold = "#f2ce62";
+  const finalAngle = (r.winnerIndex === 0 ? 0 : Math.PI);
+  const ballAngle = Math.PI * 7.5 * (1 - easeOut) + finalAngle;
+  const wheelSpin = Math.PI * 10 * easeOut;
+
+  fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
+  shadow(0, 26, 70, "rgba(0,0,0,.56)", () => gradientRound(x, y, panelW, panelH, 24, [[0, "#211626"], [.62, "#0f0b12"], [1, "#23131b"]], true));
+  strokeRound(x, y, panelW, panelH, 24, gold, 3);
+  text("ROUTE ROULETTE", cx, y + (portrait ? 58 : 50), portrait ? 38 : 34, gold, "center", "serif");
+  text("The vote is tied. Red or black decides the path.", cx, y + (portrait ? 96 : 84), portrait ? 18 : 16, C.text, "center");
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(wheelSpin);
+  shadow(0, 0, 28, "rgba(242,206,98,.35)", () => {
+    ctx.beginPath();
+    ctx.arc(0, 0, wheelR, 0, Math.PI * 2);
+    ctx.fillStyle = "#171018";
+    ctx.fill();
+  });
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.arc(0, 0, wheelR * .92, -Math.PI / 2, Math.PI / 2);
+  ctx.closePath();
+  ctx.fillStyle = red;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.arc(0, 0, wheelR * .92, Math.PI / 2, Math.PI * 1.5);
+  ctx.closePath();
+  ctx.fillStyle = black;
+  ctx.fill();
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2;
+    ctx.save();
+    ctx.rotate(a);
+    fill(i % 2 ? "rgba(242,206,98,.86)" : "rgba(255,255,255,.72)", wheelR * .72, -3, wheelR * .16, 6, 3);
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, wheelR * .34, 0, Math.PI * 2);
+  ctx.fillStyle = "#2a1f16";
+  ctx.fill();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = gold;
+  ctx.stroke();
+  ctx.font = `900 ${portrait ? 34 : 28}px sans-serif`;
+  ctx.fillStyle = "#fff4bf";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("1", wheelR * .46, 0);
+  ctx.fillText("2", -wheelR * .46, 0);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  const bx = Math.cos(ballAngle) * wheelR * .82;
+  const by = Math.sin(ballAngle) * wheelR * .82;
+  shadow(0, 0, 18, "rgba(255,255,255,.72)", () => {
+    ctx.beginPath();
+    ctx.arc(bx, by, Math.max(8, wheelR * .055), 0, Math.PI * 2);
+    ctx.fillStyle = "#fff9e6";
+    ctx.fill();
+  });
+  ctx.restore();
+
+  const labelY = cy + wheelR + (portrait ? 58 : 46);
+  const colW = Math.min(270, panelW * .38);
+  drawRouletteOptionCard(cx - colW - 18, labelY, colW, portrait ? 118 : 90, red, "1 RED", optionNodes[0]);
+  drawRouletteOptionCard(cx + 18, labelY, colW, portrait ? 118 : 90, black, "2 BLACK", optionNodes[1]);
+  const winnerNode = optionNodes[r.winnerIndex];
+  if (p > .86 && winnerNode) {
+    text(`Landing on ${winnerNode.label}...`, cx, y + panelH - (portrait ? 44 : 34), portrait ? 20 : 18, gold, "center");
+  }
+}
+
+function drawRouletteOptionCard(x, y, w, h, color, title, node) {
+  gradientRound(x, y, w, h, 14, [[0, color], [1, "#0b080d"]], true);
+  strokeRound(x, y, w, h, 14, color === "#08070b" ? "rgba(242,206,98,.7)" : "rgba(255,210,170,.78)", 2);
+  text(title, x + w / 2, y + 30, 18, "#fff4bf", "center");
+  textFit(node?.label || "Unknown Table", x + w / 2, y + h - 32, w - 22, 18, C.text, "center");
 }
 
 function drawFlash() {
