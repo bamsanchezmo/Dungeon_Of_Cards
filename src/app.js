@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 215;
+const APP_PUSH_NUMBER = 216;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -463,7 +463,6 @@ const tintedHanddrawnCache = new Map();
 const chromaKeyedAssetCache = new Map();
 const paletteShiftedAssetCache = new Map();
 loadHanddrawnAssets();
-warmupAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
 let leaderboardClient = null;
@@ -704,6 +703,7 @@ window.addEventListener("blur", pauseMusicForFocus);
 window.addEventListener("focus", resumeMusicForFocus);
 
 requestAnimationFrame(tick);
+requestAnimationFrame(() => setTimeout(() => warmupAssets(false), 120));
 joinFromSharedLink();
 resizeCanvas();
 void refreshLeaderboard();
@@ -8292,10 +8292,9 @@ function warmupAssets(priorityOnly = false) {
     const run = () => warmAssetKey(key).then(() => {
       assetWarmup.loaded++;
       if (critical.includes(key)) assetWarmup.criticalLoaded++;
-      if (i % 8 === 0 || assetWarmup.loaded === assetWarmup.total) draw();
+      if (i % 4 === 0 || assetWarmup.loaded === assetWarmup.total) draw();
     });
-    if (i < 18) void run();
-    else setTimeout(() => void run(), 25 + i * 18);
+    setTimeout(() => void run(), priorityOnly ? i * 24 : 80 + i * 34);
   });
 }
 
