@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 197;
+const APP_PUSH_NUMBER = 198;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -289,33 +289,37 @@ const quickDifficultyLabels = {
 const ELEVATOR_MERCHANT_NAME = "Grindle Crankpocket";
 const elevatorMerchantDialogs = {
   first: [
-    "Pssst. Pardon the ride interruption. I gots some goods to offload, and this elevator ain't exactly inspected.",
-    "Don't scream. Screaming makes the pulleys nervous. Name's Grindle. I sell miracles with suspicious dents.",
-    "First time in my shaft, eh? Relax. Mostly safe. Legally unrelated to the casino."
+    "Pssst. Don't touch the emergency bell. It owes me money. Name's Grindle, and these goods fell off a very slow elevator.",
+    "First time gettin' mugged politely between floors? Relax. If the casino wanted me gone, it should've used better bolts.",
+    "Welcome to my shaft, high-roller. I live here because every respectable basement voted me out."
   ],
   repeat: [
-    "Ah, my favorite vertical trespasser. Back for more questionably sourced excellence?",
-    "Look who survived another floor. I was almost worried. Almost is free; worry costs extra.",
-    "You again. Good. The elevator remembers your smell, and so do my invoices.",
-    "Climbin' higher, pockets heavier. Funny how fate keeps stoppin' near my merchandise."
+    "Ah, my favorite walking purse. Back for more miracles with bite marks?",
+    "Look who survived another floor. Shame. I had a lovely price planned for your unattended wallet.",
+    "You again. Good. The elevator hates you slightly less than it hates me, so we're basically partners.",
+    "Climbin' higher, pockets heavier. Tragic condition. I can fix half of that.",
+    "I heard the dealers complainin' about you. Naturally, I took their side, then robbed their coatroom."
   ],
   bought: [
-    "Pleasure doin' business. I would've sold it cheaper, but then we'd both respect me less.",
-    "No refunds, no witnesses, no paperwork. Beautiful transaction.",
-    "You bought the good one. Or the cursed one. Hard to tell under elevator light.",
-    "A fine purchase. If anyone asks, you found it in a respectable trash fire."
+    "Pleasure doin' business. I would've sold it cheaper, but I enjoy who I am.",
+    "No refunds, no witnesses, no paperwork. If it screams, that's a feature.",
+    "You bought the good one. Or the cursed one. I rubbed the labels off for excitement.",
+    "A fine purchase. If anyone asks, you stole it from me and I cried. Makes us both look better.",
+    "Beautiful. I love a customer who confuses desperation for taste."
   ],
   close: [
-    "Suit yourself. More suspicious bargains for the next desperate climber.",
-    "No sale? Cold. I risked at least two fingers stoppin' this thing.",
-    "Fine, close the door. I'll just sit here with my legal-adjacent inventory.",
-    "Walk away now. Dream about discounts later. That's how I get ya."
+    "Suit yourself. I'll sell it to someone with courage, money, or worse parents.",
+    "No sale? Cold. I risked three fingers stoppin' this thing. Two weren't even mine.",
+    "Fine, close the door. I'll just sit here, beloved by mold and feared by inspectors.",
+    "Walk away now. Dream about discounts later. That's how I get ya.",
+    "Go on, then. Tell the next floor I said it looks cheap."
   ],
   broke: [
-    "Oof. Those pockets echo louder than the shaft.",
+    "Oof. Those pockets echo louder than the shaft. Embarrassin' acoustics.",
     "I accept gold, gems, secrets, and dignity. Looks like you're short on all four.",
-    "Broke? In a casino elevator? That is almost art.",
-    "Come back when your wallet stops wheezing."
+    "Broke? In a casino elevator? That is almost art. Bad art, but still.",
+    "Come back when your wallet stops wheezing, charity case.",
+    "If poverty was currency, you'd own the building. Unfortunately, I invented that joke before I invented mercy."
   ]
 };
 const savedMode = localStorage.getItem("dungeon-mode");
@@ -4861,7 +4865,6 @@ function drawElevatorShaftLines(x, y, w, h, ui, progress = 0) {
 function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false, stage = null, forceDestination = false) {
   const lw = layoutW(), portrait = viewport.portrait;
   const anchor = stage || { x: 0, y: 0, w: lw, h: layoutH() };
-  const display = progress < .5 ? from : to;
   const nextAlpha = clamp((progress - .42) / .24, 0, 1);
   const boxW = portrait ? 172 : 220;
   const boxH = portrait ? 78 : 86;
@@ -4878,19 +4881,22 @@ function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopSt
   } else if (shopStop) {
     const splitY = y + (portrait ? 34 : 38);
     const splitH = boxH - (portrait ? 42 : 46);
+    const sideNumberSize = portrait ? 58 : 64;
+    const leftClip = { x: x + 8, y: splitY, w: boxW / 2 - 12, h: splitH };
+    const rightClip = { x: x + boxW / 2 + 4, y: splitY, w: boxW / 2 - 12, h: splitH };
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x + 14, splitY, boxW / 2 - 14, splitH);
+    ctx.rect(leftClip.x, leftClip.y, leftClip.w, leftClip.h);
     ctx.clip();
-    text(String(from), x + boxW / 2, numberY, numberSize, C.gold, "center", "serif");
+    text(String(from), x + 3, numberY + (portrait ? 4 : 5), sideNumberSize, C.gold, "center", "serif");
     ctx.restore();
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x + boxW / 2, splitY, boxW / 2 - 14, splitH);
+    ctx.rect(rightClip.x, rightClip.y, rightClip.w, rightClip.h);
     ctx.clip();
-    text(String(to), x + boxW / 2, numberY, numberSize, "#fff3ad", "center", "serif");
+    text(String(to), x + boxW - 3, numberY + (portrait ? 4 : 5), sideNumberSize, "#fff3ad", "center", "serif");
     ctx.restore();
-    fill("rgba(238,231,215,.18)", x + boxW / 2 - 1, splitY + 4, 2, splitH - 8, 1);
+    fill("rgba(238,231,215,.13)", x + boxW / 2 - 1, splitY + 3, 2, splitH - 6, 1);
   } else {
     const slide = clamp((progress - .36) / .36, 0, 1);
     const easedSlide = 1 - Math.pow(1 - slide, 3);
