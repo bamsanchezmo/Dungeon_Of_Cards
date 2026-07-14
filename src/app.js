@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 222;
+const APP_PUSH_NUMBER = 223;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -265,6 +265,7 @@ let musicDeathWarpPlayed = false;
 let deathReverseSource = null;
 let deathReverseGain = null;
 let assetWarmup = { started: false, label: "Loading art", total: 0, loaded: 0, criticalTotal: 0, criticalLoaded: 0, key: "" };
+let restoreAssetGate = null;
 let bootAssetsReady = false;
 let menuPrefetchStarted = false;
 let menuPrefetchReady = false;
@@ -3475,6 +3476,7 @@ function restoreGameFromSave(entry, scope = "solo") {
   game.mapReady = game.mapReady || {};
   game.log = Array.isArray(game.log) ? game.log : ["Save restored."];
   appScene = "game";
+  restoreAssetGate = { ready: false, label: "Loading save" };
   localPlayerId = hostId;
   role = scope === "multi" ? "host" : "solo";
   cardAnimations = [];
@@ -3485,8 +3487,14 @@ function restoreGameFromSave(entry, scope = "solo") {
   inspectedNodeId = game.phase === "map" ? (game.currentNodeId || "start") : "";
   preloadRelicAssets(game.relics || []);
   if (game.phase === "map") refreshReachableNodes();
-  if (game.runType === "tower") void preloadAssetKeys(floorTransitionAssetKeys(Number(game.floor) || 0, true), `Loading Floor ${(Number(game.floor) || 0) + 1}`);
-  else void preloadQuickPlayAssets();
+  const keys = restoreAssetKeys();
+  restoreAssetGate.promise = preloadAssetKeys(keys, `Loading ${game.runType === "quick" ? "Quick Run" : `Floor ${(Number(game.floor) || 0) + 1}`} Save`).then(() => {
+    if (!restoreAssetGate) return true;
+    restoreAssetGate.ready = true;
+    restoreAssetGate = null;
+    draw();
+    return true;
+  });
   restartRunMusicFromStart();
   return true;
 }
@@ -4412,6 +4420,13 @@ function draw() {
       if (game.developerTest) drawDeveloperTableNavigatorControls();
     }
   }
+  if (restoreAssetGate && !restoreAssetGate.ready) {
+    buttons = [];
+    drawRestoreLoadingOverlay();
+    ctx.restore();
+    drawFeedbackAnimations();
+    return;
+  }
   if (statsPlayerId) drawStatsOverlay();
   if (rulesOpen) drawRulesOverlay();
   if (relicsOpen) drawRelicsOverlay();
@@ -4524,6 +4539,30 @@ function drawAssetWarmupHint(cx, cy, w) {
   fill(hexToRgba(C.gold, .55), cx - w / 2 + 12, cy + h / 2 - 11, Math.max(8, (w - 24) * pct), 4, 2);
   const label = assetWarmup.label || "Loading art";
   text(`${label} ${Math.round(pct * 100)}%`, cx, cy + 5, viewport.portrait ? 16 : 14, C.text, "center");
+}
+
+function drawRestoreLoadingOverlay() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const w = Math.min(lw - 80, viewport.portrait ? 500 : 560);
+  const h = viewport.portrait ? 190 : 170;
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  shadow(0, 24, 60, "rgba(0,0,0,.55)", () => {
+    gradientRound(x, y, w, h, 24, [[0, "rgba(34,28,44,.96)"], [.58, "rgba(14,12,18,.96)"], [1, "rgba(8,14,14,.96)"]], true);
+  });
+  strokeRound(x, y, w, h, 24, hexToRgba(C.gold, .55), 2);
+  const spin = performance.now() * .004;
+  ctx.save();
+  ctx.translate(lw / 2, y + 52);
+  ctx.rotate(spin);
+  ctx.shadowColor = "rgba(220,180,70,.72)";
+  ctx.shadowBlur = 18;
+  text("♠", 0, 0, viewport.portrait ? 48 : 42, C.gold, "center", "serif");
+  ctx.restore();
+  text("Loading save assets", lw / 2, y + (viewport.portrait ? 94 : 86), viewport.portrait ? 25 : 22, C.text, "center", "serif");
+  drawAssetWarmupHint(lw / 2, y + h - 52, w - 72);
 }
 
 function drawElevatorLoadingHint(cx, cy, w) {
@@ -8376,6 +8415,49 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
     );
   }
   if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
+  return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+}
+
+function collectRelicAssetKeysFromState(source = game) {
+  const relics = [];
+  if (!source) return [];
+  if (Array.isArray(source.relics)) relics.push(...source.relics);
+  if (source.relicPopup?.relic) relics.push(source.relicPopup.relic);
+  if (Array.isArray(source.shop)) relics.push(...source.shop.filter((reward) => reward?.type === "relic"));
+  if (Array.isArray(source.map?.nodes)) {
+    relics.push(...source.map.nodes.map((node) => node.reward).filter((reward) => reward?.type === "relic"));
+  }
+  if (Array.isArray(source.floorMaps)) {
+    source.floorMaps.forEach((map) => {
+      if (Array.isArray(map?.nodes)) relics.push(...map.nodes.map((node) => node.reward).filter((reward) => reward?.type === "relic"));
+    });
+  }
+  return [...new Set(relics.map(relicAssetKey).filter(Boolean))];
+}
+
+function restoreAssetKeys(source = game) {
+  if (!source) return bootAssetKeys();
+  const floorIndex = clamp(Number(source.floor) || 0, 0, FLOORS - 1);
+  const includeShop = source.phase === "shop"
+    || !!source.shopContext
+    || !!source.floorTransition?.stopAtShop
+    || !!source.floorTransition?.afterShop;
+  const keys = [
+    "splashBackground", "mainMenuBackground", "frame", "divider", "token", "chip", "texture", "goldMark", "debtMark",
+    ...(source.runType === "quick" ? [
+      "tableScene:quick:background",
+      "quickRunCardBack",
+      ...cardPlayAssetKeys(),
+      "tableBase:grunt",
+      "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
+    ] : floorTransitionAssetKeys(
+      source.phase === "floorTransition"
+        ? clamp((Number(source.floorTransition?.to) || floorIndex + 1) - 1, 0, FLOORS - 1)
+        : floorIndex,
+      includeShop
+    )),
+    ...collectRelicAssetKeysFromState(source)
+  ];
   return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
 }
 
