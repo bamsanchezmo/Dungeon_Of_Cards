@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 226;
+const APP_PUSH_NUMBER = 227;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4697,7 +4697,7 @@ function drawModeCard(x, y, w, h, title, body, tags = [], onClick = () => {}, pr
     text(primary ? "♛" : "♠", x + 42, y + 50, 25, hexToRgba(theme, .9), "center", "serif");
     text(title, x + 68, y + 48, 27, primary ? C.gold : C.parchment, "left", "serif");
     wrapTextSized(body, x + 26, y + 84, w - 52, 19, 15, C.text, 2);
-    const tagY = y + 124;
+    const tagY = y + 118;
     const tagW = Math.floor((w - 60) / 3);
     tags.slice(0, 3).forEach((tag, i) => {
       const tx = x + 24 + i * (tagW + 6);
@@ -4705,7 +4705,7 @@ function drawModeCard(x, y, w, h, title, body, tags = [], onClick = () => {}, pr
       strokeRound(tx, tagY, tagW, 28, 12, hexToRgba(theme, .25), 1);
       textFit(tag, tx + tagW / 2, tagY + 19, tagW - 10, 12, C.muted, "center");
     });
-    addButton(x + 28, y + h - 58, w - 56, 48, "Select", onClick, primary);
+    addButton(x + 28, y + h - 46, w - 56, 40, "Select", onClick, primary);
     return;
   }
   shadow(0, hot ? 22 : 16, hot ? 46 : 34, hot ? hexToRgba(theme, .22) : "rgba(0,0,0,.42)", () => {
@@ -4843,7 +4843,7 @@ function drawLeaderboardPanel(x, y, w, h) {
     text(`No ${leaderboardTab === "quick" ? "Quick Run" : "Tower Run"} scores yet.`, x + w / 2, y + h / 2 + 26, portrait ? 22 : roomy ? 18 : 15, C.muted, "center");
     return;
   }
-  const rowTop = y + (portrait ? 116 : roomy ? 108 : 74);
+  const rowTop = y + (portrait ? 136 : roomy ? 116 : 82);
   const rowH = portrait ? 38 : roomy ? 62 : 13;
   entries.forEach((entry, i) => {
     const ry = rowTop + i * rowH;
