@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 198;
+const APP_PUSH_NUMBER = 199;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -2569,7 +2569,7 @@ function resumeTowerAfterElevatorShop(outcome = "close") {
     from: fromFloor,
     to: toFloor,
     startedAt: Date.now(),
-    duration: 4300,
+    duration: 6200,
     stopAtShop: false,
     afterShop: true,
     shopFarewell: line
@@ -4740,7 +4740,9 @@ function drawFloorTransition() {
   const stage = elevatorStageRect(lw, lh);
   const shopStop = !!game.floorTransition?.stopAtShop;
   const afterShop = !!game.floorTransition?.afterShop;
-  const afterShopClosing = afterShop && progress < .42;
+  const afterShopCloseEnd = .58;
+  const afterShopOpenStart = .70;
+  const afterShopClosing = afterShop && progress < afterShopCloseEnd;
   if (shopStop || afterShopClosing) {
     const rawShake = clamp((progress - .28) / .12, 0, 1) * clamp((.72 - progress) / .32, 0, 1);
     const shake = rawShake * (portrait ? 10 : 7);
@@ -4770,8 +4772,8 @@ function drawFloorTransition() {
   let doorStagger = shopStop || afterShopClosing;
   if (afterShop) {
     open = afterShopClosing
-      ? 1 - clamp(progress / .42, 0, 1)
-      : clamp((progress - .55) / .42, 0, 1);
+      ? 1 - clamp(progress / afterShopCloseEnd, 0, 1)
+      : clamp((progress - afterShopOpenStart) / (1 - afterShopOpenStart), 0, 1);
     doorStagger = afterShopClosing;
   } else {
     const openBase = clamp((progress - .25) / .68, 0, 1);
@@ -4882,21 +4884,19 @@ function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopSt
     const splitY = y + (portrait ? 34 : 38);
     const splitH = boxH - (portrait ? 42 : 46);
     const sideNumberSize = portrait ? 58 : 64;
-    const leftClip = { x: x + 8, y: splitY, w: boxW / 2 - 12, h: splitH };
-    const rightClip = { x: x + boxW / 2 + 4, y: splitY, w: boxW / 2 - 12, h: splitH };
+    const jam = 1 - Math.pow(1 - clamp((progress - .10) / .52, 0, 1), 3);
+    const centerX = x + boxW / 2;
+    const fromX = lerp(centerX, x + 3, jam);
+    const toX = lerp(x + boxW * 1.55, x + boxW - 3, jam);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(leftClip.x, leftClip.y, leftClip.w, leftClip.h);
+    ctx.rect(x + 8, splitY, boxW - 16, splitH);
     ctx.clip();
-    text(String(from), x + 3, numberY + (portrait ? 4 : 5), sideNumberSize, C.gold, "center", "serif");
+    text(String(from), fromX, numberY + (portrait ? 4 : 5), sideNumberSize, C.gold, "center", "serif");
+    ctx.globalAlpha = clamp((jam - .08) / .5, 0, 1);
+    text(String(to), toX, numberY + (portrait ? 4 : 5), sideNumberSize, "#fff3ad", "center", "serif");
     ctx.restore();
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(rightClip.x, rightClip.y, rightClip.w, rightClip.h);
-    ctx.clip();
-    text(String(to), x + boxW - 3, numberY + (portrait ? 4 : 5), sideNumberSize, "#fff3ad", "center", "serif");
-    ctx.restore();
-    fill("rgba(238,231,215,.13)", x + boxW / 2 - 1, splitY + 3, 2, splitH - 6, 1);
+    if (jam > .88) fill("rgba(238,231,215,.13)", x + boxW / 2 - 1, splitY + 3, 2, splitH - 6, 1);
   } else {
     const slide = clamp((progress - .36) / .36, 0, 1);
     const easedSlide = 1 - Math.pow(1 - slide, 3);
