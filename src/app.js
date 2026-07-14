@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 210;
+const APP_PUSH_NUMBER = 211;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -6761,7 +6761,7 @@ function drawElevatorShopStatusHeader(lw, portrait) {
   const ui = activeFloorUi();
   const fromFloor = Number(game?.shopContext?.fromFloor) || game.floor + 1;
   const floorIndex = clamp(fromFloor - 1, 0, FLOORS - 1);
-  const theme = floorConfigs[floorIndex]?.theme || game?.map?.theme || "Casino Floor";
+  const theme = game?.floorMaps?.[floorIndex]?.theme || game?.map?.theme || "Casino Floor";
   const topY = portrait ? 26 : 30;
   const leftX = portrait ? 22 : 26;
   const titleW = portrait ? Math.max(140, lw * .25) : Math.max(230, lw * .24);
