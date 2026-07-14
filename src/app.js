@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 228;
+const APP_PUSH_NUMBER = 229;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -478,6 +478,7 @@ const tintedHanddrawnCache = new Map();
 const chromaKeyedAssetCache = new Map();
 const paletteShiftedAssetCache = new Map();
 const relicAssetPreloadQueued = new Set();
+const assetRetryCounts = new Map();
 let hpAnimation = null;
 let moneyAnimations = [];
 let leaderboardClient = null;
@@ -5828,20 +5829,32 @@ function drawMapTableGroup(node, p, w, h, alpha = 1) {
   off.height = Math.max(1, Math.ceil(groupH * quality));
   const octx = off.getContext("2d");
   octx.scale(quality, quality);
-  drawMapGruntToContext(octx, node, { x: p.x - groupX, y: p.y - groupY }, w, h, 1);
+  const drewGrunt = drawMapGruntToContext(octx, node, { x: p.x - groupX, y: p.y - groupY }, w, h, 1);
   const tableAsset = layeredTableAsset("tableBase:grunt", floorCardPalette(Number(game?.floor) || 0));
+  let drewTable = false;
   if (tableAsset) {
     octx.save();
     octx.imageSmoothingEnabled = true;
     octx.drawImage(tableAsset, tableRect.x - groupX, tableRect.y - groupY, tableRect.w, tableRect.h);
     octx.restore();
+    drewTable = true;
     drawTablePlaqueMotif({
       x: tableRect.x - groupX,
       y: tableRect.y - groupY,
       w: tableRect.w,
       h: tableRect.h
     }, octx);
+  } else {
+    const rawTable = chromaKeyedHandAsset("tableBase:grunt");
+    if (rawTable) {
+      octx.save();
+      octx.imageSmoothingEnabled = true;
+      octx.drawImage(rawTable, tableRect.x - groupX, tableRect.y - groupY, tableRect.w, tableRect.h);
+      octx.restore();
+      drewTable = true;
+    }
   }
+  if (!drewGrunt && !drewTable) return false;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.imageSmoothingEnabled = true;
@@ -8551,9 +8564,15 @@ function criticalAssetKeys() {
   return [...new Set(base.filter((key) => handdrawnAssetFiles[key]))];
 }
 
-function ensureAssetKey(key, priority = false) {
+function ensureAssetKey(key, priority = false, retry = false) {
   if (!key || !handdrawnAssetFiles[key]) return null;
-  if (handdrawnImages[key]) return handdrawnImages[key];
+  if (handdrawnImages[key] && !(retry && handdrawnImages[key]._failed)) return handdrawnImages[key];
+  if (retry && handdrawnImages[key]?._failed) {
+    delete handdrawnImages[key];
+    chromaKeyedAssetCache.delete(key);
+    tintedHanddrawnCache.clear();
+    paletteShiftedAssetCache.clear();
+  }
   const img = new Image();
   img._assetKey = key;
   img._failed = false;
@@ -8562,6 +8581,7 @@ function ensureAssetKey(key, priority = false) {
   img.fetchPriority = priority || key === "splashBackground" || key === "mainMenuBackground" ? "high" : "auto";
   img.onload = () => {
     img._failed = false;
+    assetRetryCounts.delete(key);
     tintedHanddrawnCache.clear();
     chromaKeyedAssetCache.delete(key);
     paletteShiftedAssetCache.clear();
@@ -8571,7 +8591,8 @@ function ensureAssetKey(key, priority = false) {
     img._failed = true;
     draw();
   };
-  img.src = `./assets/${handdrawnAssetFiles[key]}`;
+  const bust = retry ? `?retry=${APP_PUSH_NUMBER}-${Date.now().toString(36)}` : "";
+  img.src = `./assets/${handdrawnAssetFiles[key]}${bust}`;
   handdrawnImages[key] = img;
   return img;
 }
@@ -8647,9 +8668,15 @@ function preloadAssetKeys(keys = [], label = "Loading art") {
 }
 
 function warmAssetKey(key) {
-  const img = ensureAssetKey(key, true);
+  let img = ensureAssetKey(key, true);
   if (!img) return Promise.resolve(false);
-  if (img._failed) return Promise.resolve(false);
+  if (img._failed) {
+    const retries = Number(assetRetryCounts.get(key)) || 0;
+    if (retries >= 2) return Promise.resolve(false);
+    assetRetryCounts.set(key, retries + 1);
+    img = ensureAssetKey(key, true, true);
+    if (!img || img._failed) return Promise.resolve(false);
+  }
   if (img.complete && img.naturalWidth > 0) {
     return (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => true);
   }
@@ -8672,7 +8699,7 @@ function warmAssetKey(key) {
 
 function assetLoadSettled(key) {
   const img = handdrawnImages[key];
-  return !!img && ((img.complete && img.naturalWidth > 0) || img._failed);
+  return !!img && img.complete && img.naturalWidth > 0;
 }
 
 function warmupAssets(priorityOnly = false) {
