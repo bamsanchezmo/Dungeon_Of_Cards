@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 224;
+const APP_PUSH_NUMBER = 225;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4477,6 +4477,15 @@ function drawSplash() {
   if (developerModeUnlocked) {
     addButton(cx - 150, cy + (viewport.portrait ? 178 : 156), 300, viewport.portrait ? 72 : 54, "Developer", openDeveloperPanel);
   }
+  if (viewport.portrait || isMobileDevice()) {
+    addButton(lw - (viewport.portrait ? 172 : 142), 24, viewport.portrait ? 144 : 118, viewport.portrait ? 54 : 42, "Refresh", refreshWebsiteForUpdate, false);
+  }
+}
+
+function refreshWebsiteForUpdate() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("refresh", Date.now().toString(36));
+  window.location.replace(url.toString());
 }
 
 function drawMenu() {
