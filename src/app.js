@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 194;
+const APP_PUSH_NUMBER = 195;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -263,6 +263,10 @@ let mapInfoDetail = null;
 let signalKind = "";
 let developerModeUnlocked = false;
 let developerPanelOpen = false;
+let developerPanelHidden = false;
+let developerPanelPos = null;
+let developerBubblePos = null;
+let developerDrag = null;
 let developerTapTimes = [];
 let developerSplitLimit = clamp(Number(localStorage.getItem("dungeon-dev-split-limit")) || 8, 4, 12);
 const modeLabels = {
@@ -551,10 +555,26 @@ canvas.addEventListener("mousemove", (ev) => {
   hover = eventPoint(ev);
   draw();
 });
+canvas.addEventListener("pointermove", (ev) => {
+  const p = eventPoint(ev);
+  hover = p;
+  if (!developerDrag) return;
+  developerDrag.moved = developerDrag.moved || Math.hypot(p.x - developerDrag.startX, p.y - developerDrag.startY) > 6;
+  if (developerDrag.kind === "panel") {
+    developerPanelPos = clampDeveloperPanelPos(p.x - developerDrag.offsetX, p.y - developerDrag.offsetY, developerDrag.w, developerDrag.h);
+  } else if (developerDrag.kind === "bubble") {
+    developerBubblePos = clampDeveloperBubblePos(p.x - developerDrag.offsetX, p.y - developerDrag.offsetY, developerDrag.size);
+  }
+  draw();
+});
 canvas.addEventListener("pointerdown", (ev) => {
   const p = eventPoint(ev);
   pointerStart = { ...p, hit: null };
   startAudio();
+  if (beginDeveloperDragIfHit(p)) {
+    ev.preventDefault();
+    return;
+  }
   if (hpAnimation) {
     hpAnimation = null;
     return;
@@ -570,6 +590,13 @@ canvas.addEventListener("pointerdown", (ev) => {
   }
 });
 canvas.addEventListener("pointerup", (ev) => {
+  if (developerDrag) {
+    const drag = developerDrag;
+    developerDrag = null;
+    if (drag.kind === "bubble" && !drag.moved) openDeveloperPanel();
+    draw();
+    return;
+  }
   if (!pointerStart?.hit?.carouselSeat) {
     pointerStart = null;
     return;
@@ -588,6 +615,7 @@ canvas.addEventListener("pointerup", (ev) => {
   pointerStart = null;
 });
 canvas.addEventListener("pointercancel", () => {
+  developerDrag = null;
   pointerStart = null;
 });
 window.addEventListener("keydown", (ev) => {
@@ -3354,17 +3382,84 @@ function handleDeveloperSplashTap() {
   const now = performance.now();
   developerTapTimes = [...developerTapTimes.filter((t) => now - t < 4000), now];
   if (!developerModeUnlocked && developerTapTimes.length >= 7) {
-    developerModeUnlocked = true;
-    developerPanelOpen = true;
+    openDeveloperPanel();
     developerTapTimes = [];
     notify("Developer mode unlocked.");
     sfx("win");
     return;
   }
   if (developerModeUnlocked && developerTapTimes.length >= 7) {
-    developerPanelOpen = true;
+    openDeveloperPanel();
     developerTapTimes = [];
   }
+}
+
+function openDeveloperPanel() {
+  developerModeUnlocked = true;
+  developerPanelHidden = false;
+  developerPanelOpen = true;
+}
+
+function hideDeveloperPanelToBubble() {
+  developerPanelOpen = false;
+  developerPanelHidden = true;
+  if (!developerBubblePos) developerBubblePos = { x: layoutW() - 92, y: 92 };
+}
+
+function developerPanelDefaultRect() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const panelW = Math.min(portrait ? 680 : 760, lw - 56);
+  const panelH = portrait ? 1040 : 720;
+  const centered = { x: lw / 2 - panelW / 2, y: Math.max(34, lh / 2 - panelH / 2) };
+  const pos = developerPanelPos ? clampDeveloperPanelPos(developerPanelPos.x, developerPanelPos.y, panelW, panelH) : centered;
+  developerPanelPos = { x: pos.x, y: pos.y };
+  return { ...pos, w: panelW, h: panelH };
+}
+
+function clampDeveloperPanelPos(x, y, w, h) {
+  const lw = layoutW();
+  const lh = layoutH();
+  const minVisible = 86;
+  return {
+    x: clamp(x, -w + minVisible, lw - minVisible),
+    y: clamp(y, 8, Math.max(8, lh - minVisible))
+  };
+}
+
+function clampDeveloperBubblePos(x, y, size = 58) {
+  const lw = layoutW();
+  const lh = layoutH();
+  return {
+    x: clamp(x, 8, Math.max(8, lw - size - 8)),
+    y: clamp(y, 8, Math.max(8, lh - size - 8))
+  };
+}
+
+function developerBubbleRect() {
+  const size = viewport.portrait ? 68 : 58;
+  const pos = developerBubblePos
+    ? clampDeveloperBubblePos(developerBubblePos.x, developerBubblePos.y, size)
+    : clampDeveloperBubblePos(layoutW() - size - 24, 92, size);
+  developerBubblePos = { x: pos.x, y: pos.y };
+  return { x: pos.x, y: pos.y, w: size, h: size };
+}
+
+function beginDeveloperDragIfHit(p) {
+  if (!developerModeUnlocked) return false;
+  if (developerPanelHidden && !developerPanelOpen) {
+    const b = developerBubbleRect();
+    if (!inRect(p, b)) return false;
+    developerDrag = { kind: "bubble", startX: p.x, startY: p.y, offsetX: p.x - b.x, offsetY: p.y - b.y, size: b.w, moved: false };
+    return true;
+  }
+  if (!developerPanelOpen) return false;
+  const r = developerPanelDefaultRect();
+  const header = { x: r.x, y: r.y, w: r.w, h: viewport.portrait ? 116 : 106 };
+  if (!inRect(p, header)) return false;
+  developerDrag = { kind: "panel", startX: p.x, startY: p.y, offsetX: p.x - r.x, offsetY: p.y - r.y, w: r.w, h: r.h, moved: false };
+  return true;
 }
 
 function seatBankroll(seat) {
@@ -3878,6 +3973,8 @@ function draw() {
   if (developerPanelOpen) {
     buttons = [];
     drawDeveloperPanel();
+  } else if (developerModeUnlocked && developerPanelHidden) {
+    drawDeveloperBubble();
   }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
@@ -3907,7 +4004,7 @@ function drawSplash() {
   buttons.push({ x: cx - 280, y: cy - 150, w: 560, h: 130, onClick: handleDeveloperSplashTap });
   addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Enter Casino", () => appScene = "menu", true);
   if (developerModeUnlocked) {
-    addButton(cx - 150, cy + (viewport.portrait ? 178 : 156), 300, viewport.portrait ? 72 : 54, "Developer", () => developerPanelOpen = true);
+    addButton(cx - 150, cy + (viewport.portrait ? 178 : 156), 300, viewport.portrait ? 72 : 54, "Developer", openDeveloperPanel);
   }
 }
 
@@ -3932,7 +4029,7 @@ function drawMenu() {
   strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
   if (!hasMenuArt) drawMenuAmbience(table, portrait);
   if (side) drawMenuSidePanel(side);
-  if (developerModeUnlocked) addButton(table.x + 22, table.y + 22, portrait ? 112 : 80, portrait ? 48 : 34, "Dev", () => developerPanelOpen = true);
+  if (developerModeUnlocked) addButton(table.x + 22, table.y + 22, portrait ? 112 : 80, portrait ? 48 : 34, "Dev", openDeveloperPanel);
 
   if (!portrait && !hasMenuArt) {
     drawMenuShowCard({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, -.08, 1);
@@ -6754,7 +6851,7 @@ function drawGameMenu() {
     by += gap;
   }
   if (hasDev) {
-    addButton(x + 42, by, panelW - 84, bh, "Developer", () => developerPanelOpen = true);
+    addButton(x + 42, by, panelW - 84, bh, "Developer", openDeveloperPanel);
     by += gap;
   }
   addButton(x + 42, by, panelW - 84, bh, "Home Screen", goHome);
@@ -6764,15 +6861,17 @@ function drawDeveloperPanel() {
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
-  const panelW = Math.min(portrait ? 680 : 760, lw - 56);
-  const panelH = portrait ? 1040 : 720;
-  const x = lw / 2 - panelW / 2;
-  const y = Math.max(34, lh / 2 - panelH / 2);
+  const rect = developerPanelDefaultRect();
+  const panelW = rect.w;
+  const panelH = rect.h;
+  const x = rect.x;
+  const y = rect.y;
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
   shadow(0, 26, 70, "rgba(0,0,0,.55)", () => gradientRound(x, y, panelW, panelH, 18, [[0, "#302640"], [1, "#111018"]], true));
   strokeRound(x, y, panelW, panelH, 18, C.goldDim, 2);
-  text("DEVELOPER MODE", lw / 2, y + 56, portrait ? 34 : 30, C.gold, "center", "serif");
-  text("Launch fake test situations. These runs never post scores.", lw / 2, y + 90, portrait ? 19 : 16, C.muted, "center");
+  fill("rgba(255,255,255,.04)", x + 16, y + 14, panelW - 32, portrait ? 88 : 78, 14);
+  text("DEVELOPER MODE", x + panelW / 2, y + 56, portrait ? 34 : 30, C.gold, "center", "serif");
+  text("Drag this header to move. Test runs never post scores.", x + panelW / 2, y + 90, portrait ? 19 : 16, C.muted, "center");
 
   const colGap = 18;
   const cols = panelW > 560 ? 2 : 1;
@@ -6797,11 +6896,25 @@ function drawDeveloperPanel() {
   text(`Split cap applies only inside test games. Current cap: ${developerSplitLimit}.`, x + 40, infoY + 28, portrait ? 16 : 13, C.muted);
   text(`Device: ${localDeviceId.slice(0, 8)}`, x + 40, infoY + 54, portrait ? 16 : 13, C.muted);
 
-  addButton(x + 36, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Lock Dev Mode", () => {
+  const bottomY = y + panelH - 70;
+  const bottomGap = 10;
+  const bottomW = (panelW - 72 - bottomGap * 2) / 3;
+  addButton(x + 36, bottomY, bottomW, portrait ? 54 : 46, "Lock Dev Mode", () => {
     developerModeUnlocked = false;
     developerPanelOpen = false;
   });
-  addButton(x + panelW / 2 + 12, y + panelH - 70, panelW / 2 - 48, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
+  addButton(x + 36 + bottomW + bottomGap, bottomY, bottomW, portrait ? 54 : 46, "Hide", hideDeveloperPanelToBubble);
+  addButton(x + 36 + (bottomW + bottomGap) * 2, bottomY, bottomW, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
+}
+
+function drawDeveloperBubble() {
+  const r = developerBubbleRect();
+  shadow(0, 12, 30, "rgba(0,0,0,.55)", () => {
+    gradientRound(r.x, r.y, r.w, r.h, r.w / 2, [[0, "#3b2c4d"], [1, "#12101a"]], true);
+  });
+  strokeRound(r.x, r.y, r.w, r.h, r.w / 2, C.gold, 3);
+  fill("rgba(255,255,255,.08)", r.x + r.w * .18, r.y + r.h * .14, r.w * .64, r.h * .16, r.h * .08);
+  text("D", r.x + r.w / 2, r.y + r.h * .66, r.w * .55, C.gold, "center", "serif");
 }
 
 function developerScenarios() {
