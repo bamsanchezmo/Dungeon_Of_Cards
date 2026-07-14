@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 237;
+const APP_PUSH_NUMBER = 238;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -939,6 +939,10 @@ function setGameMapForFloor(floorIndex) {
   if (!game) return null;
   const maps = ensureRunFloorMaps();
   const index = clamp(floorIndex, 0, towerFloorCount() - 1);
+  const expectedSceneFloorKey = sceneArtFloorKey(index);
+  if (game.developerTest && maps[index]?.sceneFloorKey !== expectedSceneFloorKey) {
+    maps[index] = createFloorMap(index);
+  }
   game.map = maps[index] || createFloorMap(index);
   return game.map;
 }
@@ -964,6 +968,7 @@ function createFloorMap(floorIndex, options = {}) {
   const palette = floorThemeColor(floorIndex);
   const bossColor = bossTableColor(floorIndex);
   const floorKey = floorAssetKey(floorIndex);
+  const sceneFloorKey = sceneArtFloorKey(floorIndex);
   const rewardPicker = createFloorRewardPicker();
   const columnNames = [
     ["Upper Table", "Lower Table", "Corner Table", "Side Table"],
@@ -976,7 +981,7 @@ function createFloorMap(floorIndex, options = {}) {
     const reward = createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker);
     const encounter = kind === "table" || kind === "boss" ? createMapEnemy(floorIndex, kind, threat, id) : null;
     const color = kind === "boss" ? bossColor : kind === "table" ? difficultyGlowColor(threat) : reward?.rarityColor || palette;
-    const assetKey = mapNodeAssetKey(kind, rarity, floorKey);
+    const assetKey = mapNodeAssetKey(kind, rarity, floorKey, sceneFloorKey);
     return { id, label, kind, x, y, next, threat, rarity, reward, encounter, color, bossColor, assetKey };
   };
   const routeColumnCount = () => {
@@ -1091,8 +1096,9 @@ function createFloorMap(floorIndex, options = {}) {
     color: palette,
     bossColor,
     floorKey,
-    backgroundAsset: `map:${floorKey}:background`,
-    decorationAsset: `map:${floorKey}:decoration`,
+    sceneFloorKey,
+    backgroundAsset: `map:${sceneFloorKey}:background`,
+    decorationAsset: `map:${sceneFloorKey}:decoration`,
     nodes: [
       node("start", "Start", "start", .07, .50, ["start-1"]),
       node("start-1", "Starter Table", "table", encounterStartX, .50, branchNextIds(0, 1, routeColumns[0]?.ids || ["boss"]), 0),
@@ -1498,9 +1504,25 @@ function floorAssetKey(floorIndex) {
   return `floor${floor}`;
 }
 
-function mapNodeAssetKey(kind, rarity, floorKey) {
+function generatedSceneFloorIndexFor(floorIndex, allowFallback = !!game?.developerTest) {
+  const index = clamp(Number(floorIndex) || 0, 0, FLOORS - 1);
+  if (floorHasGeneratedSceneArt(index)) return index;
+  return allowFallback && GENERATED_SCENE_FLOOR_COUNT > 0
+    ? clamp(GENERATED_SCENE_FLOOR_COUNT - 1, 0, FLOORS - 1)
+    : index;
+}
+
+function sceneArtFloorKey(floorIndex, allowFallback = !!game?.developerTest) {
+  return floorAssetKey(generatedSceneFloorIndexFor(floorIndex, allowFallback));
+}
+
+function hasLoadableSceneArt(floorIndex, allowFallback = !!game?.developerTest) {
+  return floorHasGeneratedSceneArt(floorIndex) || (allowFallback && GENERATED_SCENE_FLOOR_COUNT > 0);
+}
+
+function mapNodeAssetKey(kind, rarity, floorKey, sceneFloorKey = floorKey) {
   if (kind === "start") return "map:start";
-  if (kind === "elevator") return `map:${floorKey}:elevator`;
+  if (kind === "elevator") return `map:${sceneFloorKey}:elevator`;
   if (kind === "boss") return `tableMotif:${floorKey}`;
   return "tableBase:grunt";
 }
@@ -2181,7 +2203,7 @@ function beginFloorTransitionFromCeremony() {
 function prepareFloorTransitionAssets(t = game?.floorTransition) {
   if (!t || t.assetPromise) return t?.assetPromise || Promise.resolve(true);
   const targetFloorIndex = clamp((Number(t.to) || 1) - 1, 0, Math.max(0, towerFloorCount() - 1));
-  releaseFloorSceneAssetsExcept(targetFloorIndex);
+  releaseFloorSceneAssetsExcept(targetFloorIndex, [generatedSceneFloorIndexFor(targetFloorIndex)]);
   const includeShop = !!t.stopAtShop || !!t.afterShop;
   const keys = floorTransitionAssetKeys(targetFloorIndex, includeShop);
   const required = floorTransitionRequiredAssetKeys(targetFloorIndex, includeShop);
@@ -5075,7 +5097,8 @@ function drawTable() {
 }
 
 function tableSceneAssets() {
-  const floorKey = floorAssetKey(Number(game?.floor) || 0);
+  const floorIndex = Number(game?.floor) || 0;
+  const floorKey = sceneArtFloorKey(floorIndex);
   const activeNode = getMapNode(game?.activeEncounterId);
   const boss = activeNode?.kind === "boss";
   if (isQuickRun()) {
@@ -8708,7 +8731,8 @@ function cardPlayAssetKeys() {
 
 function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, includeShop = false) {
   const floor = String(clamp(floorIndex, 0, FLOORS - 1) + 1).padStart(2, "0");
-  const hasSceneArt = floorHasGeneratedSceneArt(floorIndex);
+  const sceneFloor = sceneArtFloorKey(floorIndex);
+  const hasSceneArt = hasLoadableSceneArt(floorIndex);
   const keys = [
     "elevatorInteriorFrame", "elevatorDoorHalf",
     `floor${floor}CardBack`, `tableMotif:floor${floor}`,
@@ -8719,8 +8743,8 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
   ];
   if (hasSceneArt) {
     keys.push(
-      `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
+      `map:${sceneFloor}:background`, `map:${sceneFloor}:bossPortrait`, `map:${sceneFloor}:elevator`, `map:${sceneFloor}:decoration`,
+      `tableScene:${sceneFloor}:background`, `tableScene:${sceneFloor}:bossTable`, `tableScene:${sceneFloor}:decoration`
     );
   }
   if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
@@ -8729,15 +8753,16 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
 
 function floorTransitionRequiredAssetKeys(floorIndex = Number(game?.floor) || 0, includeShop = false) {
   const floor = String(clamp(floorIndex, 0, FLOORS - 1) + 1).padStart(2, "0");
+  const sceneFloor = sceneArtFloorKey(floorIndex);
   const keys = [
     "elevatorInteriorFrame", "elevatorDoorHalf",
     `floor${floor}CardBack`, `tableMotif:floor${floor}`,
     ...cardPlayAssetKeys()
   ];
-  if (floorHasGeneratedSceneArt(floorIndex)) {
+  if (hasLoadableSceneArt(floorIndex)) {
     keys.push(
-      `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
+      `map:${sceneFloor}:background`, `map:${sceneFloor}:bossPortrait`, `map:${sceneFloor}:elevator`, `map:${sceneFloor}:decoration`,
+      `tableScene:${sceneFloor}:background`, `tableScene:${sceneFloor}:bossTable`, `tableScene:${sceneFloor}:decoration`
     );
   }
   if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
@@ -8765,7 +8790,9 @@ function collectFloorVisualAssetKeys(source = game) {
   if (!source) return [];
   const floorIndex = clamp(Number(source.floor) || 0, 0, FLOORS - 1);
   const floorKey = source.map?.floorKey || floorAssetKey(floorIndex);
-  const hasSceneArt = floorHasGeneratedSceneArt(floorIndex);
+  const allowSceneFallback = !!source.developerTest;
+  const sceneFloorKey = source.map?.sceneFloorKey || sceneArtFloorKey(floorIndex, allowSceneFallback);
+  const hasSceneArt = hasLoadableSceneArt(floorIndex, allowSceneFallback);
   const keys = [
     "map:start", "map:elevator", "map:routeLine",
     "map:tableCommon", "map:tableUncommon", "map:tableRare", "map:tableEpic", "map:tableLegendary", "map:tableMythic",
@@ -8779,8 +8806,8 @@ function collectFloorVisualAssetKeys(source = game) {
   ];
   if (hasSceneArt) {
     keys.push(
-      `map:${floorKey}:background`, `map:${floorKey}:bossPortrait`, `map:${floorKey}:elevator`, `map:${floorKey}:decoration`,
-      `tableScene:${floorKey}:background`, `tableScene:${floorKey}:bossTable`, `tableScene:${floorKey}:decoration`
+      `map:${sceneFloorKey}:background`, `map:${sceneFloorKey}:bossPortrait`, `map:${sceneFloorKey}:elevator`, `map:${sceneFloorKey}:decoration`,
+      `tableScene:${sceneFloorKey}:background`, `tableScene:${sceneFloorKey}:bossTable`, `tableScene:${sceneFloorKey}:decoration`
     );
   }
   if (Array.isArray(source.map?.nodes)) {
@@ -8893,11 +8920,14 @@ function floorSceneAssetKeys(floorIndex = 0) {
   ].filter((key) => handdrawnAssetFiles[key]);
 }
 
-function releaseFloorSceneAssetsExcept(targetFloorIndex = 0) {
-  const keep = clamp(Number(targetFloorIndex) || 0, 0, FLOORS - 1);
+function releaseFloorSceneAssetsExcept(targetFloorIndex = 0, extraKeepFloorIndexes = []) {
+  const keep = new Set([
+    clamp(Number(targetFloorIndex) || 0, 0, FLOORS - 1),
+    ...extraKeepFloorIndexes.map((index) => clamp(Number(index) || 0, 0, FLOORS - 1))
+  ]);
   let released = false;
   for (let i = 0; i < FLOORS; i++) {
-    if (i === keep) continue;
+    if (keep.has(i)) continue;
     floorSceneAssetKeys(i).forEach((key) => {
       if (handdrawnImages[key]) {
         delete handdrawnImages[key];
@@ -8916,6 +8946,7 @@ function releaseFloorSceneAssetsExcept(targetFloorIndex = 0) {
 function criticalAssetKeys() {
   const floorIndex = clamp(Number(game?.floor) || 0, 0, FLOORS - 1);
   const floor = String(floorIndex + 1).padStart(2, "0");
+  const sceneFloor = sceneArtFloorKey(floorIndex);
   const base = [
     "splashBackground", "mainMenuBackground", "frame", "divider", "token", "chip", "texture",
     "goldMark", "debtMark", "backDiamond", "quickRunCardBack",
@@ -8926,10 +8957,10 @@ function criticalAssetKeys() {
     `floor${floor}CardBack`, `tableMotif:floor${floor}`,
     ..."0123456789AJQK".split("").map((ch) => `glyph${ch}`)
   ];
-  if (floorHasGeneratedSceneArt(floorIndex)) {
+  if (hasLoadableSceneArt(floorIndex)) {
     base.push(
-      `map:floor${floor}:background`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
+      `map:${sceneFloor}:background`, `map:${sceneFloor}:elevator`, `map:${sceneFloor}:decoration`,
+      `tableScene:${sceneFloor}:background`, `tableScene:${sceneFloor}:bossTable`, `tableScene:${sceneFloor}:decoration`
     );
   }
   return [...new Set(base.filter((key) => handdrawnAssetFiles[key]))];
