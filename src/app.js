@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 204;
+const APP_PUSH_NUMBER = 205;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4811,21 +4811,23 @@ function drawFloorTransition() {
   fill("#050409", 0, 0, lw, lh);
   const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
   const revealKey = (shopStop || afterShopClosing) ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
-  if (shopStop || afterShopClosing) {
-    if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
-    else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
-    const shaftRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
-    if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
-    if (handAssetReady("elevatorGremlinShop")) {
-      const shopRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shop);
-      drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
+  withElevatorDoorwayClip(stage, () => {
+    if (shopStop || afterShopClosing) {
+      if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
+      else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
+      const shaftRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
+      if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
+      if (handAssetReady("elevatorGremlinShop")) {
+        const shopRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shop);
+        drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
+      }
+    } else if (revealKey && handAssetReady(revealKey)) {
+      const revealRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.floorReveal);
+      drawRawAsset(revealKey, revealRect.x, revealRect.y, revealRect.w, revealRect.h, .92);
+    } else {
+      drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
     }
-  } else if (revealKey && handAssetReady(revealKey)) {
-    const revealRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.floorReveal);
-    drawRawAsset(revealKey, revealRect.x, revealRect.y, revealRect.w, revealRect.h, .92);
-  } else {
-    drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
-  }
+  });
   fill("rgba(0,0,0,.18)", 0, 0, lw, lh);
   let open = 0;
   let doorStagger = shopStop || afterShopClosing;
@@ -4838,7 +4840,7 @@ function drawFloorTransition() {
     const openBase = clamp((progress - .25) / .68, 0, 1);
     open = shopStop ? Math.min(1, openBase * 1.15) : openBase;
   }
-  drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, doorStagger);
+  withElevatorDoorwayClip(stage, () => drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, doorStagger));
   drawElevatorExteriorMask(stage);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(from, to, progress, eased, shopStop && !afterShop, stage, afterShop);
@@ -4874,6 +4876,16 @@ function drawElevatorExteriorMask(stage) {
   fill("#050409", 0, bottom, lw, Math.max(0, lh - bottom));
   fill("#050409", 0, y, x, Math.max(0, bottom - y));
   fill("#050409", right, y, Math.max(0, lw - right), Math.max(0, bottom - y));
+}
+
+function withElevatorDoorwayClip(stage, drawFn) {
+  const r = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(r.x, r.y, r.w, r.h);
+  ctx.clip();
+  drawFn();
+  ctx.restore();
 }
 
 function elevatorLayoutRect(stage, rect) {
@@ -6671,15 +6683,17 @@ function drawShop() {
 function drawTowerElevatorShop(lw, lh, portrait) {
   const stage = elevatorStageRect(lw, lh);
   fill("#050409", 0, 0, lw, lh);
-  if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
-  else drawElevatorShaftLines(0, 0, lw, lh, activeFloorUi(), .5);
-  const shaftRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
-  if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
-  if (handAssetReady("elevatorGremlinShop")) {
-    const shopRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shop);
-    drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
-  }
-  drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, 1, true);
+  withElevatorDoorwayClip(stage, () => {
+    if (handAssetReady("elevatorShaftBackground")) drawRawAssetCover("elevatorShaftBackground", 0, 0, lw, lh, .96);
+    else drawElevatorShaftLines(0, 0, lw, lh, activeFloorUi(), .5);
+    const shaftRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
+    if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
+    if (handAssetReady("elevatorGremlinShop")) {
+      const shopRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shop);
+      drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
+    }
+    drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, 1, true);
+  });
   drawElevatorExteriorMask(stage);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true, stage);
