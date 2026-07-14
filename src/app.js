@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 207;
+const APP_PUSH_NUMBER = 208;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -2555,6 +2555,11 @@ function buyRelic(index) {
   if (game.shopContext?.kind === "towerElevator") {
     const cost = Number(relic.shopCost) || 0;
     const buyer = mySeat() || game.seats[0];
+    if (!canBuyTowerShopItem(relic, buyer)) {
+      setElevatorMerchantDialog("broke");
+      sfx("lose");
+      return flashMsg(`Keep at least ${MIN_BET}g for the next table`);
+    }
     if (!spendGold(buyer, cost)) {
       setElevatorMerchantDialog("broke");
       sfx("lose");
@@ -3672,6 +3677,13 @@ function spendGold(seat, amount) {
   if ((game.gold || 0) < amount) return false;
   game.gold -= amount;
   return true;
+}
+
+function canBuyTowerShopItem(item, seat = mySeat() || game?.seats?.[0]) {
+  const cost = Number(item?.shopCost) || 0;
+  if (cost <= 0) return true;
+  const wallet = seatBankroll(seat);
+  return wallet >= cost && wallet - cost >= MIN_BET;
 }
 
 function loanPaymentForWinnings(debt, winnings) {
@@ -6737,14 +6749,14 @@ function drawCompactShopCard(item, index, x, y, w, h) {
   const meta = rewardTypeMeta(item);
   const color = item.rarityColor || meta.color || C.gold;
   const cost = Number(item.shopCost) || 0;
-  const canBuy = seatBankroll(mySeat() || game.seats[0]) >= cost;
+  const canBuy = canBuyTowerShopItem(item, mySeat() || game.seats[0]);
   gradientRound(x, y, w, h, 12, canBuy ? [[0, "rgba(43,34,52,.9)"], [1, "rgba(13,10,18,.92)"]] : [[0, "rgba(25,22,28,.78)"], [1, "rgba(9,8,11,.9)"]], true);
   strokeRound(x, y, w, h, 12, canBuy ? hexToRgba(color, .75) : "rgba(238,231,215,.18)", 2);
   const iconSize = Math.min(42, h * .46);
   drawMapRewardIcon(item, x + 28, y + h / 2 - 8, iconSize, color);
   textFit(item.name, x + 54, y + 26, w - 62, 14, color);
   textFit(meta.label, x + 54, y + 46, w - 62, 11, C.muted);
-  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, true);
+  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, canBuy);
 }
 
 function drawShopRelicCard(relic, index, x, y) {
