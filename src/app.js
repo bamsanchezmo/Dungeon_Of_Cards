@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 213;
+const APP_PUSH_NUMBER = 214;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -260,6 +260,7 @@ let musicDeathLastHeartbeat = 0;
 let musicDeathWarpPlayed = false;
 let deathReverseSource = null;
 let deathReverseGain = null;
+let assetWarmup = { started: false, total: 0, loaded: 0, criticalTotal: 0, criticalLoaded: 0 };
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -462,6 +463,7 @@ const tintedHanddrawnCache = new Map();
 const chromaKeyedAssetCache = new Map();
 const paletteShiftedAssetCache = new Map();
 loadHanddrawnAssets();
+warmupAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
 let leaderboardClient = null;
@@ -825,6 +827,7 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     resetRound();
   }
   appScene = "game";
+  warmupAssets(true);
   restartRunMusicFromStart();
 }
 
@@ -4375,6 +4378,7 @@ function drawSplash() {
   ctx.restore();
   text("Wizard Stab Studio presents", cx, cy + 14, viewport.portrait ? 24 : 24, C.muted, "center", "serif");
   text(`v${APP_VERSION} · push ${APP_PUSH_NUMBER}`, cx, cy + 48, viewport.portrait ? 18 : 16, hexToRgba(C.parchment, .68), "center");
+  if (!handAssetReady("splashBackground")) drawAssetWarmupHint(cx, cy + (viewport.portrait ? 174 : 148), 340);
   buttons.push({ x: cx - 280, y: cy - 150, w: 560, h: 130, onClick: handleDeveloperSplashTap });
   addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Enter Casino", () => appScene = "menu", true);
   if (developerModeUnlocked) {
@@ -4427,6 +4431,17 @@ function drawMenu() {
     drawLeaderboardPanel(side.x + 18, side.y + 24, side.w - 36, side.h - 48);
   }
   text("H/S/D/P/R actions - Enter ready/continue - M music", cx, lh - 34, portrait ? 18 : 16, C.muted, "center");
+  if (!hasMenuArt) drawAssetWarmupHint(cx, lh - (portrait ? 86 : 72), portrait ? 390 : 330);
+}
+
+function drawAssetWarmupHint(cx, cy, w) {
+  const critical = Math.max(1, assetWarmup.criticalTotal || 1);
+  const pct = clamp((assetWarmup.criticalLoaded || 0) / critical, 0, 1);
+  const h = 42;
+  fill("rgba(6,5,9,.72)", cx - w / 2, cy - h / 2, w, h, 18);
+  strokeRound(cx - w / 2, cy - h / 2, w, h, 18, "rgba(220,180,70,.38)", 1.5);
+  fill(hexToRgba(C.gold, .55), cx - w / 2 + 12, cy + h / 2 - 11, Math.max(8, (w - 24) * pct), 4, 2);
+  text(`Loading art ${Math.round(pct * 100)}%`, cx, cy + 5, viewport.portrait ? 16 : 14, C.text, "center");
 }
 
 function drawMainMenuContent(table, cx, portrait) {
@@ -8133,6 +8148,9 @@ function loadHanddrawnAssets() {
   for (const [key, file] of Object.entries(handdrawnAssetFiles)) {
     if (handdrawnImages[key]) continue;
     const img = new Image();
+    img.loading = "eager";
+    img.decoding = "async";
+    img.fetchPriority = key === "splashBackground" || key === "mainMenuBackground" ? "high" : "auto";
     img.src = `./assets/${file}`;
     img.onload = () => {
       tintedHanddrawnCache.clear();
@@ -8142,6 +8160,58 @@ function loadHanddrawnAssets() {
     };
     handdrawnImages[key] = img;
   }
+}
+
+function criticalAssetKeys() {
+  const floor = String(clamp((Number(game?.floor) || 0) + 1, 1, FLOORS)).padStart(2, "0");
+  const base = [
+    "splashBackground", "mainMenuBackground", "frame", "divider", "token", "chip", "texture",
+    "goldMark", "debtMark", "backDiamond", "quickRunCardBack",
+    "suitS", "suitH", "suitD", "suitC",
+    "elevatorShaftBackground", "elevatorGremlinShop", "elevatorInteriorFrame", "elevatorDoorHalf",
+    "tableBase:grunt",
+    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer",
+    `floor${floor}CardBack`, `tableMotif:floor${floor}`,
+    `map:floor${floor}:background`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+    `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
+    `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`,
+    ..."0123456789AJQK".split("").map((ch) => `glyph${ch}`)
+  ];
+  return [...new Set(base.filter((key) => handdrawnAssetFiles[key]))];
+}
+
+function warmAssetKey(key) {
+  const img = handdrawnImages[key];
+  if (!img) return Promise.resolve(false);
+  if (img.complete && img.naturalWidth > 0) {
+    return (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => true);
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      if (img.decode) img.decode().catch(() => {}).finally(() => resolve(true));
+      else resolve(true);
+    };
+    img.addEventListener("load", done, { once: true });
+    img.addEventListener("error", () => resolve(false), { once: true });
+  });
+}
+
+function warmupAssets(priorityOnly = false) {
+  loadHanddrawnAssets();
+  const critical = criticalAssetKeys();
+  const all = Object.keys(handdrawnAssetFiles);
+  const ordered = [...critical, ...all.filter((key) => !critical.includes(key))];
+  const keys = priorityOnly ? critical : ordered;
+  assetWarmup = { started: true, total: keys.length, loaded: 0, criticalTotal: critical.length, criticalLoaded: 0 };
+  keys.forEach((key, i) => {
+    const run = () => warmAssetKey(key).then(() => {
+      assetWarmup.loaded++;
+      if (critical.includes(key)) assetWarmup.criticalLoaded++;
+      if (i % 8 === 0 || assetWarmup.loaded === assetWarmup.total) draw();
+    });
+    if (i < 18) void run();
+    else setTimeout(() => void run(), 25 + i * 18);
+  });
 }
 
 function handAssetReady(key) {
