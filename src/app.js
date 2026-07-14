@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 203;
+const APP_PUSH_NUMBER = 204;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4850,9 +4850,11 @@ function drawFloorTransition() {
 
 function elevatorStageRect(lw = layoutW(), lh = layoutH()) {
   const aspect = 2 / 3;
-  const shouldCover = viewport.portrait || lw / Math.max(1, lh) < aspect;
-  const w = shouldCover ? Math.max(lw, lh * aspect) : lh * aspect;
-  const h = shouldCover ? Math.max(lh, w / aspect) : lh;
+  const margin = 0;
+  const maxW = Math.max(1, lw - margin * 2);
+  const maxH = Math.max(1, lh - margin * 2);
+  const w = Math.min(maxW, maxH * aspect);
+  const h = w / aspect;
   return {
     x: (lw - w) / 2,
     y: (lh - h) / 2,
