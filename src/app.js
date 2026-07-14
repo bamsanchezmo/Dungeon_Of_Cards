@@ -7,6 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
+const APP_PUSH_NUMBER = 194;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -3902,7 +3903,7 @@ function drawSplash() {
   text("OF CARDS", cx, cy - 30, viewport.portrait ? 48 : 60, C.parchment, "center", "serif");
   ctx.restore();
   text("Wizard Stab Studio presents", cx, cy + 14, viewport.portrait ? 24 : 24, C.muted, "center", "serif");
-  text(`v${APP_VERSION}`, cx, cy + 48, viewport.portrait ? 18 : 16, hexToRgba(C.parchment, .68), "center");
+  text(`v${APP_VERSION} · push ${APP_PUSH_NUMBER}`, cx, cy + 48, viewport.portrait ? 18 : 16, hexToRgba(C.parchment, .68), "center");
   buttons.push({ x: cx - 280, y: cy - 150, w: 560, h: 130, onClick: handleDeveloperSplashTap });
   addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Enter Casino", () => appScene = "menu", true);
   if (developerModeUnlocked) {
