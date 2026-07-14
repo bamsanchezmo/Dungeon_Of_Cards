@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 209;
+const APP_PUSH_NUMBER = 210;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -2067,11 +2067,17 @@ function beginFloorTransitionFromCeremony() {
 
 function updateFloorTransitionAudio() {
   const t = game?.floorTransition;
-  if (game?.phase !== "floorTransition" || !t?.stopAtShop || t.boomPlayed) return;
+  if (game?.phase !== "floorTransition" || !t) return;
   const progress = clamp((Date.now() - (t.startedAt || Date.now())) / Math.max(1, t.duration || 3200), 0, 1);
-  if (progress < .28) return;
-  t.boomPlayed = true;
-  sfx("elevatorBoom");
+  if (t.stopAtShop && !t.boomPlayed && progress >= .28) {
+    t.boomPlayed = true;
+    sfx("elevatorBoom");
+  }
+  const dingAt = t.afterShop ? .88 : t.stopAtShop ? .62 : .72;
+  if (!t.doorDingPlayed && progress >= dingAt) {
+    t.doorDingPlayed = true;
+    sfx("doorDing");
+  }
 }
 
 function finishFloorTransition() {
@@ -4031,6 +4037,11 @@ function sfx(kind) {
     blip(520, 0, .09, .13);
     blip(780, .085, .11, .14);
     blip(1040, .18, .08, .105);
+    return;
+  }
+  if (kind === "doorDing") {
+    blip(880, 0, .11, .11, "triangle");
+    blip(1320, .10, .2, .13, "triangle", 1180);
     return;
   }
   if (kind === "coin") {
@@ -6748,18 +6759,27 @@ function drawElevatorMerchantDialog(line, cx, y, w, portrait) {
 
 function drawElevatorShopStatusHeader(lw, portrait) {
   const ui = activeFloorUi();
-  const topY = portrait ? 24 : 22;
-  const statsX = portrait ? 20 : 28;
-  const statsW = portrait ? Math.min(184, lw * .32) : Math.min(330, lw * .28);
-  const statsH = portrait ? 52 : 42;
+  const fromFloor = Number(game?.shopContext?.fromFloor) || game.floor + 1;
+  const floorIndex = clamp(fromFloor - 1, 0, FLOORS - 1);
+  const theme = floorConfigs[floorIndex]?.theme || game?.map?.theme || "Casino Floor";
+  const topY = portrait ? 26 : 30;
+  const leftX = portrait ? 22 : 26;
+  const titleW = portrait ? Math.max(140, lw * .25) : Math.max(230, lw * .24);
+  text(`FLOOR ${fromFloor}/${runFloorCount()}`, leftX, topY + (portrait ? 17 : 16), portrait ? 22 : 30, ui.titleWarm, "left", "serif");
+  textFit(theme, leftX, topY + (portrait ? 46 : 50), titleW, portrait ? 16 : 22, C.text);
+  const menuW = portrait ? 104 : 126;
+  const menuH = portrait ? 50 : 58;
+  const menuX = lw - menuW - (portrait ? 18 : 26);
+  const statsW = portrait ? Math.min(300, Math.max(230, lw * .42)) : Math.min(580, Math.max(420, lw * .34));
+  const statsH = portrait ? 50 : 66;
+  const statsX = clamp(lw / 2 - statsW / 2, leftX + titleW + 12, menuX - statsW - 16);
+  const statsY = topY + (portrait ? 1 : 4);
   shadow(0, 12, 28, "rgba(0,0,0,.45)", () => {
-    gradientRound(statsX, topY, statsW, statsH, 14, [[0, "rgba(8,6,12,.80)"], [1, hexToRgba(ui.panelBottom, .92)]], true);
+    gradientRound(statsX, statsY, statsW, statsH, 18, [[0, "rgba(8,6,12,.82)"], [1, hexToRgba(ui.panelBottom, .94)]], true);
   });
-  strokeRound(statsX, topY, statsW, statsH, 14, hexToRgba(ui.border, .55), 1.5);
-  textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, topY + statsH / 2 + 5, statsW - 18, portrait ? 14 : 15, C.text, "center");
-  const menuW = portrait ? 92 : 96;
-  const menuH = portrait ? 46 : 38;
-  addButton(lw - menuW - (portrait ? 20 : 28), topY + (portrait ? 2 : 0), menuW, menuH, "Menu", () => menuOpen = true);
+  strokeRound(statsX, statsY, statsW, statsH, 18, hexToRgba(ui.border, .58), 1.8);
+  textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, statsY + statsH / 2 + (portrait ? 5 : 6), statsW - 28, portrait ? 15 : 20, C.text, "center");
+  addButton(menuX, topY, menuW, menuH, "Menu", () => menuOpen = true);
 }
 
 function drawCompactShopCard(item, index, x, y, w, h) {
