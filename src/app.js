@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 221;
+const APP_PUSH_NUMBER = 222;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -470,6 +470,7 @@ const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
 const chromaKeyedAssetCache = new Map();
 const paletteShiftedAssetCache = new Map();
+const relicAssetPreloadQueued = new Set();
 let hpAnimation = null;
 let moneyAnimations = [];
 let leaderboardClient = null;
@@ -2217,6 +2218,7 @@ function completeQuickEncounter() {
 
 function gainRelic(relic) {
   if (!relic) return;
+  preloadRelicAsset(relic);
   game.relics.push(relic);
   game.foresightUsesLeft += relic.foresightUses || 0;
   lastRelicName = relic.name;
@@ -3481,6 +3483,7 @@ function restoreGameFromSave(entry, scope = "solo") {
   handCarouselAnim = {};
   handCarouselActiveIndex = {};
   inspectedNodeId = game.phase === "map" ? (game.currentNodeId || "start") : "";
+  preloadRelicAssets(game.relics || []);
   if (game.phase === "map") refreshReachableNodes();
   if (game.runType === "tower") void preloadAssetKeys(floorTransitionAssetKeys(Number(game.floor) || 0, true), `Loading Floor ${(Number(game.floor) || 0) + 1}`);
   else void preloadQuickPlayAssets();
@@ -6865,6 +6868,7 @@ function baseRunMaxHp() {
 }
 
 function loadoutItems() {
+  preloadRelicAssets(game?.relics || []);
   const relics = (game?.relics || []).map((relic) => ({
     kind: "relic",
     relic,
@@ -8533,6 +8537,7 @@ function handAssetReady(key) {
 function shouldChromaKeyAsset(key) {
   const assetKey = String(key);
   if (/^floor\d{2}CardBack$/.test(assetKey)) return true;
+  if (/^relic:/.test(assetKey)) return true;
   if (assetKey === "tableBase:grunt") return true;
   if (/^grunt:/.test(assetKey)) return true;
   if (/^tableMotif:floor\d{2}$/.test(assetKey)) return true;
@@ -8963,13 +8968,37 @@ function drawFloorCardBack(x, y, w = CARD_W, h = CARD_H) {
   return true;
 }
 
+function relicAssetName(relic) {
+  if (!relic) return "";
+  const candidates = [relic.baseName, relic.assetName, relic.name].filter(Boolean);
+  for (const candidate of candidates) {
+    const raw = String(candidate).trim();
+    if (relicAssetFiles[raw]) return raw;
+    const withoutRarity = raw.replace(/^(Common|Uncommon|Rare|Epic|Legendary|Mythic)\s+/i, "").trim();
+    if (relicAssetFiles[withoutRarity]) return withoutRarity;
+  }
+  return "";
+}
+
 function relicAssetKey(relic) {
-  const name = relic?.baseName && relicAssetFiles[relic.baseName] ? relic.baseName : relic?.name;
-  return relicAssetFiles[name] ? `relic:${name}` : "";
+  const name = relicAssetName(relic);
+  return name ? `relic:${name}` : "";
+}
+
+function preloadRelicAsset(relic) {
+  const key = relicAssetKey(relic);
+  if (!key || relicAssetPreloadQueued.has(key) || handAssetReady(key)) return;
+  relicAssetPreloadQueued.add(key);
+  void warmAssetKey(key).then(() => draw());
+}
+
+function preloadRelicAssets(relics = []) {
+  (relics || []).forEach(preloadRelicAsset);
 }
 
 function drawRelicIcon(relic, cx, cy, size, color = C.gold, bg = true) {
   const key = relicAssetKey(relic);
+  if (key) preloadRelicAsset(relic);
   if (!isHanddrawnArt() || !key || !handAssetReady(key)) {
     badge(cx, cy, relic.icon, color);
     return false;
