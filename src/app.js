@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 201;
+const APP_PUSH_NUMBER = 202;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -37,6 +37,22 @@ const rarityTiers = [
   { key: "legendary", name: "Legendary", color: "#ff9f2f", scale: 3 },
   { key: "mythic", name: "Mythic", color: "#ff4e72", scale: 3.8 }
 ];
+
+const rewardBalance = {
+  gruntRelicChance: { base: .26, floor: .012, threat: .045, min: .22, max: .46 },
+  bossRarityBoost: 2,
+  shopCostBase: 75,
+  shopCostFloor: 36,
+  shopCostRarity: .32,
+  statCaps: {
+    luck: [35, 75],
+    refund: .65,
+    bustRefund: .60,
+    damageBonus: [65, 150],
+    chipBonus: [40, 90],
+    heal: [28, 60]
+  }
+};
 
 const threatColors = [
   "#54d66a",
@@ -1049,18 +1065,25 @@ function normalizeRouteColumnSpacing(map, startX = .22, endX = .75) {
 
 function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
   if (kind === "start" || kind === "elevator") return null;
-  if (kind === "boss") return { ...createRewardRelic(rarity, rewardPicker()), type: "relic" };
+  if (kind === "boss") {
+    const bossRarity = rarityForFloor(floorIndex, (threat || 1) + rewardBalance.bossRarityBoost);
+    return { ...createRewardRelic(bossRarity, rewardPicker()), type: "relic" };
+  }
 
   const floor = floorIndex + 1;
-  const relicChance = clamp(.58 - floorIndex * .025 - Math.max(0, threat - 2) * .035, .32, .58);
+  const relicChance = clamp(
+    rewardBalance.gruntRelicChance.base + floorIndex * rewardBalance.gruntRelicChance.floor + Math.max(0, threat - 1) * rewardBalance.gruntRelicChance.threat,
+    rewardBalance.gruntRelicChance.min,
+    rewardBalance.gruntRelicChance.max
+  );
   const roll = Math.random();
   if (roll < relicChance) return { ...createRewardRelic(rarity, rewardPicker()), type: "relic" };
 
   const perkRoll = Math.random();
-  const rarityMult = rarity?.mult || 1;
-  const scale = 1 + floorIndex * .16 + Math.max(0, threat - 1) * .08;
-  if (perkRoll < .46) {
-    const amount = Math.round((30 + floor * 8 + threat * 7) * scale * rarityMult / 5) * 5;
+  const rarityMult = Number(rarity?.scale) || 1;
+  const scale = 1 + floorIndex * .12 + Math.max(0, threat - 1) * .07;
+  if (perkRoll < .45) {
+    const amount = Math.round((24 + floor * 7 + threat * 8) * scale * rarityMult / 5) * 5;
     return {
       type: "gold",
       name: `${rarity.name} Cash Drop`,
@@ -1071,8 +1094,8 @@ function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
       rarityColor: rarity.color
     };
   }
-  if (perkRoll < .76) {
-    const amount = Math.round((10 + floor * 2 + threat * 2) * scale);
+  if (perkRoll < .78) {
+    const amount = Math.round((12 + floor * 2 + threat * 2.5) * scale);
     return {
       type: "heal",
       name: `${rarity.name} House Meal`,
@@ -1083,7 +1106,8 @@ function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
       rarityColor: rarity.color
     };
   }
-  const amount = Math.max(4, Math.round((4 + floor + threat) * rarityMult));
+  if (perkRoll >= .93) return createQuickPerkReward("damage", floor, rarity);
+  const amount = Math.max(4, Math.round((4 + floor * .75 + threat) * rarityMult));
   return {
     type: "maxHp",
     name: `${rarity.name} Vitality Voucher`,
@@ -1110,18 +1134,18 @@ function createQuickRewardChoices() {
 function createTowerElevatorShopChoices(fromFloor, toFloor) {
   const floorIndex = clamp((Number(toFloor) || fromFloor || 1) - 1, 0, FLOORS - 1);
   const picker = createFloorRewardPicker();
-  const rarity = (boost = 0) => rarityForFloor(floorIndex, boost + 1);
-  const costBase = 55 + floorIndex * 28;
+  const rarity = (boost = 0) => rarityForFloor(floorIndex, boost + 2);
+  const costBase = rewardBalance.shopCostBase + floorIndex * rewardBalance.shopCostFloor;
   const withCost = (reward, mult = 1) => ({
     ...reward,
-    shopCost: Math.max(25, Math.round(costBase * mult / 5) * 5),
+    shopCost: Math.max(35, Math.round(costBase * mult * (1 + (Number(reward?.rarityScale) || 1) * rewardBalance.shopCostRarity) / 5) * 5),
     shopOnly: true
   });
   const healthType = Math.random() < .5 ? "heal" : "maxHp";
   return shuffle([
-    withCost(createRewardRelic(rarity(0), picker()), 1.45),
-    withCost(createQuickPerkReward("damage", Math.max(1, Number(toFloor) || 1), rarity(1)), 1.25),
-    withCost(createQuickPerkReward(healthType, Math.max(1, Number(toFloor) || 1), rarity(2)), healthType === "heal" ? .75 : 1.05)
+    withCost(createRewardRelic(rarity(0), picker()), 1.30),
+    withCost(createQuickPerkReward("damage", Math.max(1, Number(toFloor) || 1), rarity(1)), 1.10),
+    withCost(createQuickPerkReward(healthType, Math.max(1, Number(toFloor) || 1), rarity(2)), healthType === "heal" ? .70 : .95)
   ]);
 }
 
@@ -1142,10 +1166,10 @@ function setElevatorMerchantDialog(kind) {
 
 function createQuickPerkReward(type, quickFloor, rarity) {
   const rarityMult = Number(rarity?.scale || rarity?.mult || 1) || 1;
-  const variance = .9 + Math.random() * .24;
-  const scale = (1 + Math.sqrt(Math.max(1, quickFloor)) * .12 + quickFloor * .025) * variance;
+  const variance = .92 + Math.random() * .18;
+  const scale = (1 + Math.sqrt(Math.max(1, quickFloor)) * .08 + quickFloor * .018) * variance;
   if (type === "gold") {
-    const amount = Math.round((45 + quickFloor * 12) * scale * rarityMult / 5) * 5;
+    const amount = Math.round((38 + quickFloor * 10) * scale * rarityMult / 5) * 5;
     return {
       type: "gold",
       name: `${rarity.name} Cash Payout`,
@@ -1153,11 +1177,12 @@ function createQuickPerkReward(type, quickFloor, rarity) {
       description: `Gain ${amount} gold for future bets.`,
       amount,
       rarityName: rarity.name,
-      rarityColor: rarity.color
+      rarityColor: rarity.color,
+      rarityScale: rarityMult
     };
   }
   if (type === "heal") {
-    const amount = Math.round((18 + quickFloor * 3) * scale);
+    const amount = Math.round((16 + quickFloor * 2.5) * scale);
     return {
       type: "heal",
       name: `${rarity.name} Second Wind`,
@@ -1165,11 +1190,12 @@ function createQuickPerkReward(type, quickFloor, rarity) {
       description: `Restore ${amount} HP.`,
       amount,
       rarityName: rarity.name,
-      rarityColor: rarity.color
+      rarityColor: rarity.color,
+      rarityScale: rarityMult
     };
   }
   if (type === "maxHp") {
-    const amount = Math.max(5, Math.round((6 + quickFloor * .75) * rarityMult));
+    const amount = Math.max(4, Math.round((5 + quickFloor * .55) * rarityMult));
     return {
       type: "maxHp",
       name: `${rarity.name} Vitality Upgrade`,
@@ -1177,10 +1203,11 @@ function createQuickPerkReward(type, quickFloor, rarity) {
       description: `Increase max HP by ${amount} and heal ${amount} HP.`,
       amount,
       rarityName: rarity.name,
-      rarityColor: rarity.color
+      rarityColor: rarity.color,
+      rarityScale: rarityMult
     };
   }
-  const amount = Number((.05 + Math.min(.28, rarityMult * .035 + quickFloor * .0025)).toFixed(2));
+  const amount = Number((.035 + Math.min(.16, rarityMult * .022 + quickFloor * .0016)).toFixed(2));
   return {
     type: "damage",
     name: `${rarity.name} Sharpened Cards`,
@@ -1188,7 +1215,8 @@ function createQuickPerkReward(type, quickFloor, rarity) {
     description: `Winning hands deal +${Math.round(amount * 100)}% damage. Current ${quickDamageLabel()} → x${(quickDamageMultiplier() + amount).toFixed(2)}.`,
     amount,
     rarityName: rarity.name,
-    rarityColor: rarity.color
+    rarityColor: rarity.color,
+    rarityScale: rarityMult
   };
 }
 
@@ -1424,12 +1452,18 @@ function rarityForFloor(floorIndex, boost = 0) {
 
 function createRewardRelic(rarity, baseRelic = null) {
   const base = baseRelic || relicPool[Math.floor(Math.random() * relicPool.length)];
-  const scaled = { ...base, type: "relic", baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color };
+  const scaled = { ...base, type: "relic", baseName: base.name, rarity: rarity.key, rarityName: rarity.name, rarityColor: rarity.color, rarityScale: rarity.scale };
   for (const [key, value] of Object.entries(scaled)) {
     if (typeof value === "number" && !["foresightUses"].includes(key)) {
       scaled[key] = value < 1 ? Number(Math.min(.95, value * rarity.scale).toFixed(2)) : Math.max(1, Math.round(value * rarity.scale));
     }
   }
+  if (scaled.refund) scaled.refund = Number(Math.min(.65, scaled.refund).toFixed(2));
+  if (scaled.bustRefund) scaled.bustRefund = Number(Math.min(.60, scaled.bustRefund).toFixed(2));
+  if (scaled.luck) scaled.luck = Math.min(70, scaled.luck);
+  if (scaled.heal) scaled.heal = Math.min(60, scaled.heal);
+  if (scaled.damageBonus) scaled.damageBonus = Math.min(150, scaled.damageBonus);
+  if (scaled.chipBonus) scaled.chipBonus = Math.min(90, scaled.chipBonus);
   if (scaled.foresightUses) scaled.foresightUses = Math.max(1, Math.round(scaled.foresightUses + rarity.scale - 1));
   scaled.name = `${rarity.name} ${base.name}`;
   scaled.description = describeRelic(scaled, base.description);
@@ -1585,7 +1619,7 @@ function drawCard(faceUp = true, currentTotal = 0, target = "player", dealKind =
     log("The shoe is reshuffled.");
     sfx("shuffle");
   }
-  const luck = target === "dealer" ? (game.enemy.luck || 0) : relicSum("luck") - (game.enemy.luck || 0);
+  const luck = target === "dealer" ? (game.enemy.luck || 0) : relicStat("luck") - (game.enemy.luck || 0);
   const markDealt = (card) => {
     game.dealSeq = (game.dealSeq || 0) + 1;
     game.roundDealCount = game.roundDealCount || 0;
@@ -2360,13 +2394,13 @@ function settleRound() {
   game.completedRounds = (Number(game.completedRounds) || 0) + 1;
   const bankruptSeat = updateFreeForAllBankruptcy(results);
   if (net > 0) {
-    const bonus = relicSum("damageBonus");
+    const bonus = relicStat("damageBonus");
     const rawDamage = Math.max(1, Math.round(bossDamage + bonus));
     const damageCap = game.enemy?.isBoss ? Number(game.enemy.roundDamageCap || 0) : 0;
     const damage = damageCap ? Math.min(rawDamage, damageCap) : rawDamage;
     game.enemy.hp = Math.max(0, game.enemy.hp - damage);
     applyBossPhaseRules(false);
-    const heal = relicSum("heal") * Math.max(1, winHands);
+    const heal = relicStat("heal") * Math.max(1, winHands);
     if (heal) game.hp = Math.min(game.maxHp, game.hp + heal);
     sfx("win");
   }
@@ -2413,7 +2447,7 @@ function enterSoloMapNode(playerId, nodeId) {
 
 function settleHand(seat, h, dealerTotal, dealerBj) {
   const bjMult = has("bjPays2") ? 2 : (game.enemy.bjPays65 ? 1.2 : 1.5);
-  const chipBonus = relicSum("chipBonus");
+  const chipBonus = relicStat("chipBonus");
   const pushWins = has("pushWins");
   const cappedRefund = (amount) => Math.max(0, Math.min(amount, h.bet - 1));
   if (h.insurance) {
@@ -2429,7 +2463,7 @@ function settleHand(seat, h, dealerTotal, dealerBj) {
     return lossResultPayload(seat, h, lost, has("freeSurrender") ? "Surrender refunded" : `Surrender -${lost}g`, lost);
   }
   if (isBust(h)) {
-    const refund = cappedRefund(Math.floor(h.bet * (relicSum("refund") + relicSum("bustRefund"))));
+    const refund = cappedRefund(Math.floor(h.bet * (relicStat("refund") + relicStat("bustRefund"))));
     addGold(seat, refund, 0);
     return lossResultPayload(seat, h, h.bet - refund, `Bust -${h.bet - refund}g`, h.bet);
   }
@@ -2495,7 +2529,7 @@ function lifeLossForBetLoss(seat, hand, betAtRisk) {
 }
 
 function loseResult(seat, h, msg) {
-  const refund = Math.max(0, Math.min(Math.floor(h.bet * relicSum("refund")), h.bet - 1));
+  const refund = Math.max(0, Math.min(Math.floor(h.bet * relicStat("refund")), h.bet - 1));
   addGold(seat, refund, 0);
   return lossResultPayload(seat, h, h.bet - refund, `${msg} -${h.bet - refund}g`, h.bet);
 }
@@ -2758,6 +2792,21 @@ function has(prop) {
 
 function relicSum(prop) {
   return game.relics.reduce((sum, r) => sum + (Number(r[prop]) || 0), 0);
+}
+
+function softCapStat(value, soft, hard) {
+  const v = Math.max(0, Number(value) || 0);
+  if (v <= soft) return v;
+  return Math.min(hard, soft + (hard - soft) * (1 - Math.exp(-(v - soft) / Math.max(1, hard - soft))));
+}
+
+function relicStat(prop) {
+  const raw = relicSum(prop);
+  const caps = rewardBalance.statCaps;
+  if (prop === "refund") return Math.min(caps.refund, raw);
+  if (prop === "bustRefund") return Math.min(caps.bustRefund, raw);
+  if (Array.isArray(caps[prop])) return softCapStat(raw, caps[prop][0], caps[prop][1]);
+  return raw;
 }
 
 function log(text) {
