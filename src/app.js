@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 227;
+const APP_PUSH_NUMBER = 228;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -463,6 +463,9 @@ for (const [name, file] of Object.entries(relicAssetFiles)) {
 }
 function allRelicAssetKeys() {
   return Object.keys(relicAssetFiles).map((name) => `relic:${name}`);
+}
+function allGruntAssetKeys() {
+  return ["grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"];
 }
 for (const [key, file] of Object.entries(mapNodeArtFiles)) {
   handdrawnAssetFiles[`map:${key}`] = file;
@@ -8417,6 +8420,7 @@ function menuPrefetchAssetKeys() {
     ...cardPlayAssetKeys(),
     "quickRunCardBack", "tableBase:grunt",
     "elevatorShaftBackground", "elevatorGremlinShop", "elevatorInteriorFrame", "elevatorDoorHalf",
+    ...allGruntAssetKeys(),
     ...allRelicAssetKeys(),
     ...floorTransitionAssetKeys(0, true),
     "tableScene:quick:background"
@@ -8439,7 +8443,7 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
     ...cardPlayAssetKeys(),
     ...allRelicAssetKeys(),
     "tableBase:grunt",
-    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
+    ...allGruntAssetKeys()
   ];
   if (hasSceneArt) {
     keys.push(
@@ -8469,6 +8473,35 @@ function collectRelicAssetKeysFromState(source = game) {
   return [...new Set(relics.map(relicAssetKey).filter(Boolean))];
 }
 
+function collectFloorVisualAssetKeys(source = game) {
+  if (!source) return [];
+  const floorIndex = clamp(Number(source.floor) || 0, 0, FLOORS - 1);
+  const floorKey = source.map?.floorKey || floorAssetKey(floorIndex);
+  const keys = [
+    "map:start", "map:elevator", "map:routeLine",
+    "map:tableCommon", "map:tableUncommon", "map:tableRare", "map:tableEpic", "map:tableLegendary", "map:tableMythic",
+    "tableBase:grunt",
+    ...allGruntAssetKeys(),
+    `floor${String(floorIndex + 1).padStart(2, "0")}CardBack`,
+    `tableMotif:${floorKey}`,
+    `map:${floorKey}:background`, `map:${floorKey}:table`, `map:${floorKey}:bossTable`, `map:${floorKey}:bossPortrait`, `map:${floorKey}:elevator`, `map:${floorKey}:decoration`,
+    `tableScene:${floorKey}:background`, `tableScene:${floorKey}:table`, `tableScene:${floorKey}:bossTable`, `tableScene:${floorKey}:bossPortrait`, `tableScene:${floorKey}:decoration`,
+    source.map?.backgroundAsset,
+    source.map?.decorationAsset,
+    source.enemy?.gruntArtKey
+  ];
+  if (Array.isArray(source.map?.nodes)) {
+    source.map.nodes.forEach((node) => {
+      keys.push(node.assetKey);
+      keys.push(node.encounter?.gruntArtKey);
+      if (node.kind === "boss") keys.push(`tableMotif:${floorKey}`);
+      if (node.kind === "elevator") keys.push(`map:${floorKey}:elevator`);
+      if (node.kind === "table") keys.push("tableBase:grunt");
+    });
+  }
+  return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+}
+
 function restoreAssetKeys(source = game) {
   if (!source) return bootAssetKeys();
   const floorIndex = clamp(Number(source.floor) || 0, 0, FLOORS - 1);
@@ -8483,13 +8516,14 @@ function restoreAssetKeys(source = game) {
       "quickRunCardBack",
       ...cardPlayAssetKeys(),
       "tableBase:grunt",
-      "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
+      ...allGruntAssetKeys()
     ] : floorTransitionAssetKeys(
       source.phase === "floorTransition"
         ? clamp((Number(source.floorTransition?.to) || floorIndex + 1) - 1, 0, FLOORS - 1)
         : floorIndex,
       includeShop
     )),
+    ...collectFloorVisualAssetKeys(source),
     ...collectRelicAssetKeysFromState(source)
   ];
   return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
@@ -8573,7 +8607,7 @@ function preloadQuickPlayAssets() {
     "quickRunCardBack",
     ...cardPlayAssetKeys(),
     "tableBase:grunt",
-    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer",
+    ...allGruntAssetKeys(),
     ...allRelicAssetKeys()
   ], "Loading Quick Run");
 }
