@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 199;
+const APP_PUSH_NUMBER = 200;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -230,6 +230,7 @@ let audio = null;
 let deathWarpAudio = null;
 let heartbeatAudio = null;
 let elevatorBoomAudio = null;
+let bossFloorBoomAudio = null;
 let audioCtx = null;
 let audioSource = null;
 let currentMusicPath = "";
@@ -2005,7 +2006,7 @@ function updateFloorClearCeremony() {
   const now = Date.now();
   if (!c.startedAt) {
     c.startedAt = now;
-    sfx("floorClear");
+    sfx("bossFloorBoom");
     flashMsg(`Floor ${c.from} cleared`);
   }
   if (now - c.startedAt < (c.duration || 2200)) return;
@@ -3732,6 +3733,11 @@ function startAudio() {
     elevatorBoomAudio.preload = "auto";
     elevatorBoomAudio.volume = .36;
   }
+  if (!bossFloorBoomAudio) {
+    bossFloorBoomAudio = new Audio("./assets/audio/sfx/boss_floor_boom.wav");
+    bossFloorBoomAudio.preload = "auto";
+    bossFloorBoomAudio.volume = .46;
+  }
   if (!audioCtx) audioCtx = new AudioContext();
   setupMusicChain();
   switchMusicIfNeeded();
@@ -3933,6 +3939,10 @@ function sfx(kind) {
   }
   if (kind === "elevatorBoom") {
     playClip(elevatorBoomAudio, isIOSDevice() ? .22 : .36);
+    return;
+  }
+  if (kind === "bossFloorBoom") {
+    playClip(bossFloorBoomAudio, isIOSDevice() ? .30 : .46);
     return;
   }
   if (!audioCtx) return;
