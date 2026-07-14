@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 212;
+const APP_PUSH_NUMBER = 213;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -277,6 +277,7 @@ let logOpen = false;
 let relicPage = 0;
 let inspectedNodeId = "";
 let mapInfoDetail = null;
+let saveModal = null;
 let signalKind = "";
 let developerModeUnlocked = false;
 let developerPanelOpen = false;
@@ -353,6 +354,11 @@ const LEADERBOARD_KEY = "dungeon-leaderboard-v1";
 const LEADERBOARD_MAX = 50;
 const LEADERBOARD_VISIBLE = 5;
 const LEADERBOARD_REFRESH_MS = 15000;
+const SAVE_SLOT_COUNT = 3;
+const SAVE_KEYS = {
+  solo: "dungeon-save-slots-solo-v1",
+  multi: "dungeon-save-slots-multi-v1"
+};
 const artPreference = "handdrawn";
 const handdrawnAssetFiles = {
   splashBackground: "art/ui/splash_background.png",
@@ -3306,6 +3312,167 @@ function restartLobbyRun() {
   log("The lobby deals a fresh dungeon run.");
 }
 
+function emptySaveSlots() {
+  return Array.from({ length: SAVE_SLOT_COUNT }, () => null);
+}
+
+function loadSaveSlots(scope = "solo") {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SAVE_KEYS[scope]) || "[]");
+    const slots = emptySaveSlots();
+    raw.slice(0, SAVE_SLOT_COUNT).forEach((entry, i) => slots[i] = entry || null);
+    return slots;
+  } catch {
+    return emptySaveSlots();
+  }
+}
+
+function hasAnySave(scope = "solo") {
+  return loadSaveSlots(scope).some(Boolean);
+}
+
+function writeSaveSlots(scope, slots) {
+  localStorage.setItem(SAVE_KEYS[scope], JSON.stringify(slots.slice(0, SAVE_SLOT_COUNT)));
+}
+
+function currentSaveScope() {
+  return role === "host" || !!game?.code ? "multi" : "solo";
+}
+
+function saveGameToSlot(scope, index) {
+  if (!game) return;
+  const slots = loadSaveSlots(scope);
+  const savedAt = Date.now();
+  slots[index] = {
+    id: crypto.randomUUID?.() || `${savedAt}-${index}`,
+    savedAt,
+    scope,
+    runType: game.runType || "tower",
+    mode: game.mode || modePreference,
+    title: saveSlotTitle(game),
+    summary: saveSummary(game),
+    game: JSON.parse(JSON.stringify(game))
+  };
+  writeSaveSlots(scope, slots);
+  notify(`Saved to ${saveSlotLabel(index)}.`);
+}
+
+function saveSlotLabel(index) {
+  return `Save ${index + 1}`;
+}
+
+function saveSlotTitle(savedGame) {
+  const run = runTypeLabels[savedGame.runType || "tower"] || "Run";
+  const floor = Math.max(1, Number(savedGame.floor) + 1 || 1);
+  return `${run} • Floor ${floor}`;
+}
+
+function saveSummary(savedGame) {
+  const floor = Math.max(1, Number(savedGame.floor) + 1 || 1);
+  const total = savedGame.runType === "tower" ? (Number(savedGame.towerFloors) || towerFloorCount()) : floor;
+  const relics = Array.isArray(savedGame.relics) ? savedGame.relics.length : 0;
+  return `F${floor}/${total} • ${Number(savedGame.gold) || 0}g • HP ${savedGame.hp}/${savedGame.maxHp} • ${relics} relic${relics === 1 ? "" : "s"}`;
+}
+
+function formatSaveDate(ms) {
+  if (!ms) return "Unknown date";
+  try {
+    return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch {
+    return "Unknown date";
+  }
+}
+
+function restoreGameFromSave(entry, scope = "solo") {
+  if (!entry?.game) return false;
+  stopDeathAudioClips();
+  menuOpen = false;
+  developerPanelOpen = false;
+  saveModal = null;
+  game = JSON.parse(JSON.stringify(entry.game));
+  game.code = scope === "multi" ? createLobbyCode() : "";
+  game.session = crypto.randomUUID?.() || String(Date.now());
+  game.relicVotes = game.relicVotes || {};
+  game.mapVotes = game.mapVotes || {};
+  game.mapReady = game.mapReady || {};
+  game.log = Array.isArray(game.log) ? game.log : ["Save restored."];
+  appScene = "game";
+  localPlayerId = hostId;
+  role = scope === "multi" ? "host" : "solo";
+  cardAnimations = [];
+  seenCardIds = new Set();
+  handCarousel = {};
+  handCarouselAnim = {};
+  handCarouselActiveIndex = {};
+  inspectedNodeId = game.phase === "map" ? (game.currentNodeId || "start") : "";
+  if (game.phase === "map") refreshReachableNodes();
+  restartRunMusicFromStart();
+  return true;
+}
+
+async function resumeSoloSave(entry) {
+  if (restoreGameFromSave(entry, "solo")) notify("Save loaded.");
+}
+
+async function resumeMultiplayerSave(entry) {
+  if (!restoreGameFromSave(entry, "multi")) return;
+  peer?.peer?.destroy?.();
+  peer = null;
+  hostOffer.value = "Creating lobby link...";
+  showSignal("host", `${runTypeLabels[game.runType || "tower"]} Lobby ${game.code}`, "Resume save loaded. Share this fresh lobby link.");
+  peer = new HostPeer({
+    code: game.code,
+    onMessage: handleHostMessage,
+    onStatus: handlePeerStatus,
+    onConnection: handleHostConnection
+  });
+  try {
+    hostOffer.value = await peer.createInvite();
+    signalText.textContent = "Resume save loaded. Share this fresh lobby link.";
+    notify("Multiplayer save loaded.");
+  } catch (err) {
+    notify(formatPeerError(err));
+  }
+  broadcast();
+}
+
+function openSaveModal(mode, scope = currentSaveScope(), after = "close") {
+  saveModal = { mode, scope, after, detailIndex: -1, confirmIndex: -1 };
+}
+
+function openHostChoiceModal() {
+  saveModal = { mode: "hostChoice", scope: "multi", after: "close", detailIndex: -1, confirmIndex: -1 };
+}
+
+function closeSaveModal() {
+  saveModal = null;
+}
+
+function completeSaveAndMaybeExit(index) {
+  const { scope, after } = saveModal || {};
+  saveGameToSlot(scope || currentSaveScope(), index);
+  saveModal = null;
+  if (after === "home") goHomeNow();
+}
+
+function handleSaveSlotClick(index) {
+  if (!saveModal) return;
+  const slots = loadSaveSlots(saveModal.scope);
+  const entry = slots[index];
+  if (saveModal.mode === "save") {
+    if (entry) {
+      saveModal.confirmIndex = index;
+    } else {
+      completeSaveAndMaybeExit(index);
+    }
+    return;
+  }
+  if (saveModal.mode === "load" && entry) {
+    if (saveModal.scope === "multi") void resumeMultiplayerSave(entry);
+    else void resumeSoloSave(entry);
+  }
+}
+
 function isFreeForAll() {
   return game?.mode === "freeForAll";
 }
@@ -4179,6 +4346,10 @@ function draw() {
     buttons = [];
     drawDeveloperPanel();
   }
+  if (saveModal) {
+    buttons = [];
+    drawSaveModal();
+  }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
 }
@@ -4314,9 +4485,10 @@ function drawRunSetupMenu(table, cx, portrait, runType) {
   }
   addButton(x, startY + gap, buttonW, h, `Lobby Rules: ${modeLabels[modePreference]}`, cycleModePreference, false);
   addButton(x, startY + gap * 2, buttonW, h, "Start Solo Run", startSoloRun, true);
-  addButton(x, startY + gap * 3, buttonW, h, "Create Lobby", hostLobby);
-  addButton(x, startY + gap * 4, buttonW, h, "Join Lobby", joinLobby);
-  addButton(x, startY + gap * 5, buttonW, h, "Back", () => menuView = "home");
+  addButton(x, startY + gap * 3, buttonW, h, "Resume Solo Save", () => openSaveModal("load", "solo"), false, hasAnySave("solo"));
+  addButton(x, startY + gap * 4, buttonW, h, "Host Lobby", openHostChoiceModal);
+  addButton(x, startY + gap * 5, buttonW, h, "Join Lobby", joinLobby);
+  addButton(x, startY + gap * 6, buttonW, h, "Back", () => menuView = "home");
 }
 
 function drawMenuSidePanel(side) {
@@ -7137,7 +7309,7 @@ function drawGameMenu() {
   const hasDev = developerModeUnlocked;
   const panelW = viewport.portrait ? 520 : 430;
   const hasLobby = !!game?.code;
-  const panelH = viewport.portrait ? (hasDev ? 560 : 480) : (hasDev ? 460 : 390);
+  const panelH = viewport.portrait ? (hasDev ? 640 : 560) : (hasDev ? 530 : 460);
   const x = lw / 2 - panelW / 2;
   const y = Math.max(72, lh / 2 - panelH / 2);
   fill("rgba(0,0,0,.62)", 0, 0, lw, lh);
@@ -7170,7 +7342,130 @@ function drawGameMenu() {
     addButton(x + 42, by, panelW - 84, bh, "Developer", openDeveloperPanel);
     by += gap;
   }
-  addButton(x + 42, by, panelW - 84, bh, "Home Screen", goHome);
+  addButton(x + 42, by, panelW - 84, bh, "Save Game", () => openSaveModal("save", currentSaveScope(), "close"));
+  by += gap;
+  addButton(x + 42, by, panelW - 84, bh, "Home Screen", requestGoHome);
+}
+
+function drawSaveModal() {
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  const panelW = portrait ? Math.min(lw - 54, 620) : 700;
+  const panelH = portrait ? 760 : 560;
+  const x = lw / 2 - panelW / 2;
+  const y = Math.max(36, lh / 2 - panelH / 2);
+  shadow(0, 28, 70, "rgba(0,0,0,.58)", () => {
+    gradientRound(x, y, panelW, panelH, 20, [[0, "#312842"], [1, "#111018"]], true);
+  });
+  strokeRound(x, y, panelW, panelH, 20, "rgba(220,180,70,.55)", 2);
+  const scopeLabel = saveModal.scope === "multi" ? "Multiplayer Host Saves" : "Solo Saves";
+
+  if (saveModal.mode === "hostChoice") {
+    text("Host Lobby", lw / 2, y + 64, portrait ? 36 : 32, C.gold, "center", "serif");
+    text("Start fresh, or resume one of your multiplayer host saves.", lw / 2, y + 106, portrait ? 19 : 16, C.muted, "center");
+    const bw = panelW - 100;
+    const bh = portrait ? 68 : 56;
+    addButton(x + 50, y + 155, bw, bh, "Start New Multiplayer Lobby", () => {
+      closeSaveModal();
+      void hostLobby();
+    }, true);
+    addButton(x + 50, y + 235, bw, bh, "Resume Multiplayer Save", () => openSaveModal("load", "multi"), false, hasAnySave("multi"));
+    addButton(x + 50, y + 315, bw, bh, "Cancel", closeSaveModal);
+    return;
+  }
+
+  if (saveModal.confirmIndex >= 0) {
+    const label = saveSlotLabel(saveModal.confirmIndex);
+    text("Replace Save?", lw / 2, y + 72, portrait ? 36 : 32, C.gold, "center", "serif");
+    wrapTextSized(`Are you sure you want to replace ${label}? This cannot be undone.`, x + 60, y + 124, panelW - 120, portrait ? 25 : 20, portrait ? 21 : 17, C.text, 3);
+    const bw = (panelW - 142) / 2;
+    addButton(x + 50, y + panelH - 104, bw, portrait ? 62 : 52, "No", () => saveModal.confirmIndex = -1);
+    addButton(x + 92 + bw, y + panelH - 104, bw, portrait ? 62 : 52, "Yes, Replace", () => completeSaveAndMaybeExit(saveModal.confirmIndex), true);
+    return;
+  }
+
+  if (saveModal.detailIndex >= 0) {
+    drawSaveDetailPanel(x, y, panelW, panelH);
+    return;
+  }
+
+  const title = saveModal.mode === "save" ? "Save Game" : "Resume Game";
+  text(title, lw / 2, y + 58, portrait ? 36 : 32, C.gold, "center", "serif");
+  text(scopeLabel, lw / 2, y + 96, portrait ? 20 : 17, C.text, "center");
+  text(saveModal.mode === "save" ? "Choose an empty slot, or replace an existing save." : "Choose a save slot to continue.", lw / 2, y + 124, portrait ? 17 : 14, C.muted, "center");
+  const slots = loadSaveSlots(saveModal.scope);
+  const slotH = portrait ? 122 : 94;
+  const gap = portrait ? 18 : 14;
+  const startY = y + (portrait ? 160 : 150);
+  slots.forEach((entry, i) => drawSaveSlotRow(entry, i, x + 42, startY + i * (slotH + gap), panelW - 84, slotH));
+  const bottomY = y + panelH - (portrait ? 82 : 70);
+  const bottomH = portrait ? 58 : 48;
+  if (saveModal.mode === "save" && saveModal.after === "home") {
+    addButton(x + 42, bottomY, (panelW - 102) / 2, bottomH, "Don't Save", goHomeNow);
+    addButton(x + 60 + (panelW - 102) / 2, bottomY, (panelW - 102) / 2, bottomH, "Cancel", closeSaveModal, true);
+  } else {
+    addButton(x + panelW / 2 - 130, bottomY, 260, bottomH, "Cancel", closeSaveModal, true);
+  }
+}
+
+function drawSaveSlotRow(entry, index, x, y, w, h) {
+  const occupied = !!entry;
+  const color = occupied ? C.gold : C.green;
+  gradientRound(x, y, w, h, 14, occupied ? [[0, "rgba(36,28,46,.92)"], [1, "rgba(12,9,16,.92)"]] : [[0, "rgba(20,46,30,.86)"], [1, "rgba(10,15,12,.92)"]], true);
+  strokeRound(x, y, w, h, 14, hexToRgba(color, occupied ? .55 : .72), 2);
+  const actionLabel = saveModal.mode === "save"
+    ? occupied ? `Replace ${saveSlotLabel(index)}` : `+ Empty Slot ${index + 1}`
+    : occupied ? `Load ${saveSlotLabel(index)}` : `+ Empty Slot ${index + 1}`;
+  text(actionLabel, x + 22, y + 32, viewport.portrait ? 22 : 18, color, "left", "serif");
+  if (occupied) {
+    textFit(entry.title || saveSlotLabel(index), x + 22, y + 60, w - 120, viewport.portrait ? 18 : 15, C.text);
+    textFit(`${entry.summary || ""} • ${formatSaveDate(entry.savedAt)}`, x + 22, y + 86, w - 120, viewport.portrait ? 15 : 13, C.muted);
+    addButton(x + w - 76, y + 18, 52, h - 36, "...", () => saveModal.detailIndex = index, false, true);
+  } else {
+    text(saveModal.mode === "save" ? "Tap to save here." : "No save in this slot.", x + 22, y + 68, viewport.portrait ? 17 : 14, C.muted);
+  }
+  buttons.push({ x, y, w: occupied ? w - 88 : w, h, onClick: () => handleSaveSlotClick(index), enabled: saveModal.mode === "save" || occupied });
+}
+
+function drawSaveDetailPanel(x, y, panelW, panelH) {
+  const slots = loadSaveSlots(saveModal.scope);
+  const detailIndex = saveModal.detailIndex;
+  const entry = slots[detailIndex];
+  if (!entry) {
+    saveModal.detailIndex = -1;
+    return;
+  }
+  const savedGame = entry.game || {};
+  text(saveSlotLabel(detailIndex), x + panelW / 2, y + 58, viewport.portrait ? 34 : 30, C.gold, "center", "serif");
+  text(entry.title || "Saved Run", x + panelW / 2, y + 96, viewport.portrait ? 22 : 18, C.text, "center");
+  text(formatSaveDate(entry.savedAt), x + panelW / 2, y + 124, viewport.portrait ? 17 : 14, C.muted, "center");
+  const boxX = x + 46;
+  const boxY = y + 154;
+  const boxW = panelW - 92;
+  const boxH = panelH - 260;
+  fill("rgba(7,6,10,.48)", boxX, boxY, boxW, boxH, 14);
+  strokeRound(boxX, boxY, boxW, boxH, 14, "rgba(238,231,215,.14)", 1.5);
+  const relicNames = (savedGame.relics || []).map((r) => r.name).filter(Boolean);
+  const lines = [
+    `Mode: ${runTypeLabels[savedGame.runType || "tower"] || "Run"} / ${modeLabels[savedGame.mode] || savedGame.mode || "Rules"}`,
+    `Progress: ${entry.summary || saveSummary(savedGame)}`,
+    `Damage multiplier: x${Number(savedGame.damageMultiplier || 1).toFixed(2)}`,
+    `Players: ${(savedGame.seats || []).map((s) => s.name).join(", ") || "You"}`,
+    `Relics: ${relicNames.length ? relicNames.join(", ") : "None yet"}`
+  ];
+  let cy = boxY + 36;
+  lines.forEach((line, i) => {
+    wrapTextSized(line, boxX + 24, cy, boxW - 48, viewport.portrait ? 24 : 20, viewport.portrait ? 18 : 15, i === 0 ? C.gold : C.text, i === lines.length - 1 ? 5 : 2);
+    cy += i === lines.length - 1 ? (viewport.portrait ? 118 : 86) : (viewport.portrait ? 54 : 42);
+  });
+  const bw = (panelW - 142) / 2;
+  addButton(x + 50, y + panelH - 82, bw, viewport.portrait ? 58 : 48, "Back", () => saveModal.detailIndex = -1);
+  addButton(x + 92 + bw, y + panelH - 82, bw, viewport.portrait ? 58 : 48, saveModal.mode === "load" ? "Load" : "Select", () => {
+    saveModal.detailIndex = -1;
+    handleSaveSlotClick(detailIndex);
+  }, true);
 }
 
 function drawDeveloperPanel() {
@@ -7259,10 +7554,19 @@ function developerScenarios() {
   ];
 }
 
-function goHome() {
+function requestGoHome() {
+  if (game) {
+    openSaveModal("save", currentSaveScope(), "home");
+    return;
+  }
+  goHomeNow();
+}
+
+function goHomeNow() {
   stopDeathAudioClips();
   menuOpen = false;
   developerPanelOpen = false;
+  saveModal = null;
   appScene = "menu";
   game = null;
   role = "solo";
