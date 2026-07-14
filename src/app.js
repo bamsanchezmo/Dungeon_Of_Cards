@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 214;
+const APP_PUSH_NUMBER = 215;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4390,24 +4390,32 @@ function drawMenu() {
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
-  const table = portrait ? { x: 34, y: 54, w: lw - 68, h: Math.min(1325, lh - 108) } : { x: 40, y: 70, w: Math.min(844, lw - 390), h: 660 };
+  const table = portrait ? { x: 28, y: 42, w: lw - 56, h: Math.min(1350, lh - 86) } : { x: 40, y: 58, w: Math.min(880, lw - 400), h: 690 };
   const cx = table.x + table.w / 2;
   const side = portrait ? null : { x: table.x + table.w + 28, y: table.y, w: Math.max(280, lw - (table.x + table.w + 68)), h: table.h };
   const hasMenuArt = drawRawAssetCover("mainMenuBackground", 0, 0, lw, lh, .98);
-  if (hasMenuArt) fill("rgba(5,4,10,.24)", 0, 0, lw, lh);
+  if (hasMenuArt) {
+    fill("rgba(5,4,10,.20)", 0, 0, lw, lh);
+    const vignette = ctx.createRadialGradient(cx, table.y + 120, Math.min(table.w, 420) * .25, cx, table.y + 220, Math.max(lw, lh) * .62);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0,.48)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, lw, lh);
+  }
   const theme = floorThemeColor(0);
   shadow(0, 28, 70, "rgba(0,0,0,.45)", () => {
     gradientRound(table.x, table.y, table.w, table.h, 24, [
-      [0, hexToRgba(theme, hasMenuArt ? .36 : .72)],
-      [.55, hasMenuArt ? "rgba(12,10,16,.68)" : "#111d19"],
-      [1, "rgba(33,24,42,.76)"]
+      [0, hexToRgba(theme, hasMenuArt ? .30 : .72)],
+      [.48, hasMenuArt ? "rgba(10,9,14,.64)" : "#111d19"],
+      [1, "rgba(31,22,42,.82)"]
     ], true);
   });
-  strokeRound(table.x, table.y, table.w, table.h, 24, hexToRgba(theme, .8), 3);
+  strokeRound(table.x, table.y, table.w, table.h, 24, hexToRgba(theme, .82), 3);
   strokeRound(table.x + 12, table.y + 12, table.w - 24, table.h - 24, 18, "rgba(238,231,215,.08)", 1);
+  fill("rgba(255,246,190,.045)", table.x + 22, table.y + 22, table.w - 44, portrait ? 214 : 210, 18);
   if (!hasMenuArt) drawMenuAmbience(table, portrait);
   if (side) drawMenuSidePanel(side);
-  if (developerModeUnlocked) addButton(table.x + 22, table.y + 22, portrait ? 112 : 80, portrait ? 48 : 34, "Dev", openDeveloperPanel);
+  if (developerModeUnlocked) addButton(table.x + 26, table.y + 26, portrait ? 112 : 80, portrait ? 48 : 34, "Dev", openDeveloperPanel);
 
   if (!portrait && !hasMenuArt) {
     drawMenuShowCard({ rank: "A", suit: "S", up: true }, table.x + 90, table.y + 74, -.08, 1);
@@ -4415,13 +4423,7 @@ function drawMenu() {
     drawMenuShowCard({ up: false }, table.x + table.w - 118, table.y + 250, .12, .96);
   }
 
-  const shimmer = .5 + .5 * Math.sin(performance.now() * .0021);
-  ctx.save();
-  ctx.shadowColor = `rgba(220,180,70,${.34 + shimmer * .22})`;
-  ctx.shadowBlur = 18 + shimmer * 10;
-  text("DUNGEON", cx, portrait ? 146 : 160, portrait ? 58 : 70, C.gold, "center", "serif");
-  ctx.restore();
-  text("of CARDS", cx, portrait ? 208 : 224, portrait ? 54 : 64, C.parchment, "center", "serif");
+  drawMainMenuTitle(table, cx, portrait);
   drawMainMenuContent(table, cx, portrait);
   if (portrait) {
     const boardY = table.y + table.h - 395;
@@ -4442,6 +4444,35 @@ function drawAssetWarmupHint(cx, cy, w) {
   strokeRound(cx - w / 2, cy - h / 2, w, h, 18, "rgba(220,180,70,.38)", 1.5);
   fill(hexToRgba(C.gold, .55), cx - w / 2 + 12, cy + h / 2 - 11, Math.max(8, (w - 24) * pct), 4, 2);
   text(`Loading art ${Math.round(pct * 100)}%`, cx, cy + 5, viewport.portrait ? 16 : 14, C.text, "center");
+}
+
+function drawMainMenuTitle(table, cx, portrait) {
+  const now = performance.now();
+  const y = table.y + (portrait ? 58 : 60);
+  const plaqueW = Math.min(table.w - 110, portrait ? 520 : 600);
+  const plaqueH = portrait ? 150 : 142;
+  const x = cx - plaqueW / 2;
+  const shimmer = .5 + .5 * Math.sin(now * .0021);
+  shadow(0, 18, 38, "rgba(0,0,0,.45)", () => {
+    gradientRound(x, y, plaqueW, plaqueH, 24, [
+      [0, "rgba(59,43,68,.72)"],
+      [.46, "rgba(12,10,16,.88)"],
+      [1, "rgba(42,30,52,.82)"]
+    ], true);
+  });
+  strokeRound(x, y, plaqueW, plaqueH, 24, hexToRgba(C.gold, .50 + shimmer * .18), 2.4);
+  strokeRound(x + 12, y + 12, plaqueW - 24, plaqueH - 24, 17, "rgba(238,231,215,.10)", 1);
+  fill("rgba(220,180,70,.10)", x + 26, y + 24, plaqueW - 52, 2, 1);
+  fill("rgba(220,180,70,.10)", x + 26, y + plaqueH - 26, plaqueW - 52, 2, 1);
+  drawHandAssetFit("goldMark", x + 54, y + plaqueH / 2, portrait ? 42 : 36, C.gold, "center", .75);
+  drawHandAssetFit("goldMark", x + plaqueW - 54, y + plaqueH / 2, portrait ? 42 : 36, C.gold, "center", .75);
+  ctx.save();
+  ctx.shadowColor = `rgba(220,180,70,${.34 + shimmer * .28})`;
+  ctx.shadowBlur = 18 + shimmer * 13;
+  text("DUNGEON", cx, y + (portrait ? 62 : 58), portrait ? 54 : 60, C.gold, "center", "serif");
+  ctx.restore();
+  text("of CARDS", cx, y + (portrait ? 108 : 103), portrait ? 42 : 44, C.parchment, "center", "serif");
+  text("Blackjack roguelike casino climb", cx, y + plaqueH + (portrait ? 27 : 24), portrait ? 17 : 15, hexToRgba(C.text, .80), "center");
 }
 
 function drawMainMenuContent(table, cx, portrait) {
@@ -4479,11 +4510,65 @@ function drawModeCard(x, y, w, h, title, body, onClick, primary = false) {
   addButton(x + 28, y + h - (viewport.portrait ? 66 : 52), w - 56, viewport.portrait ? 52 : 40, "Select", onClick, primary);
 }
 
+function drawMainMenuContent(table, cx, portrait) {
+  if (menuView === "tower") return drawRunSetupMenu(table, cx, portrait, "tower");
+  if (menuView === "quick") return drawRunSetupMenu(table, cx, portrait, "quick");
+  const chooseY = table.y + (portrait ? 262 : 250);
+  fill("rgba(7,6,10,.42)", cx - (portrait ? 220 : 190), chooseY - 27, portrait ? 440 : 380, portrait ? 48 : 40, 18);
+  strokeRound(cx - (portrait ? 220 : 190), chooseY - 27, portrait ? 440 : 380, portrait ? 48 : 40, 18, "rgba(238,231,215,.10)", 1);
+  text("Choose your run", cx, chooseY + (portrait ? 5 : 3), portrait ? 28 : 23, C.text, "center", "serif");
+  const cardW = portrait ? table.w - 108 : Math.min(340, table.w * .38);
+  const cardH = portrait ? 188 : 210;
+  const gap = portrait ? 24 : 28;
+  const startY = chooseY + (portrait ? 70 : 68);
+  const towerX = portrait ? table.x + 54 : cx - cardW - gap / 2;
+  const quickX = portrait ? table.x + 54 : cx + gap / 2;
+  const quickY = portrait ? startY + cardH + 22 : startY;
+  drawModeCard(towerX, startY, cardW, cardH, "Tower Run", "Climb 2-10 casino floors with maps, bosses, routes, shops, and floor themes.", ["Campaign", "Maps", "Bosses"], () => {
+    selectedRunType = "tower";
+    menuView = "tower";
+    localStorage.setItem("dungeon-run-type", selectedRunType);
+  }, true);
+  drawModeCard(quickX, quickY, cardW, cardH, "Quick Run", "Fast blackjack roguelike. Clear tables, pick rewards, chase the biggest score.", ["Arcade", "Endless", "Scores"], () => {
+    selectedRunType = "quick";
+    menuView = "quick";
+    localStorage.setItem("dungeon-run-type", selectedRunType);
+  }, false);
+  const playerY = portrait ? quickY + cardH + 26 : startY + cardH + 36;
+  const buttonW = portrait ? Math.min(480, table.w - 120) : 300;
+  addButton(cx - buttonW / 2, playerY, buttonW, portrait ? 66 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
+}
+
+function drawModeCard(x, y, w, h, title, body, tags = [], onClick = () => {}, primary = false) {
+  const theme = primary ? C.gold : "#67c9ff";
+  const hot = inRect(hover, { x, y, w, h });
+  shadow(0, hot ? 22 : 16, hot ? 46 : 34, hot ? hexToRgba(theme, .22) : "rgba(0,0,0,.42)", () => {
+    gradientRound(x, y, w, h, 20, [[0, hexToRgba(theme, primary ? .22 : .18)], [.52, "rgba(13,10,18,.92)"], [1, "rgba(22,16,30,.96)"]], true);
+  });
+  strokeRound(x, y, w, h, 20, hexToRgba(theme, hot ? .95 : .72), hot ? 3 : 2.2);
+  fill(hexToRgba(theme, .12), x + 16, y + 16, w - 32, 50, 16);
+  text(primary ? "♛" : "♠", x + 42, y + 51, viewport.portrait ? 27 : 23, hexToRgba(theme, .9), "center", "serif");
+  text(title, x + 68, y + 49, viewport.portrait ? 29 : 24, primary ? C.gold : C.parchment, "left", "serif");
+  wrapTextSized(body, x + 26, y + 88, w - 52, viewport.portrait ? 20 : 17, viewport.portrait ? 16 : 14, C.text, 3);
+  const tagY = y + h - (viewport.portrait ? 104 : 92);
+  const tagW = Math.floor((w - 60) / 3);
+  tags.slice(0, 3).forEach((tag, i) => {
+    const tx = x + 24 + i * (tagW + 6);
+    fill("rgba(238,231,215,.07)", tx, tagY, tagW, viewport.portrait ? 28 : 24, 12);
+    strokeRound(tx, tagY, tagW, viewport.portrait ? 28 : 24, 12, hexToRgba(theme, .25), 1);
+    textFit(tag, tx + tagW / 2, tagY + (viewport.portrait ? 19 : 17), tagW - 10, viewport.portrait ? 12 : 10, C.muted, "center");
+  });
+  addButton(x + 28, y + h - (viewport.portrait ? 62 : 50), w - 56, viewport.portrait ? 50 : 38, "Select", onClick, primary);
+}
+
 function drawRunSetupMenu(table, cx, portrait, runType) {
   selectedRunType = runType;
   const title = runTypeLabels[runType];
-  const y0 = portrait ? 276 : 282;
-  text(title, cx, y0, portrait ? 38 : 32, C.gold, "center", "serif");
+  const y0 = table.y + (portrait ? 266 : 252);
+  const theme = runType === "tower" ? C.gold : "#67c9ff";
+  fill("rgba(7,6,10,.46)", cx - (portrait ? 240 : 230), y0 - 42, portrait ? 480 : 460, portrait ? 108 : 94, 22);
+  strokeRound(cx - (portrait ? 240 : 230), y0 - 42, portrait ? 480 : 460, portrait ? 108 : 94, 22, hexToRgba(theme, .36), 1.5);
+  text(title, cx, y0, portrait ? 38 : 32, theme, "center", "serif");
   text(runType === "tower"
     ? "Map routes, floor bosses, elevator climb."
     : "Straight to blackjack tables and quick upgrade picks.",
@@ -4492,7 +4577,7 @@ function drawRunSetupMenu(table, cx, portrait, runType) {
   const x = cx - buttonW / 2;
   const h = portrait ? 66 : 46;
   const gap = portrait ? 78 : 54;
-  const startY = y0 + (portrait ? 92 : 74);
+  const startY = y0 + (portrait ? 104 : 88);
   if (runType === "tower") {
     addButton(x, startY, buttonW, h, `Tower Length: ${towerLengthPreference} floors`, cycleTowerLengthPreference, false);
   } else {
