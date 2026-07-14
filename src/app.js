@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 200;
+const APP_PUSH_NUMBER = 201;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4790,6 +4790,7 @@ function drawFloorTransition() {
     open = shopStop ? Math.min(1, openBase * 1.15) : openBase;
   }
   drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, doorStagger);
+  drawElevatorExteriorMask(stage);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(from, to, progress, eased, shopStop && !afterShop, stage, afterShop);
   if (afterShopClosing && t.shopFarewell) {
@@ -4809,6 +4810,19 @@ function elevatorStageRect(lw = layoutW(), lh = layoutH()) {
     w,
     h
   };
+}
+
+function drawElevatorExteriorMask(stage) {
+  const lw = layoutW();
+  const lh = layoutH();
+  const x = Math.max(0, stage.x);
+  const y = Math.max(0, stage.y);
+  const right = Math.min(lw, stage.x + stage.w);
+  const bottom = Math.min(lh, stage.y + stage.h);
+  fill("#050409", 0, 0, lw, y);
+  fill("#050409", 0, bottom, lw, Math.max(0, lh - bottom));
+  fill("#050409", 0, y, x, Math.max(0, bottom - y));
+  fill("#050409", right, y, Math.max(0, lw - right), Math.max(0, bottom - y));
 }
 
 function elevatorLayoutRect(stage, rect) {
@@ -6615,6 +6629,7 @@ function drawTowerElevatorShop(lw, lh, portrait) {
     drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
   }
   drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, 1, true);
+  drawElevatorExteriorMask(stage);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true, stage);
   const panelH = portrait ? 260 : 150;
