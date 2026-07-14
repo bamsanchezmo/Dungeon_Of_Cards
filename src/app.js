@@ -65,12 +65,24 @@ const TABLE_MOTIF_PLACEMENT = {
 const ELEVATOR_SVG_LAYOUT = {
   shaft: { x: .115, y: .178, w: .771, h: .771 },
   shop: { x: .075, y: .053, w: .85, h: .85 },
+  floorReveal: { x: -.171, y: .221, w: 1.342, h: .596 },
   closedLeft: { x: .013, y: .122, w: .617, h: .867 },
   closedRight: { x: .371, y: .122, w: .617, h: .867 },
   shopOpenLeft: { x: -.289, y: .076, w: .768, h: .91 },
   shopOpenRight: { x: .526, y: .074, w: .783, h: .913 },
   floorOpenLeft: { x: -.235, y: .122, w: .617, h: .867 },
   floorOpenRight: { x: .619, y: .122, w: .617, h: .867 }
+};
+
+const ELEVATOR_SVG_DOOR_TRANSFORMS = {
+  imageW: 432,
+  imageH: 911,
+  frameW: 480,
+  frameH: 720,
+  closedLeft: { a: -.6852, b: 0, c: 0, d: .685, e: 302, f: 88 },
+  closedRight: { a: .6852, b: 0, c: 0, d: .685, e: 178, f: 88 },
+  shopOpenLeft: { a: -.6806, b: -.0817, c: -.0817, d: .6802, e: 229.861, f: 89.726 },
+  shopOpenRight: { a: .6796, b: -.0901, c: .0901, d: .6792, e: 252.549, f: 92.021 }
 };
 
 // Elevator door tuning knobs.
@@ -4461,15 +4473,20 @@ function drawFloorTransition() {
   const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
   const shopStop = !!game.floorTransition?.stopAtShop;
   const revealKey = shopStop ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
-  if (revealKey) drawRawAssetCover(revealKey, 0, 0, lw, lh, shopStop ? .96 : .9);
-  else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
   if (shopStop) {
+    if (revealKey) drawRawAssetCover(revealKey, 0, 0, lw, lh, .96);
+    else drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
     const shaftRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shaft);
     if (handAssetReady("elevatorShaftBackground")) drawRawAsset("elevatorShaftBackground", shaftRect.x, shaftRect.y, shaftRect.w, shaftRect.h, .96);
     if (handAssetReady("elevatorGremlinShop")) {
       const shopRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.shop);
       drawRawAsset("elevatorGremlinShop", shopRect.x, shopRect.y, shopRect.w, shopRect.h, .96);
     }
+  } else if (revealKey && handAssetReady(revealKey)) {
+    const revealRect = elevatorLayoutRect(stage, ELEVATOR_SVG_LAYOUT.floorReveal);
+    drawRawAsset(revealKey, revealRect.x, revealRect.y, revealRect.w, revealRect.h, .92);
+  } else {
+    drawElevatorShaftLines(0, 0, lw, lh, ui, progress);
   }
   fill("rgba(0,0,0,.18)", 0, 0, lw, lh);
   const openBase = clamp((progress - .25) / .68, 0, 1);
@@ -4508,6 +4525,17 @@ function lerpRect(a, b, t) {
     y: lerp(a.y, b.y, t),
     w: lerp(a.w, b.w, t),
     h: lerp(a.h, b.h, t)
+  };
+}
+
+function lerpMatrix(a, b, t) {
+  return {
+    a: lerp(a.a, b.a, t),
+    b: lerp(a.b, b.b, t),
+    c: lerp(a.c, b.c, t),
+    d: lerp(a.d, b.d, t),
+    e: lerp(a.e, b.e, t),
+    f: lerp(a.f, b.f, t)
   };
 }
 
@@ -4679,6 +4707,13 @@ function drawElevatorDoors(x, y, w, h, open = 0, stagger = false) {
   const key = "elevatorDoorHalf";
   const stage = { x, y, w, h };
   const openAmount = clamp(open * ELEVATOR_DOOR_TUNING.openDistance, 0, 1.35);
+  if (stagger && handAssetReady(key)) {
+    const leftT = clamp(openAmount * ELEVATOR_DOOR_TUNING.staggerLeft, 0, 1);
+    const rightT = clamp(openAmount * ELEVATOR_DOOR_TUNING.staggerRight, 0, 1);
+    drawAssetSvgMatrix(key, stage, lerpMatrix(ELEVATOR_SVG_DOOR_TRANSFORMS.closedLeft, ELEVATOR_SVG_DOOR_TRANSFORMS.shopOpenLeft, leftT), .98);
+    drawAssetSvgMatrix(key, stage, lerpMatrix(ELEVATOR_SVG_DOOR_TRANSFORMS.closedRight, ELEVATOR_SVG_DOOR_TRANSFORMS.shopOpenRight, rightT), .98);
+    return;
+  }
   const targetLeft = stagger ? ELEVATOR_SVG_LAYOUT.shopOpenLeft : ELEVATOR_SVG_LAYOUT.floorOpenLeft;
   const targetRight = stagger ? ELEVATOR_SVG_LAYOUT.shopOpenRight : ELEVATOR_SVG_LAYOUT.floorOpenRight;
   const leftT = clamp(openAmount * (stagger ? ELEVATOR_DOOR_TUNING.staggerLeft : 1), 0, 1.35);
@@ -7553,6 +7588,28 @@ function drawMirroredAsset(key, x, y, w, h, alpha = 1) {
   ctx.translate(x + w, y);
   ctx.scale(-1, 1);
   ctx.drawImage(img, 0, 0, w, h);
+  ctx.restore();
+  return true;
+}
+
+function drawAssetSvgMatrix(key, stage, matrix, alpha = 1) {
+  if (!handAssetReady(key)) return false;
+  const img = chromaKeyedHandAsset(key) || handdrawnImages[key];
+  const meta = ELEVATOR_SVG_DOOR_TRANSFORMS;
+  const sx = stage.w / meta.frameW;
+  const sy = stage.h / meta.frameH;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.transform(
+    matrix.a * sx,
+    matrix.b * sy,
+    matrix.c * sx,
+    matrix.d * sy,
+    stage.x + matrix.e * sx,
+    stage.y + matrix.f * sy
+  );
+  ctx.drawImage(img, 0, 0, meta.imageW, meta.imageH);
   ctx.restore();
   return true;
 }
