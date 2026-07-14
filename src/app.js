@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 206;
+const APP_PUSH_NUMBER = 207;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4843,7 +4843,7 @@ function drawFloorTransition() {
   withElevatorDoorwayClip(stage, () => drawElevatorDoors(stage.x, stage.y, stage.w, stage.h, open, doorStagger));
   drawElevatorExteriorMask(stage);
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
-  drawElevatorFloorIndicator(from, to, progress, eased, shopStop && !afterShop, stage, afterShop);
+  drawElevatorFloorIndicator(from, to, progress, eased, shopStop && !afterShop, stage, afterShop ? "resume" : "");
   if (afterShopClosing && t.shopFarewell) {
     drawElevatorMerchantDialog(t.shopFarewell, lw / 2, lh * (portrait ? .64 : .60), Math.min(lw - 80, portrait ? 620 : 760), portrait);
   }
@@ -4951,7 +4951,7 @@ function drawElevatorShaftLines(x, y, w, h, ui, progress = 0) {
   ctx.restore();
 }
 
-function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false, stage = null, forceDestination = false) {
+function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopStop = false, stage = null, mode = "") {
   const lw = layoutW(), portrait = viewport.portrait;
   const anchor = stage || { x: 0, y: 0, w: lw, h: layoutH() };
   const nextAlpha = clamp((progress - .42) / .24, 0, 1);
@@ -4965,25 +4965,26 @@ function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopSt
   text(shopStop ? "SERVICE STOP" : "FLOOR", x + boxW / 2, y + (portrait ? 22 : 25), portrait ? 13 : 14, C.muted, "center");
   const numberY = y + (portrait ? 62 : 68);
   const numberSize = portrait ? 40 : 42;
-  if (forceDestination) {
-    text(String(to), x + boxW / 2, numberY, numberSize, "#fff3ad", "center", "serif");
-  } else if (shopStop) {
-    const splitY = y + (portrait ? 34 : 38);
-    const splitH = boxH - (portrait ? 42 : 46);
-    const sideNumberSize = portrait ? 58 : 64;
-    const jam = 1 - Math.pow(1 - clamp((progress - .10) / .52, 0, 1), 3);
+  if (shopStop || mode === "resume") {
+    const splitY = y + (portrait ? 24 : 26);
+    const splitH = boxH - (portrait ? 30 : 32);
+    const sideNumberSize = portrait ? 48 : 54;
+    const jam = shopStop ? 1 - Math.pow(1 - clamp((progress - .10) / .52, 0, 1), 3) : 1;
+    const resume = mode === "resume" ? 1 - Math.pow(1 - clamp((progress - .58) / .34, 0, 1), 3) : 0;
     const centerX = x + boxW / 2;
-    const fromX = lerp(centerX, x + 3, jam);
-    const toX = lerp(x + boxW * 1.55, x + boxW - 3, jam);
+    const stuckFromX = x + 3;
+    const stuckToX = x + boxW - 3;
+    const fromX = mode === "resume" ? lerp(stuckFromX, x - boxW * .55, resume) : lerp(centerX, stuckFromX, jam);
+    const toX = mode === "resume" ? lerp(stuckToX, centerX, resume) : lerp(x + boxW * 1.55, stuckToX, jam);
     ctx.save();
     ctx.beginPath();
     ctx.rect(x + 8, splitY, boxW - 16, splitH);
     ctx.clip();
     text(String(from), fromX, numberY + (portrait ? 4 : 5), sideNumberSize, C.gold, "center", "serif");
-    ctx.globalAlpha = clamp((jam - .08) / .5, 0, 1);
+    ctx.globalAlpha = mode === "resume" ? 1 : clamp((jam - .08) / .5, 0, 1);
     text(String(to), toX, numberY + (portrait ? 4 : 5), sideNumberSize, "#fff3ad", "center", "serif");
     ctx.restore();
-    if (jam > .88) fill("rgba(238,231,215,.13)", x + boxW / 2 - 1, splitY + 3, 2, splitH - 6, 1);
+    if (shopStop && jam > .88 && !resume) fill("rgba(238,231,215,.13)", x + boxW / 2 - 1, splitY + 3, 2, splitH - 6, 1);
   } else {
     const slide = clamp((progress - .36) / .36, 0, 1);
     const easedSlide = 1 - Math.pow(1 - slide, 3);
