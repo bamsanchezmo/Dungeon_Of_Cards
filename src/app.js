@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 218;
+const APP_PUSH_NUMBER = 219;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -4535,7 +4535,7 @@ function drawMainMenuTitle(table, cx, portrait) {
   text("Blackjack roguelike casino climb", cx, y + plaqueH + (portrait ? 27 : 24), portrait ? 17 : 15, hexToRgba(C.text, .80), "center");
 }
 
-function drawMainMenuContent(table, cx, portrait) {
+function drawMainMenuContentLegacyUnused(table, cx, portrait) {
   if (menuView === "tower") return drawRunSetupMenu(table, cx, portrait, "tower");
   if (menuView === "quick") return drawRunSetupMenu(table, cx, portrait, "quick");
   text("Choose your run", cx, portrait ? 282 : 286, portrait ? 30 : 24, C.muted, "center");
@@ -4561,7 +4561,7 @@ function drawMainMenuContent(table, cx, portrait) {
   addButton(cx - buttonW / 2, playerY, buttonW, portrait ? 66 : 44, `Player: ${savedPlayerName("You")}`, openNameEditor);
 }
 
-function drawModeCard(x, y, w, h, title, body, onClick, primary = false) {
+function drawModeCardLegacyUnused(x, y, w, h, title, body, onClick, primary = false) {
   const theme = primary ? C.gold : activeFloorColor();
   shadow(0, 16, 34, "rgba(0,0,0,.42)", () => gradientRound(x, y, w, h, 18, [[0, hexToRgba(theme, .26)], [.6, "rgba(13,10,18,.9)"], [1, "rgba(22,16,28,.94)"]], true));
   strokeRound(x, y, w, h, 18, hexToRgba(theme, .78), 2.2);
