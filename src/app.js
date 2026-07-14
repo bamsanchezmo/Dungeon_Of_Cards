@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 236;
+const APP_PUSH_NUMBER = 237;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -172,23 +172,25 @@ const mapNodeArtFiles = {
 
 floorArtIds.forEach((id, index) => {
   const floor = String(index + 1).padStart(2, "0");
-  mapNodeArtFiles[`floor${floor}:background`] = `art/floors/${id}/background.png`;
-  mapNodeArtFiles[`floor${floor}:table`] = `art/floors/${id}/table.png`;
-  mapNodeArtFiles[`floor${floor}:bossTable`] = `art/floors/${id}/boss_table.png`;
-  mapNodeArtFiles[`floor${floor}:bossPortrait`] = `art/floors/${id}/boss_portrait.png`;
-  mapNodeArtFiles[`floor${floor}:elevator`] = `art/floors/${id}/elevator.png`;
-  mapNodeArtFiles[`floor${floor}:decoration`] = `art/floors/${id}/decoration.png`;
+  const ext = index < GENERATED_SCENE_FLOOR_COUNT ? "webp" : "png";
+  mapNodeArtFiles[`floor${floor}:background`] = `art/floors/${id}/background.${ext}`;
+  mapNodeArtFiles[`floor${floor}:table`] = `art/floors/${id}/table.${ext}`;
+  mapNodeArtFiles[`floor${floor}:bossTable`] = `art/floors/${id}/boss_table.${ext}`;
+  mapNodeArtFiles[`floor${floor}:bossPortrait`] = `art/floors/${id}/boss_portrait.${ext}`;
+  mapNodeArtFiles[`floor${floor}:elevator`] = `art/floors/${id}/elevator.${ext}`;
+  mapNodeArtFiles[`floor${floor}:decoration`] = `art/floors/${id}/decoration.${ext}`;
 });
 
 const tableSceneArtFiles = {};
 floorArtIds.forEach((id, index) => {
   const floor = String(index + 1).padStart(2, "0");
-  tableSceneArtFiles[`floor${floor}:background`] = `art/tables/${id}/background.png`;
-  tableSceneArtFiles[`floor${floor}:table`] = `art/tables/${id}/table.png`;
-  tableSceneArtFiles[`floor${floor}:bossTable`] = `art/tables/${id}/boss_table.png`;
-  tableSceneArtFiles[`floor${floor}:decoration`] = `art/tables/${id}/decoration.png`;
+  const ext = index < GENERATED_SCENE_FLOOR_COUNT ? "webp" : "png";
+  tableSceneArtFiles[`floor${floor}:background`] = `art/tables/${id}/background.${ext}`;
+  tableSceneArtFiles[`floor${floor}:table`] = `art/tables/${id}/table.${ext}`;
+  tableSceneArtFiles[`floor${floor}:bossTable`] = `art/tables/${id}/boss_table.${ext}`;
+  tableSceneArtFiles[`floor${floor}:decoration`] = `art/tables/${id}/decoration.${ext}`;
 });
-tableSceneArtFiles["quick:background"] = "art/tables/quick_run/background.png";
+tableSceneArtFiles["quick:background"] = "art/tables/quick_run/background.webp";
 
 const C = {
   bg: "#120e16",
@@ -403,20 +405,20 @@ const handdrawnAssetFiles = {
   glyphDollar: "art/glyphs/glyph_dollar.png",
   glyphBang: "art/glyphs/glyph_bang.png",
   glyphQuestion: "art/glyphs/glyph_question.png",
-  "tableBase:grunt": "art/table_bases/grunt_table_master.png",
-  quickRunCardBack: "art/cards/quick_run_card_back.png",
-  "grunt:bookie": "art/dealers/grunts/grunt_bookie.png",
-  "grunt:bouncer": "art/dealers/grunts/grunt_bouncer.png",
-  "grunt:cardsharp": "art/dealers/grunts/grunt_cardsharp.png",
-  "grunt:cheater": "art/dealers/grunts/grunt_cheater.png",
-  "grunt:croupier": "art/dealers/grunts/grunt_croupier.png",
-  "grunt:dealer": "art/dealers/grunts/grunt_dealer.png"
+  "tableBase:grunt": "art/table_bases/grunt_table_master.webp",
+  quickRunCardBack: "art/cards/quick_run_card_back.webp",
+  "grunt:bookie": "art/dealers/grunts/grunt_bookie.webp",
+  "grunt:bouncer": "art/dealers/grunts/grunt_bouncer.webp",
+  "grunt:cardsharp": "art/dealers/grunts/grunt_cardsharp.webp",
+  "grunt:cheater": "art/dealers/grunts/grunt_cheater.webp",
+  "grunt:croupier": "art/dealers/grunts/grunt_croupier.webp",
+  "grunt:dealer": "art/dealers/grunts/grunt_dealer.webp"
 };
 for (const ch of "0123456789AJQK") handdrawnAssetFiles[`glyph${ch}`] = `art/glyphs/glyph_${ch}.png`;
 for (let i = 1; i <= FLOORS; i++) {
   const floor = String(i).padStart(2, "0");
-  handdrawnAssetFiles[`floor${floor}CardBack`] = `art/cards/floor_backs/floor_${floor}_card_back.png`;
-  handdrawnAssetFiles[`tableMotif:floor${floor}`] = `art/table_bases/motifs/floor_${floor}_motif.png`;
+  handdrawnAssetFiles[`floor${floor}CardBack`] = `art/cards/floor_backs/floor_${floor}_card_back.webp`;
+  handdrawnAssetFiles[`tableMotif:floor${floor}`] = `art/table_bases/motifs/floor_${floor}_motif.webp`;
 }
 const relicAssetFiles = {
   "Lucky Coin": "lucky_coin.png",
@@ -1500,7 +1502,7 @@ function mapNodeAssetKey(kind, rarity, floorKey) {
   if (kind === "start") return "map:start";
   if (kind === "elevator") return `map:${floorKey}:elevator`;
   if (kind === "boss") return `tableMotif:${floorKey}`;
-  return `map:${floorKey}:table`;
+  return "tableBase:grunt";
 }
 
 function rarityForFloor(floorIndex, boost = 0) {
@@ -8717,10 +8719,8 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
   ];
   if (hasSceneArt) {
     keys.push(
-      `map:floor${floor}:background`, `map:floor${floor}:table`, `map:floor${floor}:bossTable`,
-      `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
-      `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`
+      `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
     );
   }
   if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
@@ -8736,10 +8736,8 @@ function floorTransitionRequiredAssetKeys(floorIndex = Number(game?.floor) || 0,
   ];
   if (floorHasGeneratedSceneArt(floorIndex)) {
     keys.push(
-      `map:floor${floor}:background`, `map:floor${floor}:table`, `map:floor${floor}:bossTable`,
-      `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`,
-      `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
+      `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
     );
   }
   if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
@@ -8767,6 +8765,7 @@ function collectFloorVisualAssetKeys(source = game) {
   if (!source) return [];
   const floorIndex = clamp(Number(source.floor) || 0, 0, FLOORS - 1);
   const floorKey = source.map?.floorKey || floorAssetKey(floorIndex);
+  const hasSceneArt = floorHasGeneratedSceneArt(floorIndex);
   const keys = [
     "map:start", "map:elevator", "map:routeLine",
     "map:tableCommon", "map:tableUncommon", "map:tableRare", "map:tableEpic", "map:tableLegendary", "map:tableMythic",
@@ -8774,12 +8773,16 @@ function collectFloorVisualAssetKeys(source = game) {
     ...allGruntAssetKeys(),
     `floor${String(floorIndex + 1).padStart(2, "0")}CardBack`,
     `tableMotif:${floorKey}`,
-    `map:${floorKey}:background`, `map:${floorKey}:table`, `map:${floorKey}:bossTable`, `map:${floorKey}:bossPortrait`, `map:${floorKey}:elevator`, `map:${floorKey}:decoration`,
-    `tableScene:${floorKey}:background`, `tableScene:${floorKey}:table`, `tableScene:${floorKey}:bossTable`, `tableScene:${floorKey}:bossPortrait`, `tableScene:${floorKey}:decoration`,
     source.map?.backgroundAsset,
     source.map?.decorationAsset,
     source.enemy?.gruntArtKey
   ];
+  if (hasSceneArt) {
+    keys.push(
+      `map:${floorKey}:background`, `map:${floorKey}:bossPortrait`, `map:${floorKey}:elevator`, `map:${floorKey}:decoration`,
+      `tableScene:${floorKey}:background`, `tableScene:${floorKey}:bossTable`, `tableScene:${floorKey}:decoration`
+    );
+  }
   if (Array.isArray(source.map?.nodes)) {
     source.map.nodes.forEach((node) => {
       keys.push(node.assetKey);
@@ -8881,15 +8884,11 @@ function floorSceneAssetKeys(floorIndex = 0) {
     `floor${floor}CardBack`,
     `tableMotif:floor${floor}`,
     `map:floor${floor}:background`,
-    `map:floor${floor}:table`,
-    `map:floor${floor}:bossTable`,
     `map:floor${floor}:bossPortrait`,
     `map:floor${floor}:elevator`,
     `map:floor${floor}:decoration`,
     `tableScene:floor${floor}:background`,
-    `tableScene:floor${floor}:table`,
     `tableScene:floor${floor}:bossTable`,
-    `tableScene:floor${floor}:bossPortrait`,
     `tableScene:floor${floor}:decoration`
   ].filter((key) => handdrawnAssetFiles[key]);
 }
@@ -8915,7 +8914,8 @@ function releaseFloorSceneAssetsExcept(targetFloorIndex = 0) {
 }
 
 function criticalAssetKeys() {
-  const floor = String(clamp((Number(game?.floor) || 0) + 1, 1, FLOORS)).padStart(2, "0");
+  const floorIndex = clamp(Number(game?.floor) || 0, 0, FLOORS - 1);
+  const floor = String(floorIndex + 1).padStart(2, "0");
   const base = [
     "splashBackground", "mainMenuBackground", "frame", "divider", "token", "chip", "texture",
     "goldMark", "debtMark", "backDiamond", "quickRunCardBack",
@@ -8924,11 +8924,14 @@ function criticalAssetKeys() {
     "tableBase:grunt",
     "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer",
     `floor${floor}CardBack`, `tableMotif:floor${floor}`,
-    `map:floor${floor}:background`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
-    `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
-    `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`,
     ..."0123456789AJQK".split("").map((ch) => `glyph${ch}`)
   ];
+  if (floorHasGeneratedSceneArt(floorIndex)) {
+    base.push(
+      `map:floor${floor}:background`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
+    );
+  }
   return [...new Set(base.filter((key) => handdrawnAssetFiles[key]))];
 }
 
