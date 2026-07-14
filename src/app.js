@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 205;
+const APP_PUSH_NUMBER = 206;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -1088,7 +1088,7 @@ function createMapNodeReward(kind, floorIndex, threat, rarity, rewardPicker) {
       type: "gold",
       name: `${rarity.name} Cash Drop`,
       icon: "$",
-      description: `Gain ${amount} gold instead of a relic.`,
+      description: `Pocket ${amount} gold from the table.`,
       amount,
       rarityName: rarity.name,
       rarityColor: rarity.color
@@ -2125,7 +2125,7 @@ function completeQuickEncounter() {
   game.shop = createQuickRewardChoices();
   game.relicVotes = {};
   game.phase = "shop";
-  log(`Quick Floor ${game.floor + 1} cleared. Choose one reward before climbing.`);
+  log(`Quick Floor ${game.floor + 1} cleared. Choose your next boon.`);
 }
 
 function gainRelic(relic) {
@@ -2135,7 +2135,7 @@ function gainRelic(relic) {
   lastRelicName = relic.name;
   game.relicPopup = { relic, shownAt: Date.now() };
   notify(`${relic.name}: ${relic.description}`);
-  log(`Gained relic: ${relic.name}.`);
+  log(`Claimed ${relic.name}.`);
 }
 
 function claimMapReward(reward) {
@@ -2148,7 +2148,7 @@ function claimMapReward(reward) {
     awardMapGold(reward.amount || 0);
     queueMoneyAnimation(reward.amount || 0);
     notify(`${reward.name}: +${reward.amount || 0} gold`);
-    log(`Reward gained: ${reward.name} (+${reward.amount || 0} gold).`);
+    log(`Claimed ${reward.name} (+${reward.amount || 0} gold).`);
     return;
   }
   if (reward.type === "heal") {
@@ -2156,7 +2156,7 @@ function claimMapReward(reward) {
     game.hp = Math.min(game.maxHp, game.hp + (reward.amount || 0));
     queueHpAnimation(before, game.hp, game.maxHp);
     notify(`${reward.name}: restored ${Math.max(0, game.hp - before)} HP`);
-    log(`Reward gained: ${reward.name} (${reward.description}).`);
+    log(`Claimed ${reward.name} (${reward.description}).`);
     return;
   }
   if (reward.type === "maxHp") {
@@ -2165,13 +2165,13 @@ function claimMapReward(reward) {
     game.hp = Math.min(game.maxHp, game.hp + (reward.amount || 0));
     queueHpAnimation(before, game.hp, game.maxHp);
     notify(`${reward.name}: max HP +${reward.amount || 0}`);
-    log(`Reward gained: ${reward.name} (${reward.description}).`);
+    log(`Claimed ${reward.name} (${reward.description}).`);
     return;
   }
   if (reward.type === "damage") {
     game.damageMultiplier = Number((quickDamageMultiplier() + (Number(reward.amount) || 0)).toFixed(2));
     notify(`${reward.name}: damage ${quickDamageLabel()}`);
-    log(`Reward gained: ${reward.name} (${reward.description}).`);
+    log(`Claimed ${reward.name} (${reward.description}).`);
   }
 }
 
@@ -4263,7 +4263,7 @@ function drawRunSetupMenu(table, cx, portrait, runType) {
   text(title, cx, y0, portrait ? 38 : 32, C.gold, "center", "serif");
   text(runType === "tower"
     ? "Map routes, floor bosses, elevator climb."
-    : "Straight to blackjack tables and 3-relic picks.",
+    : "Straight to blackjack tables and quick upgrade picks.",
     cx, y0 + (portrait ? 42 : 36), portrait ? 21 : 17, C.muted, "center");
   const buttonW = portrait ? Math.min(500, table.w - 100) : 360;
   const x = cx - buttonW / 2;
@@ -5542,7 +5542,7 @@ function drawMapRewardCard(node, x, y, w, portrait) {
   fill("rgba(8,6,12,.44)", x, y, w, h, 14);
   strokeRound(x, y, w, h, 14, node.reward ? node.rarity.color : "rgba(238,231,215,.12)", node.reward ? 2 : 1);
   if (!node.reward) {
-    text(node.kind === "elevator" ? "Elevator" : "No reward", x + 18, y + 34, portrait ? 20 : 15, ui.title);
+    text(node.kind === "elevator" ? "Elevator" : "Nothing hidden here", x + 18, y + 34, portrait ? 20 : 15, ui.title);
     wrapTextSized(node.kind === "elevator" ? "Beat the mini boss to open the doors." : "Gather the party and start the climb.", x + 18, y + 62, w - 36, portrait ? 18 : 13, portrait ? 15 : 12, C.muted, 2);
     buttons.push({ x, y, w, h, onClick: () => { mapInfoDetail = { title: node.kind === "elevator" ? "Elevator" : "Route Start", subtitle: node.label, color: ui.title, body: node.kind === "elevator" ? "Beat the floor boss to unlock the elevator and climb to the next casino floor." : "This is where the party starts the floor. Pick a reachable table to choose the next fight." }; } });
     return;
@@ -5555,20 +5555,20 @@ function drawMapRewardCard(node, x, y, w, portrait) {
 }
 
 function mapRewardSubtitle(reward) {
-  if (!reward) return "No reward";
+  if (!reward) return "Nothing listed";
   const meta = rewardTypeMeta(reward);
   if (meta?.label) return `${reward.rarityName || "Bonus"} ${meta.label}`;
   return reward.rarityName || "Table reward";
 }
 
 function rewardTypeMeta(reward) {
-  if (!reward) return { label: "Reward", action: "Choose Reward", icon: "?", color: C.gold };
+  if (!reward) return { label: "Boon", action: "Choose Boon", icon: "?", color: C.gold };
   if (reward.type === "relic") return { label: "Relic", action: "Choose Relic", icon: "Relic", color: reward.rarityColor || C.gold };
   if (reward.type === "gold") return { label: "Gold Upgrade", action: "Choose Gold", icon: "$", color: C.gold };
   if (reward.type === "heal") return { label: "Life Upgrade", action: "Choose \u2764\uFE0F Life", icon: "\u2764\uFE0F", color: C.green };
   if (reward.type === "maxHp") return { label: "Max Life Upgrade", action: "Choose \u2764\uFE0F Max Life", icon: "\u2764\uFE0F", color: C.green };
   if (reward.type === "damage") return { label: "Damage Upgrade", action: "Choose \u2694\uFE0F Damage", icon: "\u2694\uFE0F", color: C.red };
-  return { label: "Reward", action: "Choose Reward", icon: reward.icon || "?", color: reward.rarityColor || C.gold };
+  return { label: "Boon", action: "Choose Boon", icon: reward.icon || "?", color: reward.rarityColor || C.gold };
 }
 
 function drawMapRewardIcon(reward, cx, cy, size, color) {
@@ -5632,7 +5632,7 @@ function mapNodeRouteStatus(node) {
 }
 
 function rewardDecisionSummary(reward) {
-  if (!reward) return "No reward listed for this stop.";
+  if (!reward) return "Nothing useful has been spotted here.";
   const rarity = reward.rarityName ? `${reward.rarityName} ` : "";
   if (reward.type === "relic") return `${rarity}relic: ${reward.name}. ${reward.description}`;
   if (reward.type === "gold") return `${rarity}cash: +${reward.amount || 0} gold. ${reward.description}`;
@@ -5868,7 +5868,7 @@ function drawMapEncounterDetailOverlay(detail) {
   strokeRound(rewardX, rowY, cardW, cardH, 16, hexToRgba(detail.rewardColor || color, .55), 1);
   if (node.reward) drawMapRewardIcon(node.reward, rewardX + 34, rowY + cardH / 2, portrait ? 48 : 42, node.reward.rarityColor || color);
   text("Reward", rewardX + (node.reward ? 68 : 16), rowY + 28, portrait ? 17 : 13, C.muted);
-  textFit(node.reward?.name || "No reward", rewardX + (node.reward ? 68 : 16), rowY + (portrait ? 58 : 51), cardW - (node.reward ? 82 : 32), portrait ? 19 : 15, node.reward?.rarityColor || C.text);
+  textFit(node.reward?.name || "Nothing hidden here", rewardX + (node.reward ? 68 : 16), rowY + (portrait ? 58 : 51), cardW - (node.reward ? 82 : 32), portrait ? 19 : 15, node.reward?.rarityColor || C.text);
 
   const rulesY = rowY + cardH + (portrait ? 20 : 16);
   const closeH = portrait ? 58 : 48;
@@ -6668,7 +6668,7 @@ function drawShop() {
   gradientRound(30, 42, lw - 60, 128, 18, [[0, "rgba(35,25,45,.96)"], [1, "rgba(10,8,13,.92)"]]);
   strokeRound(30, 42, lw - 60, 128, 18, "rgba(220,180,70,.35)", 2);
   text(isQuickRun() ? "QUICK FLOOR CLEARED" : "THE WANDERING MERCHANT", lw / 2, 98, portrait ? 34 : 42, C.gold, "center", "serif");
-  text(isQuickRun() ? `Choose one reward before Quick Floor ${game.floor + 2}.` : "Choose a relic, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
+  text(isQuickRun() ? `Choose a boon before Quick Floor ${game.floor + 2}.` : "Choose a keepsake, or descend with what you have.", lw / 2, 145, portrait ? 20 : 20, C.muted, "center");
   if (portrait) {
     const startY = 205;
     game.shop.slice(0, 3).forEach((r, i) => drawShopRelicCard(r, i, 80, startY + i * 340));
