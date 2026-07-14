@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 196;
+const APP_PUSH_NUMBER = 197;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -263,9 +263,11 @@ let mapInfoDetail = null;
 let signalKind = "";
 let developerModeUnlocked = false;
 let developerPanelOpen = false;
-let developerPanelHidden = false;
 let developerPanelPos = null;
-let developerBubblePos = null;
+let developerOverlayHidden = false;
+let developerOverlayPos = null;
+let developerOverlayBubblePos = null;
+let developerOverlayLastRect = null;
 let developerDrag = null;
 let developerTapTimes = [];
 let developerSplitLimit = clamp(Number(localStorage.getItem("dungeon-dev-split-limit")) || 8, 4, 12);
@@ -594,8 +596,10 @@ canvas.addEventListener("pointermove", (ev) => {
   developerDrag.moved = developerDrag.moved || Math.hypot(p.x - developerDrag.startX, p.y - developerDrag.startY) > 6;
   if (developerDrag.kind === "panel") {
     developerPanelPos = clampDeveloperPanelPos(p.x - developerDrag.offsetX, p.y - developerDrag.offsetY, developerDrag.w, developerDrag.h);
-  } else if (developerDrag.kind === "bubble") {
-    developerBubblePos = clampDeveloperBubblePos(p.x - developerDrag.offsetX, p.y - developerDrag.offsetY, developerDrag.size);
+  } else if (developerDrag.kind === "overlay") {
+    developerOverlayPos = clampDeveloperOverlayPos(p.x - developerDrag.offsetX, p.y - developerDrag.offsetY, developerDrag.w, developerDrag.h);
+  } else if (developerDrag.kind === "overlayBubble") {
+    developerOverlayBubblePos = clampDeveloperBubblePos(p.x - developerDrag.offsetX, p.y - developerDrag.offsetY, developerDrag.size);
   }
   draw();
 });
@@ -625,7 +629,7 @@ canvas.addEventListener("pointerup", (ev) => {
   if (developerDrag) {
     const drag = developerDrag;
     developerDrag = null;
-    if (drag.kind === "bubble" && !drag.moved) openDeveloperPanel();
+    if (drag.kind === "overlayBubble" && !drag.moved) developerOverlayHidden = false;
     draw();
     return;
   }
@@ -3468,14 +3472,7 @@ function handleDeveloperSplashTap() {
 
 function openDeveloperPanel() {
   developerModeUnlocked = true;
-  developerPanelHidden = false;
   developerPanelOpen = true;
-}
-
-function hideDeveloperPanelToBubble() {
-  developerPanelOpen = false;
-  developerPanelHidden = true;
-  if (!developerBubblePos) developerBubblePos = { x: layoutW() - 92, y: 92 };
 }
 
 function developerPanelDefaultRect() {
@@ -3509,29 +3506,65 @@ function clampDeveloperBubblePos(x, y, size = 58) {
   };
 }
 
-function developerBubbleRect() {
+function hideDeveloperOverlayToBubble() {
+  developerOverlayHidden = true;
+  if (!developerOverlayBubblePos) developerOverlayBubblePos = { x: layoutW() - 92, y: 92 };
+}
+
+function clampDeveloperOverlayPos(x, y, w, h) {
+  const lw = layoutW();
+  const lh = layoutH();
+  const minVisible = 62;
+  return {
+    x: clamp(x, -w + minVisible, lw - minVisible),
+    y: clamp(y, 8, Math.max(8, lh - minVisible))
+  };
+}
+
+function placeDeveloperOverlayRect(rect) {
+  const pos = developerOverlayPos
+    ? clampDeveloperOverlayPos(developerOverlayPos.x, developerOverlayPos.y, rect.w, rect.h)
+    : { x: rect.x, y: rect.y };
+  developerOverlayPos = { x: pos.x, y: pos.y };
+  developerOverlayLastRect = { x: pos.x, y: pos.y, w: rect.w, h: rect.h, headerH: rect.headerH || Math.min(58, rect.h) };
+  return developerOverlayLastRect;
+}
+
+function developerOverlayBubbleRect() {
   const size = viewport.portrait ? 68 : 58;
-  const pos = developerBubblePos
-    ? clampDeveloperBubblePos(developerBubblePos.x, developerBubblePos.y, size)
+  const pos = developerOverlayBubblePos
+    ? clampDeveloperBubblePos(developerOverlayBubblePos.x, developerOverlayBubblePos.y, size)
     : clampDeveloperBubblePos(layoutW() - size - 24, 92, size);
-  developerBubblePos = { x: pos.x, y: pos.y };
+  developerOverlayBubblePos = { x: pos.x, y: pos.y };
   return { x: pos.x, y: pos.y, w: size, h: size };
 }
 
 function beginDeveloperDragIfHit(p) {
   if (!developerModeUnlocked) return false;
-  if (developerPanelHidden && !developerPanelOpen) {
-    const b = developerBubbleRect();
+  if (game?.developerTest && developerOverlayHidden) {
+    const b = developerOverlayBubbleRect();
     if (!inRect(p, b)) return false;
-    developerDrag = { kind: "bubble", startX: p.x, startY: p.y, offsetX: p.x - b.x, offsetY: p.y - b.y, size: b.w, moved: false };
+    developerDrag = { kind: "overlayBubble", startX: p.x, startY: p.y, offsetX: p.x - b.x, offsetY: p.y - b.y, size: b.w, moved: false };
     return true;
   }
-  if (!developerPanelOpen) return false;
-  const r = developerPanelDefaultRect();
-  const header = { x: r.x, y: r.y, w: r.w, h: viewport.portrait ? 116 : 106 };
-  if (!inRect(p, header)) return false;
-  developerDrag = { kind: "panel", startX: p.x, startY: p.y, offsetX: p.x - r.x, offsetY: p.y - r.y, w: r.w, h: r.h, moved: false };
-  return true;
+  if (game?.developerTest && developerOverlayLastRect && !developerOverlayHidden) {
+    const r = developerOverlayLastRect;
+    const header = { x: r.x, y: r.y, w: r.w, h: r.headerH || 58 };
+    const hideZone = { x: r.x + r.w - 128, y: r.y, w: 128, h: (r.headerH || 58) + 46 };
+    if (inRect(p, hideZone)) return false;
+    if (inRect(p, header)) {
+      developerDrag = { kind: "overlay", startX: p.x, startY: p.y, offsetX: p.x - r.x, offsetY: p.y - r.y, w: r.w, h: r.h, moved: false };
+      return true;
+    }
+  }
+  if (developerPanelOpen) {
+    const r = developerPanelDefaultRect();
+    const header = { x: r.x, y: r.y, w: r.w, h: viewport.portrait ? 116 : 106 };
+    if (!inRect(p, header)) return false;
+    developerDrag = { kind: "panel", startX: p.x, startY: p.y, offsetX: p.x - r.x, offsetY: p.y - r.y, w: r.w, h: r.h, moved: false };
+    return true;
+  }
+  return false;
 }
 
 function seatBankroll(seat) {
@@ -4045,8 +4078,6 @@ function draw() {
   if (developerPanelOpen) {
     buttons = [];
     drawDeveloperPanel();
-  } else if (developerModeUnlocked && developerPanelHidden) {
-    drawDeveloperBubble();
   }
   if (flashTimer > 0) drawFlash();
   ctx.restore();
@@ -4913,16 +4944,22 @@ function drawMapHeader(lw, portrait) {
 
 function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panelY, panelW) {
   const portrait = viewport.portrait;
-  const barX = mapX + 18;
-  const barY = mapY + 18;
+  if (developerOverlayHidden) {
+    drawDeveloperOverlayBubble();
+    return;
+  }
   const barW = portrait ? Math.min(mapW - 36, 520) : Math.min(mapW - 36, 600);
   const barH = portrait ? 218 : 92;
+  const placed = placeDeveloperOverlayRect({ x: mapX + 18, y: mapY + 18, w: barW, h: barH, headerH: portrait ? 42 : 36 });
+  const barX = placed.x;
+  const barY = placed.y;
   shadow(0, 16, 32, "rgba(0,0,0,.38)", () => {
     gradientRound(barX, barY, barW, barH, 16, [[0, "rgba(48,35,63,.95)"], [1, "rgba(13,10,18,.94)"]], true);
   });
   strokeRound(barX, barY, barW, barH, 16, "rgba(95,200,234,.65)", 2);
   text("DEV MAP NAVIGATOR", barX + 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, "#8be3ff");
   text(`Floor ${game.floor + 1}/${runFloorCount()}`, barX + barW - 18, barY + (portrait ? 27 : 25), portrait ? 17 : 13, C.gold, "right");
+  addButton(barX + barW - (portrait ? 104 : 78), barY + (portrait ? 38 : 8), portrait ? 86 : 62, portrait ? 34 : 24, "Hide", hideDeveloperOverlayToBubble);
   const selected = getMapNode(inspectedNodeId);
   const hasEncounter = !!selected?.encounter;
   const canClear = hasEncounter || !!game.activeEncounterId;
@@ -4954,16 +4991,22 @@ function drawDeveloperTableNavigatorControls() {
   if (!game?.developerTest) return;
   const lw = layoutW();
   const portrait = viewport.portrait;
+  if (developerOverlayHidden) {
+    drawDeveloperOverlayBubble();
+    return;
+  }
   const w = portrait ? Math.min(lw - 32, 560) : 760;
   const h = portrait ? 202 : 78;
-  const x = lw / 2 - w / 2;
-  const y = portrait ? 18 : 18;
+  const placed = placeDeveloperOverlayRect({ x: lw / 2 - w / 2, y: portrait ? 18 : 18, w, h, headerH: portrait ? 42 : 32 });
+  const x = placed.x;
+  const y = placed.y;
   shadow(0, 16, 34, "rgba(0,0,0,.44)", () => {
     gradientRound(x, y, w, h, 16, [[0, "rgba(48,35,63,.96)"], [1, "rgba(9,8,13,.95)"]], true);
   });
   strokeRound(x, y, w, h, 16, "rgba(95,200,234,.7)", 2);
   const node = getMapNode(game.activeEncounterId) || getMapNode(inspectedNodeId);
   text(`DEV TABLE TESTER • Floor ${game.floor + 1}/${runFloorCount()}${node ? ` • ${node.label}` : ""}`, x + 18, y + (portrait ? 27 : 25), portrait ? 16 : 13, "#8be3ff");
+  addButton(x + w - (portrait ? 104 : 78), y + (portrait ? 38 : 8), portrait ? 86 : 62, portrait ? 34 : 24, "Hide", hideDeveloperOverlayToBubble);
   const gap = 8;
   const rowY = y + (portrait ? 46 : 32);
   if (portrait) {
@@ -7000,18 +7043,17 @@ function drawDeveloperPanel() {
   text(`Device: ${localDeviceId.slice(0, 8)}`, x + 40, infoY + 54, portrait ? 16 : 13, C.muted);
 
   const bottomY = y + panelH - 70;
-  const bottomGap = 10;
-  const bottomW = (panelW - 72 - bottomGap * 2) / 3;
+  const bottomW = panelW / 2 - 48;
   addButton(x + 36, bottomY, bottomW, portrait ? 54 : 46, "Lock Dev Mode", () => {
     developerModeUnlocked = false;
     developerPanelOpen = false;
+    developerOverlayHidden = false;
   });
-  addButton(x + 36 + bottomW + bottomGap, bottomY, bottomW, portrait ? 54 : 46, "Hide", hideDeveloperPanelToBubble);
-  addButton(x + 36 + (bottomW + bottomGap) * 2, bottomY, bottomW, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
+  addButton(x + panelW / 2 + 12, bottomY, bottomW, portrait ? 54 : 46, "Close", () => developerPanelOpen = false, true);
 }
 
-function drawDeveloperBubble() {
-  const r = developerBubbleRect();
+function drawDeveloperOverlayBubble() {
+  const r = developerOverlayBubbleRect();
   shadow(0, 12, 30, "rgba(0,0,0,.55)", () => {
     gradientRound(r.x, r.y, r.w, r.h, r.w / 2, [[0, "#3b2c4d"], [1, "#12101a"]], true);
   });
