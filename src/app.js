@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 233;
+const APP_PUSH_NUMBER = 234;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -8151,23 +8151,31 @@ function devScenarioMapNavigator() {
   game.phase = "map";
   seat.hands = [];
   seat.ready = false;
-  refreshReachableNodes();
+  game.floorTransition = {
+    from: 1,
+    to: 1,
+    startedAt: Date.now(),
+    duration: 1600,
+    assetsReady: false,
+    doorDingPlayed: false,
+    developerJump: true
+  };
+  game.phase = "floorTransition";
+  prepareFloorTransitionAssets(game.floorTransition);
   game.log.push("Dev map controls: inspect any table, Enter Selected, then Clear Encounter.");
 }
 
 function devSetFloor(floorIndex) {
   if (!game?.developerTest) return flashMsg("Start Map Navigator first");
+  if (isQuickRun()) return devSetQuickFloor(floorIndex);
   developerPanelOpen = false;
-  game.floor = clamp(floorIndex, 0, runFloorCount() - 1);
-  setGameMapForFloor(game.floor);
-  game.currentNodeId = "start";
-  game.clearedNodes = ["start"];
+  const targetFloor = clamp(floorIndex, 0, runFloorCount() - 1);
+  const fromFloor = clamp((Number(game.floor) || 0) + 1, 1, runFloorCount());
   game.activeEncounterId = "";
   game.mapVotes = {};
   game.mapReady = {};
   inspectedNodeId = "start-1";
-  game.enemy = cloneEnemy(game.floor);
-  game.phase = "map";
+  game.enemy = cloneEnemy(targetFloor);
   game.dealer = [];
   game.seats.forEach((seat) => {
     seat.ready = false;
@@ -8175,8 +8183,37 @@ function devSetFloor(floorIndex) {
     seat.finished = false;
     seat.spectating = false;
   });
-  refreshReachableNodes();
-  notify(`Developer floor ${game.floor + 1}`);
+  game.floorTransition = {
+    from: fromFloor,
+    to: targetFloor + 1,
+    startedAt: Date.now(),
+    duration: 1600,
+    assetsReady: false,
+    doorDingPlayed: false,
+    developerJump: true
+  };
+  game.phase = "floorTransition";
+  prepareFloorTransitionAssets(game.floorTransition);
+  notify(`Loading developer Floor ${targetFloor + 1}`);
+}
+
+function devSetQuickFloor(floorIndex) {
+  const targetFloor = clamp(floorIndex, 0, Math.max(0, runFloorCount() - 1));
+  game.floor = targetFloor;
+  game.enemy = cloneEnemy(game.floor);
+  applyQuickDifficultyToEnemy();
+  game.activeEncounterId = "";
+  game.shop = [];
+  game.dealer = [];
+  game.phase = "betting";
+  game.seats.forEach((seat) => {
+    seat.ready = false;
+    seat.hands = [];
+    seat.finished = false;
+    seat.spectating = false;
+  });
+  void preloadQuickPlayAssets().then(() => draw());
+  notify(`Developer Quick Floor ${game.floor + 1}`);
 }
 
 function devMapPreviousFloor() {
