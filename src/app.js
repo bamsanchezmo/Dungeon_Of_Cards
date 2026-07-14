@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 232;
+const APP_PUSH_NUMBER = 233;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -2145,14 +2145,19 @@ function prepareFloorTransitionAssets(t = game?.floorTransition) {
   if (!t || t.assetPromise) return t?.assetPromise || Promise.resolve(true);
   const targetFloorIndex = clamp((Number(t.to) || 1) - 1, 0, Math.max(0, towerFloorCount() - 1));
   releaseFloorSceneAssetsExcept(targetFloorIndex);
-  const keys = floorTransitionAssetKeys(targetFloorIndex, !!t.stopAtShop || !!t.afterShop);
+  const includeShop = !!t.stopAtShop || !!t.afterShop;
+  const keys = floorTransitionAssetKeys(targetFloorIndex, includeShop);
+  const required = floorTransitionRequiredAssetKeys(targetFloorIndex, includeShop);
+  const label = t.stopAtShop ? "Loading elevator shop" : `Loading Floor ${targetFloorIndex + 1}`;
   t.assetsReady = false;
-  t.assetPromise = preloadAssetKeys(keys, t.stopAtShop ? "Loading elevator shop" : `Loading Floor ${targetFloorIndex + 1}`).then(() => {
-    t.assetsReady = true;
-    t.startedAt = Date.now();
-    draw();
-    return true;
-  });
+  t.assetPromise = preloadAssetKeys(keys, label)
+    .then(() => waitForRequiredAssets(required, label))
+    .then(() => {
+      t.assetsReady = true;
+      t.startedAt = Date.now();
+      draw();
+      return true;
+    });
   return t.assetPromise;
 }
 
@@ -8512,6 +8517,25 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
   return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
 }
 
+function floorTransitionRequiredAssetKeys(floorIndex = Number(game?.floor) || 0, includeShop = false) {
+  const floor = String(clamp(floorIndex, 0, FLOORS - 1) + 1).padStart(2, "0");
+  const keys = [
+    "elevatorInteriorFrame", "elevatorDoorHalf",
+    `floor${floor}CardBack`, `tableMotif:floor${floor}`,
+    ...cardPlayAssetKeys()
+  ];
+  if (floorHasGeneratedSceneArt(floorIndex)) {
+    keys.push(
+      `map:floor${floor}:background`, `map:floor${floor}:table`, `map:floor${floor}:bossTable`,
+      `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+      `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`,
+      `tableScene:floor${floor}:bossTable`, `tableScene:floor${floor}:decoration`
+    );
+  }
+  if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
+  return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+}
+
 function collectRelicAssetKeysFromState(source = game) {
   const relics = [];
   if (!source) return [];
@@ -8603,22 +8627,37 @@ function restoreRequiredAssetKeys(source = game) {
   return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
 }
 
-function ensureRequiredAssetKeys(keys = [], label = "Loading required art", attempt = 0) {
+function ensureRequiredAssetKeys(keys = [], label = "Loading required art", attempt = 0, maxAttempts = 3) {
   const required = [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
   if (!required.length || required.every(handAssetReady)) return Promise.resolve(true);
   assetWarmup.label = label;
   assetWarmup.total = Math.max(assetWarmup.total || 0, required.length);
   assetWarmup.criticalTotal = required.length;
   assetWarmup.criticalLoaded = required.filter(handAssetReady).length;
-  return Promise.all(required.map((key) => warmAssetKey(key))).then(() => {
+  return Promise.all(required.map((key) => warmAssetKey(key, attempt > 0))).then(() => {
     assetWarmup.criticalLoaded = required.filter(handAssetReady).length;
     draw();
     if (required.every(handAssetReady)) return true;
-    if (attempt >= 3) {
+    if (attempt >= maxAttempts) {
       console.warn("Required art still missing after retries", required.filter((key) => !handAssetReady(key)));
       return false;
     }
-    return new Promise((resolve) => setTimeout(resolve, 350)).then(() => ensureRequiredAssetKeys(required, label, attempt + 1));
+    return new Promise((resolve) => setTimeout(resolve, 350)).then(() => ensureRequiredAssetKeys(required, label, attempt + 1, maxAttempts));
+  });
+}
+
+function waitForRequiredAssets(keys = [], label = "Loading required art", cycle = 0) {
+  const required = [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+  if (!required.length || required.every(handAssetReady)) return Promise.resolve(true);
+  const cycleLabel = cycle ? `${label} retry ${cycle + 1}` : label;
+  return ensureRequiredAssetKeys(required, cycleLabel, 0, 6).then((ok) => {
+    if (ok) return true;
+    assetWarmup.label = `${label}: waiting for art`;
+    assetWarmup.criticalTotal = required.length;
+    assetWarmup.criticalLoaded = required.filter(handAssetReady).length;
+    console.warn("Keeping elevator closed while required floor art loads", required.filter((key) => !handAssetReady(key)));
+    draw();
+    return new Promise((resolve) => setTimeout(resolve, 750)).then(() => waitForRequiredAssets(required, label, cycle + 1));
   });
 }
 
@@ -8685,8 +8724,9 @@ function criticalAssetKeys() {
 
 function ensureAssetKey(key, priority = false, retry = false) {
   if (!key || !handdrawnAssetFiles[key]) return null;
-  if (handdrawnImages[key] && !(retry && handdrawnImages[key]._failed)) return handdrawnImages[key];
-  if (retry && handdrawnImages[key]?._failed) {
+  const existing = handdrawnImages[key];
+  if (existing && (!retry || (existing.complete && existing.naturalWidth > 0))) return existing;
+  if (retry && existing) {
     delete handdrawnImages[key];
     chromaKeyedAssetCache.delete(key);
     tintedHanddrawnCache.clear();
@@ -8786,8 +8826,8 @@ function preloadAssetKeys(keys = [], label = "Loading art") {
   });
 }
 
-function warmAssetKey(key) {
-  let img = ensureAssetKey(key, true);
+function warmAssetKey(key, forceRetry = false) {
+  let img = ensureAssetKey(key, true, forceRetry);
   if (!img) return Promise.resolve(false);
   if (img._failed) {
     const retries = Number(assetRetryCounts.get(key)) || 0;
