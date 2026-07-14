@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 40;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 225;
+const APP_PUSH_NUMBER = 226;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -460,6 +460,9 @@ const relicAssetFiles = {
 };
 for (const [name, file] of Object.entries(relicAssetFiles)) {
   handdrawnAssetFiles[`relic:${name}`] = `art/relics/${file}`;
+}
+function allRelicAssetKeys() {
+  return Object.keys(relicAssetFiles).map((name) => `relic:${name}`);
 }
 for (const [key, file] of Object.entries(mapNodeArtFiles)) {
   handdrawnAssetFiles[`map:${key}`] = file;
@@ -8414,6 +8417,7 @@ function menuPrefetchAssetKeys() {
     ...cardPlayAssetKeys(),
     "quickRunCardBack", "tableBase:grunt",
     "elevatorShaftBackground", "elevatorGremlinShop", "elevatorInteriorFrame", "elevatorDoorHalf",
+    ...allRelicAssetKeys(),
     ...floorTransitionAssetKeys(0, true),
     "tableScene:quick:background"
   ];
@@ -8433,6 +8437,7 @@ function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, include
     "elevatorInteriorFrame", "elevatorDoorHalf",
     `floor${floor}CardBack`, `tableMotif:floor${floor}`,
     ...cardPlayAssetKeys(),
+    ...allRelicAssetKeys(),
     "tableBase:grunt",
     "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
   ];
@@ -8568,7 +8573,8 @@ function preloadQuickPlayAssets() {
     "quickRunCardBack",
     ...cardPlayAssetKeys(),
     "tableBase:grunt",
-    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
+    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer",
+    ...allRelicAssetKeys()
   ], "Loading Quick Run");
 }
 
