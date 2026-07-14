@@ -228,6 +228,7 @@ let musicPausedForFocus = false;
 let audio = null;
 let deathWarpAudio = null;
 let heartbeatAudio = null;
+let elevatorBoomAudio = null;
 let audioCtx = null;
 let audioSource = null;
 let currentMusicPath = "";
@@ -635,6 +636,8 @@ function tick(now) {
     game.dealerTimer -= dt;
     if (game.dealerTimer <= 0) settleRound();
   }
+  updateFloorClearCeremony();
+  updateFloorTransitionAudio();
   if (game?.phase === "floorTransition" && Date.now() - (game.floorTransition?.startedAt || Date.now()) > (game.floorTransition?.duration || 2600)) {
     finishFloorTransition();
   }
@@ -1879,10 +1882,21 @@ function completeMapEncounter() {
     }
     const fromFloor = game.floor + 1;
     const toFloor = fromFloor + 1;
-    game.phase = "floorTransition";
-    game.floorTransition = { from: fromFloor, to: toFloor, startedAt: Date.now(), duration: 3200, stopAtShop: fromFloor % 2 === 0 };
-    sfx("floorClear");
-    log(`Floor ${fromFloor} cleared. Elevator climbing to Floor ${toFloor}.`);
+    const elevatorId = (node.next || []).find((id) => getMapNode(id)?.kind === "elevator") || "elevator";
+    game.phase = "map";
+    game.currentNodeId = node.id;
+    inspectedNodeId = elevatorId;
+    game.selectedNodeId = elevatorId;
+    game.floorClearCeremony = {
+      bossId: node.id,
+      elevatorId,
+      from: fromFloor,
+      to: toFloor,
+      stopAtShop: fromFloor % 2 === 0,
+      startedAt: 0,
+      duration: 2300
+    };
+    log(`Floor ${fromFloor} cleared. The elevator wakes for Floor ${toFloor}.`);
   } else {
     const next = (node.next || []).find((id) => getMapNode(id)?.kind === "boss");
     inspectedNodeId = next || node.next?.[0] || node.id;
@@ -1898,6 +1912,47 @@ function completeMapEncounter() {
     s.hands = [];
   });
   if (game.phase === "map") refreshReachableNodes();
+}
+
+function updateFloorClearCeremony() {
+  const c = game?.floorClearCeremony;
+  if (!c || game.phase !== "map") return;
+  if (game.relicPopup) return;
+  const now = Date.now();
+  if (!c.startedAt) {
+    c.startedAt = now;
+    sfx("floorClear");
+    flashMsg(`Floor ${c.from} cleared`);
+  }
+  if (now - c.startedAt < (c.duration || 2200)) return;
+  beginFloorTransitionFromCeremony();
+}
+
+function beginFloorTransitionFromCeremony() {
+  const c = game?.floorClearCeremony;
+  if (!c) return;
+  game.floorClearCeremony = null;
+  game.phase = "floorTransition";
+  game.floorTransition = {
+    from: c.from,
+    to: c.to,
+    startedAt: Date.now(),
+    duration: 3600,
+    stopAtShop: !!c.stopAtShop,
+    boomPlayed: false
+  };
+  log(c.stopAtShop
+    ? `The elevator climbs from Floor ${c.from}, then shudders at the between-floor shop.`
+    : `Elevator climbing from Floor ${c.from} to Floor ${c.to}.`);
+}
+
+function updateFloorTransitionAudio() {
+  const t = game?.floorTransition;
+  if (game?.phase !== "floorTransition" || !t?.stopAtShop || t.boomPlayed) return;
+  const progress = clamp((Date.now() - (t.startedAt || Date.now())) / Math.max(1, t.duration || 3200), 0, 1);
+  if (progress < .28) return;
+  t.boomPlayed = true;
+  sfx("elevatorBoom");
 }
 
 function finishFloorTransition() {
@@ -3467,6 +3522,11 @@ function startAudio() {
     heartbeatAudio.preload = "auto";
     heartbeatAudio.volume = .24;
   }
+  if (!elevatorBoomAudio) {
+    elevatorBoomAudio = new Audio("./assets/audio/sfx/elevator_boom.wav");
+    elevatorBoomAudio.preload = "auto";
+    elevatorBoomAudio.volume = .36;
+  }
   if (!audioCtx) audioCtx = new AudioContext();
   setupMusicChain();
   switchMusicIfNeeded();
@@ -3664,6 +3724,10 @@ function resumeMusicForFocus() {
 function sfx(kind) {
   if (kind === "heartbeat") {
     playClip(heartbeatAudio, isIOSDevice() ? .12 : .2);
+    return;
+  }
+  if (kind === "elevatorBoom") {
+    playClip(elevatorBoomAudio, isIOSDevice() ? .22 : .36);
     return;
   }
   if (!audioCtx) return;
@@ -4469,9 +4533,15 @@ function drawFloorTransition() {
   const to = clamp(t.to || from + 1, 1, totalFloors);
   const ui = activeFloorUi();
   const stage = elevatorStageRect(lw, lh);
+  const shopStop = !!game.floorTransition?.stopAtShop;
+  if (shopStop) {
+    const rawShake = clamp((progress - .28) / .12, 0, 1) * clamp((.72 - progress) / .32, 0, 1);
+    const shake = rawShake * (portrait ? 10 : 7);
+    stage.x += Math.sin(progress * 190) * shake;
+    stage.y += Math.cos(progress * 240) * shake * .55;
+  }
   fill("#050409", 0, 0, lw, lh);
   const revealFloorIndex = clamp(to - 1, 0, FLOORS - 1);
-  const shopStop = !!game.floorTransition?.stopAtShop;
   const revealKey = shopStop ? "elevatorShaftBackground" : tableSceneAsset(`${floorAssetKey(revealFloorIndex)}:background`);
   if (shopStop) {
     if (revealKey) drawRawAssetCover(revealKey, 0, 0, lw, lh, .96);
@@ -4586,12 +4656,36 @@ function drawElevatorFloorIndicator(from, to, progress, eased = progress, shopSt
   strokeRound(x, y, boxW, boxH, 16, C.gold, 3);
   fill("rgba(255,255,255,.05)", x + 10, y + 8, boxW - 20, 1, 1);
   text(shopStop ? "SERVICE STOP" : "FLOOR", x + boxW / 2, y + (portrait ? 22 : 25), portrait ? 13 : 14, C.muted, "center");
-  const numberText = shopStop && progress > .72 ? `${from}.5` : String(display);
-  text(numberText, x + boxW / 2, y + (portrait ? 62 : 68), portrait ? 40 : 42, C.gold, "center", "serif");
-  if (!shopStop) {
+  const numberY = y + (portrait ? 62 : 68);
+  const numberSize = portrait ? 40 : 42;
+  if (shopStop) {
+    const splitY = y + (portrait ? 34 : 38);
+    const splitH = boxH - (portrait ? 42 : 46);
     ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + 14, splitY, boxW / 2 - 14, splitH);
+    ctx.clip();
+    text(String(from), x + boxW / 2, numberY, numberSize, C.gold, "center", "serif");
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + boxW / 2, splitY, boxW / 2 - 14, splitH);
+    ctx.clip();
+    text(String(to), x + boxW / 2, numberY, numberSize, "#fff3ad", "center", "serif");
+    ctx.restore();
+    fill("rgba(238,231,215,.18)", x + boxW / 2 - 1, splitY + 4, 2, splitH - 8, 1);
+  } else {
+    const slide = clamp((progress - .36) / .36, 0, 1);
+    const easedSlide = 1 - Math.pow(1 - slide, 3);
+    const oldX = x + boxW / 2 - easedSlide * boxW;
+    const newX = x + boxW / 2 + (1 - easedSlide) * boxW;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + 8, y + 30, boxW - 16, boxH - 34);
+    ctx.clip();
+    text(String(from), oldX, numberY, numberSize, C.gold, "center", "serif");
     ctx.globalAlpha = nextAlpha;
-    text(String(to), x + boxW / 2, y + (portrait ? 62 : 68), portrait ? 40 : 42, "#fff3ad", "center", "serif");
+    text(String(to), newX, numberY, numberSize, "#fff3ad", "center", "serif");
     ctx.restore();
   }
 }
@@ -4735,6 +4829,7 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
   const selectedCandidateId = game.mapVotes?.[localPlayerId] || game.selectedNodeId || inspectedNodeId || "";
   const selectedCandidate = getMapNode(selectedCandidateId);
   const selectedRouteId = selectedCandidate?.reachable ? selectedCandidate.id : "";
+  const ceremony = game.floorClearCeremony;
   const ui = activeFloorUi();
   const vertical = isPortraitMap();
   for (const node of game.map.nodes) {
@@ -4744,7 +4839,8 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
       if (!next) continue;
       if (!shouldDrawMapEdge(node, next, selectedRouteId)) continue;
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
-      const selectedReachableEdge = nextId === selectedRouteId && next.reachable && (node.current || node.cleared);
+      const ceremonyEdge = ceremony?.bossId === node.id && ceremony?.elevatorId === nextId && !!ceremony.startedAt;
+      const selectedReachableEdge = ceremonyEdge || (nextId === selectedRouteId && next.reachable && (node.current || node.cleared));
       const clearedEdge = node.cleared && next.cleared;
       const midX = (from.x + to.x) / 2;
       const color = selectedReachableEdge
@@ -4791,7 +4887,15 @@ function shouldDrawMapEdge(fromNode, toNode, selectedRouteId) {
 }
 
 function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
+  const ceremony = game.floorClearCeremony;
+  const ceremonyBoss = ceremony?.bossId === node.id && !!ceremony.startedAt;
   const p = mapPoint(node, mapX, mapY, mapW, mapH);
+  if (ceremonyBoss) {
+    const age = Date.now() - ceremony.startedAt;
+    const amp = Math.max(0, 1 - age / Math.max(1, ceremony.duration || 2200)) * (viewport.portrait ? 7 : 5);
+    p.x += Math.sin(age * .065) * amp;
+    p.y += Math.cos(age * .091) * amp * .55;
+  }
   const portrait = viewport.portrait;
   const size = portrait ? 64 : 70;
   const w = node.kind === "elevator" ? size * .86 : node.kind === "boss" ? size * 1.18 : size;
@@ -4825,6 +4929,12 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
     });
   }
   ctx.globalAlpha = 1;
+  if (ceremonyBoss) {
+    const pulse = .28 + .18 * Math.sin((Date.now() - ceremony.startedAt) * .025);
+    shadow(0, 0, 30, "rgba(255,40,40,.82)", () => {
+      fill(hexToRgba(C.red, pulse), x - w * .24, y - h * .24, w * 1.48, h * 1.48, 18);
+    });
+  }
   const strokeWidth = selectedReachable || selectedFuture ? 5 : node.reachable || node.cleared || node.current ? 4 : 3;
   if (node.kind === "boss") {
     if (drewNodeAsset) drawBossMotifSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture);
@@ -6263,7 +6373,8 @@ function drawTowerElevatorShop(lw, lh, portrait) {
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true, stage);
   const panelH = portrait ? 260 : 150;
-  const panelY = lh - panelH - (portrait ? 18 : 20);
+  const panelCenterY = lh * (portrait ? .76 : .72);
+  const panelY = Math.min(lh - panelH - (portrait ? 18 : 20), Math.max(lh * .55, panelCenterY - panelH / 2));
   shadow(0, -10, 36, "rgba(0,0,0,.55)", () => gradientRound(24, panelY, lw - 48, panelH, 20, [[0, "rgba(12,9,15,.62)"], [1, "rgba(8,6,10,.92)"]], true));
   strokeRound(24, panelY, lw - 48, panelH, 20, hexToRgba(C.gold, .45), 2);
   text(`ELEVATOR SHOP ${game.shopContext.fromFloor}.5`, lw / 2, panelY + (portrait ? 34 : 30), portrait ? 24 : 22, C.gold, "center", "serif");
@@ -6272,12 +6383,12 @@ function drawTowerElevatorShop(lw, lh, portrait) {
     const cardW = (lw - 76) / 3;
     const cardY = panelY + 82;
     game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, 34 + i * (cardW + 8), cardY, cardW, 122));
-    addButton(lw / 2 - 150, panelY + panelH - 54, 300, 42, "Keep Climbing", () => action("skipShop"));
+    addButton(lw / 2 - 150, panelY + panelH - 54, 300, 42, "Close Door", () => action("skipShop"));
   } else {
     const cardW = Math.min(230, (lw - 360) / 3);
     const startX = lw / 2 - (cardW * 3 + 20) / 2;
     game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, startX + i * (cardW + 10), panelY + 58, cardW, 78));
-    addButton(lw - 190, panelY + 58, 150, 78, "Keep Climbing", () => action("skipShop"));
+    addButton(lw - 190, panelY + 58, 150, 78, "Close Door", () => action("skipShop"));
   }
 }
 
