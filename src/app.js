@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 217;
+const APP_PUSH_NUMBER = 218;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -260,7 +260,11 @@ let musicDeathLastHeartbeat = 0;
 let musicDeathWarpPlayed = false;
 let deathReverseSource = null;
 let deathReverseGain = null;
-let assetWarmup = { started: false, total: 0, loaded: 0, criticalTotal: 0, criticalLoaded: 0 };
+let assetWarmup = { started: false, label: "Loading art", total: 0, loaded: 0, criticalTotal: 0, criticalLoaded: 0, key: "" };
+let bootAssetsReady = false;
+let menuPrefetchStarted = false;
+let menuPrefetchReady = false;
+let assetPreloadSeq = 0;
 let flash = "";
 let flashTimer = 0;
 let toastTimer = 0;
@@ -462,7 +466,6 @@ const handdrawnImages = {};
 const tintedHanddrawnCache = new Map();
 const chromaKeyedAssetCache = new Map();
 const paletteShiftedAssetCache = new Map();
-loadHanddrawnAssets();
 let hpAnimation = null;
 let moneyAnimations = [];
 let leaderboardClient = null;
@@ -703,7 +706,7 @@ window.addEventListener("blur", pauseMusicForFocus);
 window.addEventListener("focus", resumeMusicForFocus);
 
 requestAnimationFrame(tick);
-requestAnimationFrame(() => setTimeout(() => warmupAssets(false), 120));
+void preloadBootAssets();
 joinFromSharedLink();
 resizeCanvas();
 void refreshLeaderboard();
@@ -732,7 +735,7 @@ function tick(now) {
   }
   updateFloorClearCeremony();
   updateFloorTransitionAudio();
-  if (game?.phase === "floorTransition" && Date.now() - (game.floorTransition?.startedAt || Date.now()) > (game.floorTransition?.duration || 2600)) {
+  if (game?.phase === "floorTransition" && game.floorTransition?.assetsReady !== false && Date.now() - (game.floorTransition?.startedAt || Date.now()) > (game.floorTransition?.duration || 2600)) {
     finishFloorTransition();
   }
   updateMusicMood(now);
@@ -776,7 +779,7 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     runType,
     towerFloors,
     quickDifficulty,
-    phase: runType === "quick" ? "betting" : "map",
+    phase: runType === "quick" ? "betting" : "floorTransition",
     floor: 0,
     gold: 200 + Math.max(0, seats.length - 1) * 100,
     hp: 100 + Math.max(0, seats.length - 1) * 40,
@@ -821,13 +824,15 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
   game.floorMaps = runType === "tower" ? createRunFloorMaps(towerFloors) : [];
   game.map = game.floorMaps[0] || null;
   inspectedNodeId = runType === "tower" ? "start-1" : "";
-  if (runType === "tower") refreshReachableNodes();
-  else {
+  if (runType === "tower") {
+    refreshReachableNodes();
+    beginInitialTowerElevatorTransition();
+  } else {
     applyQuickDifficultyToEnemy();
     resetRound();
+    void preloadQuickPlayAssets();
   }
   appScene = "game";
-  warmupAssets(true);
   restartRunMusicFromStart();
 }
 
@@ -2057,6 +2062,23 @@ function updateFloorClearCeremony() {
   beginFloorTransitionFromCeremony();
 }
 
+function beginInitialTowerElevatorTransition() {
+  if (!game || game.runType !== "tower") return;
+  game.floor = 0;
+  game.floorTransition = {
+    from: 1,
+    to: 1,
+    startedAt: Date.now(),
+    duration: 3000,
+    initial: true,
+    assetsReady: false,
+    doorDingPlayed: false
+  };
+  game.phase = "floorTransition";
+  prepareFloorTransitionAssets(game.floorTransition);
+  log("The elevator opens onto Floor 1.");
+}
+
 function beginFloorTransitionFromCeremony() {
   const c = game?.floorClearCeremony;
   if (!c) return;
@@ -2068,16 +2090,33 @@ function beginFloorTransitionFromCeremony() {
     startedAt: Date.now(),
     duration: 3600,
     stopAtShop: !!c.stopAtShop,
-    boomPlayed: false
+    boomPlayed: false,
+    assetsReady: false
   };
+  prepareFloorTransitionAssets(game.floorTransition);
   log(c.stopAtShop
     ? `The elevator climbs from Floor ${c.from}, then shudders at the between-floor shop.`
     : `Elevator climbing from Floor ${c.from} to Floor ${c.to}.`);
 }
 
+function prepareFloorTransitionAssets(t = game?.floorTransition) {
+  if (!t || t.assetPromise) return t?.assetPromise || Promise.resolve(true);
+  const targetFloorIndex = clamp((Number(t.to) || 1) - 1, 0, Math.max(0, towerFloorCount() - 1));
+  const keys = floorTransitionAssetKeys(targetFloorIndex, !!t.stopAtShop || !!t.afterShop);
+  t.assetsReady = false;
+  t.assetPromise = preloadAssetKeys(keys, t.stopAtShop ? "Loading elevator shop" : `Loading Floor ${targetFloorIndex + 1}`).then(() => {
+    t.assetsReady = true;
+    t.startedAt = Date.now();
+    draw();
+    return true;
+  });
+  return t.assetPromise;
+}
+
 function updateFloorTransitionAudio() {
   const t = game?.floorTransition;
   if (game?.phase !== "floorTransition" || !t) return;
+  if (t.assetsReady === false) return;
   const progress = clamp((Date.now() - (t.startedAt || Date.now())) / Math.max(1, t.duration || 3200), 0, 1);
   if (t.stopAtShop && !t.boomPlayed && progress >= .28) {
     t.boomPlayed = true;
@@ -2628,8 +2667,10 @@ function resumeTowerAfterElevatorShop(outcome = "close") {
     duration: 6200,
     stopAtShop: false,
     afterShop: true,
-    shopFarewell: line
+    shopFarewell: line,
+    assetsReady: false
   };
+  prepareFloorTransitionAssets(game.floorTransition);
 }
 
 function nextBattle() {
@@ -3409,6 +3450,8 @@ function restoreGameFromSave(entry, scope = "solo") {
   handCarouselActiveIndex = {};
   inspectedNodeId = game.phase === "map" ? (game.currentNodeId || "start") : "";
   if (game.phase === "map") refreshReachableNodes();
+  if (game.runType === "tower") void preloadAssetKeys(floorTransitionAssetKeys(Number(game.floor) || 0, true), `Loading Floor ${(Number(game.floor) || 0) + 1}`);
+  else void preloadQuickPlayAssets();
   restartRunMusicFromStart();
   return true;
 }
@@ -4380,13 +4423,14 @@ function drawSplash() {
   text(`v${APP_VERSION} · push ${APP_PUSH_NUMBER}`, cx, cy + 48, viewport.portrait ? 18 : 16, hexToRgba(C.parchment, .68), "center");
   if (!handAssetReady("splashBackground")) drawAssetWarmupHint(cx, cy + (viewport.portrait ? 174 : 148), 340);
   buttons.push({ x: cx - 280, y: cy - 150, w: 560, h: 130, onClick: handleDeveloperSplashTap });
-  addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Enter Casino", () => appScene = "menu", true);
+  addButton(cx - 150, cy + 88, 300, viewport.portrait ? 72 : 54, "Enter Casino", enterMainMenu, true);
   if (developerModeUnlocked) {
     addButton(cx - 150, cy + (viewport.portrait ? 178 : 156), 300, viewport.portrait ? 72 : 54, "Developer", openDeveloperPanel);
   }
 }
 
 function drawMenu() {
+  startMenuPrefetch();
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
@@ -4443,7 +4487,23 @@ function drawAssetWarmupHint(cx, cy, w) {
   fill("rgba(6,5,9,.72)", cx - w / 2, cy - h / 2, w, h, 18);
   strokeRound(cx - w / 2, cy - h / 2, w, h, 18, "rgba(220,180,70,.38)", 1.5);
   fill(hexToRgba(C.gold, .55), cx - w / 2 + 12, cy + h / 2 - 11, Math.max(8, (w - 24) * pct), 4, 2);
-  text(`Loading art ${Math.round(pct * 100)}%`, cx, cy + 5, viewport.portrait ? 16 : 14, C.text, "center");
+  const label = assetWarmup.label || "Loading art";
+  text(`${label} ${Math.round(pct * 100)}%`, cx, cy + 5, viewport.portrait ? 16 : 14, C.text, "center");
+}
+
+function drawElevatorLoadingHint(cx, cy, w) {
+  const critical = Math.max(1, assetWarmup.criticalTotal || assetWarmup.total || 1);
+  const pct = clamp((assetWarmup.criticalLoaded || assetWarmup.loaded || 0) / critical, 0, 1);
+  const spin = performance.now() * .004;
+  ctx.save();
+  ctx.translate(cx, cy - 34);
+  ctx.rotate(spin);
+  ctx.shadowColor = "rgba(220,180,70,.72)";
+  ctx.shadowBlur = 18;
+  text("♠", 0, 0, viewport.portrait ? 54 : 46, C.gold, "center", "serif");
+  ctx.restore();
+  drawAssetWarmupHint(cx, cy + 34, w);
+  text("The elevator is loading the next floor...", cx, cy + 80, viewport.portrait ? 18 : 15, C.muted, "center");
 }
 
 function drawMainMenuTitle(table, cx, portrait) {
@@ -5099,7 +5159,10 @@ function drawMapCarpet(x, y, w, h) {
 function drawFloorTransition() {
   const lw = layoutW(), lh = layoutH(), portrait = viewport.portrait;
   const t = game.floorTransition || { from: 1, to: 2, startedAt: Date.now(), duration: 2800 };
-  const progress = clamp((Date.now() - t.startedAt) / Math.max(1, t.duration), 0, 1);
+  prepareFloorTransitionAssets(t);
+  const rawProgress = clamp((Date.now() - t.startedAt) / Math.max(1, t.duration), 0, 1);
+  const assetsReady = t.assetsReady !== false;
+  const progress = assetsReady ? rawProgress : Math.min(rawProgress, .18);
   const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
   const totalFloors = runFloorCount();
   const from = clamp(t.from || 1, 1, totalFloors);
@@ -5156,7 +5219,10 @@ function drawFloorTransition() {
   if (afterShopClosing && t.shopFarewell) {
     drawElevatorMerchantDialog(t.shopFarewell, lw / 2, lh * (portrait ? .64 : .60), Math.min(lw - 80, portrait ? 620 : 760), portrait);
   }
-  text(shopStop ? "The elevator rattles. A pulley shop catches the shaft." : afterShop ? "The doors close. The climb resumes." : "Doors opening to the next floor.", lw / 2, lh - (portrait ? 54 : 38), portrait ? 20 : 18, C.text, "center");
+  if (!assetsReady) {
+    drawElevatorLoadingHint(lw / 2, lh * (portrait ? .68 : .68), Math.min(lw - 90, portrait ? 460 : 520));
+  }
+  text(!assetsReady ? "Loading before the doors open." : shopStop ? "The elevator rattles. A pulley shop catches the shaft." : afterShop ? "The doors close. The climb resumes." : "Doors opening to the next floor.", lw / 2, lh - (portrait ? 54 : 38), portrait ? 20 : 18, C.text, "center");
 }
 
 function elevatorStageRect(lw = layoutW(), lh = layoutH()) {
@@ -8229,22 +8295,47 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-function loadHanddrawnAssets() {
-  for (const [key, file] of Object.entries(handdrawnAssetFiles)) {
-    if (handdrawnImages[key]) continue;
-    const img = new Image();
-    img.loading = "eager";
-    img.decoding = "async";
-    img.fetchPriority = key === "splashBackground" || key === "mainMenuBackground" ? "high" : "auto";
-    img.src = `./assets/${file}`;
-    img.onload = () => {
-      tintedHanddrawnCache.clear();
-      chromaKeyedAssetCache.delete(key);
-      paletteShiftedAssetCache.clear();
-      draw();
-    };
-    handdrawnImages[key] = img;
-  }
+function loadHanddrawnAssets(keys = bootAssetKeys()) {
+  ensureAssetKeys(keys);
+}
+
+function bootAssetKeys() {
+  return ["splashBackground", "mainMenuBackground", "goldMark"];
+}
+
+function menuPrefetchAssetKeys() {
+  return [
+    "splashBackground", "mainMenuBackground", "frame", "divider", "token", "chip", "texture",
+    "goldMark", "debtMark",
+    ...cardPlayAssetKeys(),
+    "quickRunCardBack", "tableBase:grunt",
+    "elevatorShaftBackground", "elevatorGremlinShop", "elevatorInteriorFrame", "elevatorDoorHalf",
+    ...floorTransitionAssetKeys(0, true),
+    "tableScene:quick:background"
+  ];
+}
+
+function cardPlayAssetKeys() {
+  return [
+    "backDiamond", "suitS", "suitH", "suitD", "suitC",
+    ..."0123456789AJQK".split("").map((ch) => `glyph${ch}`)
+  ];
+}
+
+function floorTransitionAssetKeys(floorIndex = Number(game?.floor) || 0, includeShop = false) {
+  const floor = String(clamp(floorIndex, 0, FLOORS - 1) + 1).padStart(2, "0");
+  const keys = [
+    "elevatorInteriorFrame", "elevatorDoorHalf",
+    `floor${floor}CardBack`, `tableMotif:floor${floor}`,
+    `map:floor${floor}:background`, `map:floor${floor}:bossPortrait`, `map:floor${floor}:elevator`, `map:floor${floor}:decoration`,
+    `tableScene:floor${floor}:background`, `tableScene:floor${floor}:table`, `tableScene:floor${floor}:bossTable`,
+    `tableScene:floor${floor}:bossPortrait`, `tableScene:floor${floor}:decoration`,
+    ...cardPlayAssetKeys(),
+    "tableBase:grunt",
+    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
+  ];
+  if (includeShop) keys.push("elevatorShaftBackground", "elevatorGremlinShop");
+  return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
 }
 
 function criticalAssetKeys() {
@@ -8265,8 +8356,96 @@ function criticalAssetKeys() {
   return [...new Set(base.filter((key) => handdrawnAssetFiles[key]))];
 }
 
+function ensureAssetKey(key, priority = false) {
+  if (!key || !handdrawnAssetFiles[key]) return null;
+  if (handdrawnImages[key]) return handdrawnImages[key];
+  const img = new Image();
+  img.loading = priority ? "eager" : "lazy";
+  img.decoding = "async";
+  img.fetchPriority = priority || key === "splashBackground" || key === "mainMenuBackground" ? "high" : "auto";
+  img.src = `./assets/${handdrawnAssetFiles[key]}`;
+  img.onload = () => {
+    tintedHanddrawnCache.clear();
+    chromaKeyedAssetCache.delete(key);
+    paletteShiftedAssetCache.clear();
+    draw();
+  };
+  img.onerror = () => draw();
+  handdrawnImages[key] = img;
+  return img;
+}
+
+function ensureAssetKeys(keys = [], priority = false) {
+  return [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))].map((key) => ensureAssetKey(key, priority));
+}
+
+function preloadBootAssets() {
+  return preloadAssetKeys(bootAssetKeys(), "Opening casino").then(() => {
+    bootAssetsReady = true;
+    return true;
+  });
+}
+
+function startMenuPrefetch() {
+  if (menuPrefetchStarted) return;
+  menuPrefetchStarted = true;
+  void preloadAssetKeys(menuPrefetchAssetKeys(), "Preparing tables").then(() => {
+    menuPrefetchReady = true;
+    draw();
+  });
+}
+
+function enterMainMenu() {
+  appScene = "menu";
+  startMenuPrefetch();
+}
+
+function preloadQuickPlayAssets() {
+  return preloadAssetKeys([
+    "tableScene:quick:background",
+    "quickRunCardBack",
+    ...cardPlayAssetKeys(),
+    "tableBase:grunt",
+    "grunt:bookie", "grunt:bouncer", "grunt:cardsharp", "grunt:cheater", "grunt:croupier", "grunt:dealer"
+  ], "Loading Quick Run");
+}
+
+function preloadAssetKeys(keys = [], label = "Loading art") {
+  const valid = [...new Set(keys.filter((key) => handdrawnAssetFiles[key]))];
+  ensureAssetKeys(valid, true);
+  const seq = ++assetPreloadSeq;
+  const preloadKey = `${label}:${seq}`;
+  assetWarmup = {
+    started: true,
+    label,
+    total: valid.length,
+    loaded: valid.filter(handAssetReady).length,
+    criticalTotal: valid.length,
+    criticalLoaded: valid.filter(handAssetReady).length,
+    key: preloadKey
+  };
+  if (!valid.length || assetWarmup.loaded >= valid.length) {
+    return Promise.resolve(true);
+  }
+  return Promise.all(valid.map((key) => warmAssetKey(key).then((ok) => {
+    if (assetWarmup.key === preloadKey) {
+      assetWarmup.loaded = Math.min(valid.length, assetWarmup.loaded + 1);
+      assetWarmup.criticalLoaded = assetWarmup.loaded;
+      draw();
+    }
+    return ok;
+  }))).then(() => {
+    if (assetWarmup.key === preloadKey) {
+      assetWarmup.loaded = valid.length;
+      assetWarmup.criticalLoaded = valid.length;
+      draw();
+    }
+    return true;
+  });
+}
+
 function warmAssetKey(key) {
-  const img = handdrawnImages[key];
+  const img = ensureAssetKey(key, true);
   if (!img) return Promise.resolve(false);
   if (img.complete && img.naturalWidth > 0) {
     return (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => true);
@@ -8282,24 +8461,12 @@ function warmAssetKey(key) {
 }
 
 function warmupAssets(priorityOnly = false) {
-  loadHanddrawnAssets();
-  const critical = criticalAssetKeys();
-  const all = Object.keys(handdrawnAssetFiles);
-  const ordered = [...critical, ...all.filter((key) => !critical.includes(key))];
-  const keys = priorityOnly ? critical : ordered;
-  assetWarmup = { started: true, total: keys.length, loaded: 0, criticalTotal: critical.length, criticalLoaded: 0 };
-  keys.forEach((key, i) => {
-    const run = () => warmAssetKey(key).then(() => {
-      assetWarmup.loaded++;
-      if (critical.includes(key)) assetWarmup.criticalLoaded++;
-      if (i % 4 === 0 || assetWarmup.loaded === assetWarmup.total) draw();
-    });
-    setTimeout(() => void run(), priorityOnly ? i * 24 : 80 + i * 34);
-  });
+  const keys = priorityOnly ? criticalAssetKeys() : menuPrefetchAssetKeys();
+  return preloadAssetKeys(keys, priorityOnly ? "Loading current floor" : "Preparing casino");
 }
 
 function handAssetReady(key) {
-  const img = handdrawnImages[key];
+  const img = handdrawnImages[key] || ensureAssetKey(key);
   return !!img && img.complete && img.naturalWidth > 0;
 }
 
