@@ -7,7 +7,7 @@ const PORTRAIT_MIN_H = 1470;
 const LANDSCAPE_MIN_W = 1180;
 const FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 211;
+const APP_PUSH_NUMBER = 212;
 const MIN_BET = 1;
 const MAX_BET = 500;
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
@@ -819,6 +819,7 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     resetRound();
   }
   appScene = "game";
+  restartRunMusicFromStart();
 }
 
 function cloneEnemy(index, playerCount = game?.seats?.length || 1) {
@@ -3863,6 +3864,19 @@ function switchMusicIfNeeded() {
   if (shouldPlay) audio.play().catch(() => {});
 }
 
+function restartRunMusicFromStart() {
+  stopDeathAudioClips();
+  if (!audio) return;
+  currentMusicPath = "";
+  currentMusicFallbackPath = "";
+  switchMusicIfNeeded();
+  try {
+    audio.currentTime = 0;
+  } catch {
+  }
+  if (musicStarted && !audio.muted && !document.hidden) audio.play().catch(() => {});
+}
+
 function playClip(clip, volume = .22) {
   if (!clip || audio?.muted || document.hidden) return;
   try {
@@ -6722,9 +6736,9 @@ function drawTowerElevatorShop(lw, lh, portrait) {
   if (handAssetReady("elevatorInteriorFrame")) drawRawAsset("elevatorInteriorFrame", stage.x, stage.y, stage.w, stage.h, .98);
   drawElevatorFloorIndicator(game.shopContext.fromFloor, game.shopContext.toFloor, 1, 1, true, stage);
   drawElevatorShopStatusHeader(lw, portrait);
-  const panelH = portrait ? 260 : 150;
-  const panelCenterY = lh * (portrait ? .76 : .72);
-  const panelY = Math.min(lh - panelH - (portrait ? 18 : 20), Math.max(lh * .55, panelCenterY - panelH / 2));
+  const panelH = portrait ? 360 : 276;
+  const panelCenterY = lh * (portrait ? .75 : .70);
+  const panelY = Math.min(lh - panelH - (portrait ? 18 : 20), Math.max(lh * .50, panelCenterY - panelH / 2));
   const dialogW = Math.min(lw - 80, portrait ? 620 : 780);
   const dialogY = Math.max(90, panelY - (portrait ? 132 : 106));
   drawElevatorMerchantDialog(game.shopContext?.dialog || pickElevatorMerchantDialog("greeting", game.shopContext?.visitNumber || 1), lw / 2, dialogY, dialogW, portrait);
@@ -6735,13 +6749,14 @@ function drawTowerElevatorShop(lw, lh, portrait) {
   if (portrait) {
     const cardW = (lw - 76) / 3;
     const cardY = panelY + 82;
-    game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, 34 + i * (cardW + 8), cardY, cardW, 122));
-    addButton(lw / 2 - 150, panelY + panelH - 54, 300, 42, "Close Door", () => action("skipShop"));
+    game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, 34 + i * (cardW + 8), cardY, cardW, 206));
+    addButton(lw / 2 - 170, panelY + panelH - 68, 340, 56, "Close Door", () => action("skipShop"));
   } else {
-    const cardW = Math.min(230, (lw - 360) / 3);
-    const startX = lw / 2 - (cardW * 3 + 20) / 2;
-    game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, startX + i * (cardW + 10), panelY + 58, cardW, 78));
-    addButton(lw - 190, panelY + 58, 150, 78, "Close Door", () => action("skipShop"));
+    const closeW = 176;
+    const cardW = Math.min(260, (lw - closeW - 128) / 3);
+    const startX = lw / 2 - (cardW * 3 + closeW + 48) / 2;
+    game.shop.slice(0, 3).forEach((item, i) => drawCompactShopCard(item, i, startX + i * (cardW + 12), panelY + 72, cardW, 178));
+    addButton(startX + cardW * 3 + 50, panelY + 118, closeW, 96, "Close Door", () => action("skipShop"));
   }
 }
 
@@ -6789,11 +6804,20 @@ function drawCompactShopCard(item, index, x, y, w, h) {
   const canBuy = canBuyTowerShopItem(item, mySeat() || game.seats[0]);
   gradientRound(x, y, w, h, 12, canBuy ? [[0, "rgba(43,34,52,.9)"], [1, "rgba(13,10,18,.92)"]] : [[0, "rgba(25,22,28,.78)"], [1, "rgba(9,8,11,.9)"]], true);
   strokeRound(x, y, w, h, 12, canBuy ? hexToRgba(color, .75) : "rgba(238,231,215,.18)", 2);
-  const iconSize = Math.min(42, h * .46);
-  drawMapRewardIcon(item, x + 28, y + h / 2 - 8, iconSize, color);
-  textFit(item.name, x + 54, y + 26, w - 62, 14, color);
-  textFit(meta.label, x + 54, y + 46, w - 62, 11, C.muted);
-  addButton(x + 12, y + h - 38, w - 24, 30, `Buy ${cost}g`, () => action(`buy:${index}`), true, true);
+  const portrait = viewport.portrait;
+  const pad = portrait ? 10 : 12;
+  const iconSize = portrait ? Math.min(46, w * .38) : 42;
+  drawMapRewardIcon(item, x + pad + iconSize / 2, y + pad + iconSize / 2, iconSize, color);
+  const textX = x + pad * 2 + iconSize;
+  const textW = w - (textX - x) - pad;
+  wrapTextSized(item.name, textX, y + pad + (portrait ? 15 : 13), textW, portrait ? 17 : 15, portrait ? 14 : 13, color, 2);
+  wrapTextSized(meta.label, textX, y + pad + (portrait ? 51 : 46), textW, portrait ? 14 : 13, portrait ? 11 : 11, C.muted, 2);
+  const descY = y + (portrait ? 82 : 72);
+  const buttonY = y + h - (portrait ? 58 : 56);
+  const descH = Math.max(34, buttonY - descY - 12);
+  fill("rgba(8,6,12,.34)", x + pad, descY - 8, w - pad * 2, descH, 9);
+  wrapTextSized(item.description || meta.action || "A questionable bargain.", x + pad + 6, descY + 6, w - pad * 2 - 12, portrait ? 17 : 15, portrait ? 13 : 12, C.text, portrait ? 4 : 3);
+  addButton(x + pad, buttonY, w - pad * 2, portrait ? 48 : 48, `Buy ${cost}g`, () => action(`buy:${index}`), true, true);
 }
 
 function drawShopRelicCard(relic, index, x, y) {
