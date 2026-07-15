@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 248;
+const APP_PUSH_NUMBER = 249;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -772,6 +772,7 @@ function tick(now) {
     if (game.dealerTimer <= 0) settleRound();
   }
   updateRouteRoulette();
+  updateRouteResultGlow();
   updateFloorClearCeremony();
   updateFloorTransitionAudio();
   if (game?.phase === "floorTransition" && game.floorTransition?.assetsReady !== false && Date.now() - (game.floorTransition?.startedAt || Date.now()) > (game.floorTransition?.duration || 2600)) {
@@ -2287,10 +2288,8 @@ function beginRouteRoulette(nodeIds = []) {
     options,
     winnerIndex,
     winner: options[winnerIndex],
-    startedAt: performance.now(),
-    duration: 6800,
-    holdDuration: 2600,
-    resolvedAt: 0
+    startedAt: Date.now(),
+    duration: 5200
   };
   game.mapReady = {};
   log(`Route vote tied. The house spins the route wheel.`);
@@ -2301,31 +2300,82 @@ function updateRouteRoulette() {
   const r = game?.routeRoulette;
   if (!r) return;
   if (role === "guest") return;
-  const elapsed = performance.now() - (r.startedAt || 0);
-  if (elapsed < (r.duration || 6800)) return;
+  const elapsed = Date.now() - (r.startedAt || 0);
+  if (elapsed < (r.duration || 5200)) return;
   const winner = r.winner;
   const node = getMapNode(winner);
-  if (!r.resolvedAt) {
-    r.resolvedAt = performance.now();
-    game.selectedNodeId = winner;
-    inspectedNodeId = winner;
-    game.mapVotes ||= {};
-    game.seats.filter((s) => !s.spectating).forEach((seat) => {
-      game.mapVotes[seat.id] = winner;
-    });
-    game.mapReady = {};
-    if (node?.encounter) log(`The route wheel lands on ${node.label}. All trails snap to the winning table.`);
-    sfx("ready");
-    broadcast();
-    return;
-  }
-  if (performance.now() - r.resolvedAt < (r.holdDuration || 2200)) return;
   game.routeRoulette = null;
-  if (node?.encounter) {
+  game.selectedNodeId = winner;
+  inspectedNodeId = winner;
+  game.mapVotes ||= {};
+  game.seats.filter((s) => !s.spectating).forEach((seat) => {
+    game.mapVotes[seat.id] = winner;
+  });
+  game.mapReady = {};
+  game.routeResultGlow = {
+    nodeId: winner,
+    startedAt: Date.now(),
+    duration: 1800
+  };
+  if (node?.encounter) log(`The route wheel lands on ${node.label}. All trails snap to the winning table.`);
+  sfx("ready");
+  broadcast();
+}
+
+function updateRouteResultGlow() {
+  const glow = game?.routeResultGlow;
+  if (!glow) return;
+  if (role === "guest") return;
+  if (Date.now() - (glow.startedAt || 0) < (glow.duration || 1800)) return;
+  const winner = glow.nodeId;
+  game.routeResultGlow = null;
+  if (getMapNode(winner)?.encounter) {
     startMapEncounter(winner);
     broadcast();
   }
 }
+
+function routeResultGlowProgress(nodeId) {
+  const glow = game?.routeResultGlow;
+  if (!glow || glow.nodeId !== nodeId) return 0;
+  return clamp((Date.now() - (glow.startedAt || 0)) / Math.max(1, glow.duration || 1800), 0, 1);
+}
+
+function routeResultGlowActive(nodeId) {
+  return routeResultGlowProgress(nodeId) > 0;
+}
+
+function routeResultGlowPulse(nodeId) {
+  const p = routeResultGlowProgress(nodeId);
+  if (!p) return 0;
+  return (1 - p) * (.72 + .28 * Math.sin(Date.now() * .028));
+}
+
+function routeResultGlowColor() {
+  return activeFloorUi().accent || C.gold;
+}
+
+function routeResultGlowWidth(nodeId) {
+  return routeResultGlowActive(nodeId) ? 6 : 0;
+}
+
+function routeResultGlowShadow(nodeId) {
+  return routeResultGlowActive(nodeId) ? 34 * routeResultGlowPulse(nodeId) : 0;
+}
+
+function routeResultGlowAlpha(nodeId) {
+  return routeResultGlowActive(nodeId) ? .55 + .35 * routeResultGlowPulse(nodeId) : 0;
+}
+
+function drawRouteResultGlowFrame(node, p, w, h) {
+  const alpha = routeResultGlowAlpha(node.id);
+  if (!alpha) return;
+  const color = routeResultGlowColor();
+  shadow(0, 0, routeResultGlowShadow(node.id), hexToRgba(color, .75), () => {
+    strokeRound(p.x - w * .78, p.y - h * .92, w * 1.56, h * 1.66, 18, hexToRgba(color, alpha), routeResultGlowWidth(node.id));
+  });
+}
+
 
 function startMapEncounter(nodeId) {
   const node = getMapNode(nodeId);
@@ -2848,7 +2898,7 @@ function settleRound() {
   }
   game.completedRounds = (Number(game.completedRounds) || 0) + 1;
   const bankruptSeat = updateFreeForAllBankruptcy(results);
-  if (net > 0) {
+  if (bossDamage > 0) {
     const bonus = relicStat("damageBonus");
     const rawDamage = Math.max(1, Math.round(bossDamage + bonus));
     const damageCap = game.enemy?.isBoss ? Number(game.enemy.roundDamageCap || 0) : 0;
@@ -2863,11 +2913,11 @@ function settleRound() {
     const dmg = Math.min(game.hp, Math.max(1, Math.round(lifeLoss)));
     game.hp -= dmg;
     results.push(`Blood toll: -${dmg} HP`);
-    if (net <= 0) sfx("lose");
+    if (bossDamage <= 0) sfx("lose");
   } else if (net <= 0) {
     sfx("push");
   }
-  if (net <= 0) {
+  if (bossDamage <= 0) {
     const bossHeal = Number(bossRuleValue("bossHealOnPlayerLoss", 0)) || 0;
     if (bossHeal && game.enemy?.hp > 0) {
       game.enemy.hp = Math.min(game.enemy.maxHp, game.enemy.hp + bossHeal);
@@ -6370,6 +6420,7 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   }
   else if (node.kind === "table") drawMapTableSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture);
   else if (node.kind !== "table") strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
+  if (node.kind === "table" || node.kind === "boss") drawRouteResultGlowFrame(node, p, w, h);
   const label = node.kind === "elevator" ? "" : node.kind === "start" ? localIdentity.icon : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
   const hideAssetLabel = drewNodeAsset && node.kind === "table";
   if (node.kind === "boss") {
@@ -8318,15 +8369,15 @@ function drawRouteRouletteOverlay() {
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
-  const elapsed = performance.now() - (r.startedAt || performance.now());
-  const duration = Math.max(1, Number(r.duration) || 3600);
+  const elapsed = Date.now() - (r.startedAt || Date.now());
+  const duration = Math.max(1, Number(r.duration) || 5200);
   const p = clamp(elapsed / duration, 0, 1);
-  const easeOut = 1 - Math.pow(1 - p, 3);
-  const wheelR = Math.min(portrait ? lw * .36 : lh * .31, portrait ? 250 : 210);
+  const easeOut = 1 - Math.pow(1 - p, 2.4);
+  const wheelR = Math.min(portrait ? lw * .30 : lh * .27, portrait ? 210 : 185);
   const cx = lw / 2;
-  const cy = lh / 2 - (portrait ? 70 : 24);
-  const panelW = Math.min(lw - 56, portrait ? 650 : 780);
-  const panelH = portrait ? 720 : 520;
+  const cy = lh / 2 - (portrait ? 56 : 20);
+  const panelW = Math.min(lw - 70, portrait ? 600 : 720);
+  const panelH = portrait ? 630 : 470;
   const x = (lw - panelW) / 2;
   const y = Math.max(34, cy - panelH * .48);
   const optionNodes = (r.options || []).slice(0, 2).map((id) => getMapNode(id));
@@ -8341,8 +8392,8 @@ function drawRouteRouletteOverlay() {
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   shadow(0, 26, 70, "rgba(0,0,0,.56)", () => gradientRound(x, y, panelW, panelH, 24, [[0, "#211626"], [.62, "#0f0b12"], [1, "#23131b"]], true));
   strokeRound(x, y, panelW, panelH, 24, gold, 3);
-  text("ROUTE ROULETTE", cx, y + (portrait ? 58 : 50), portrait ? 38 : 34, gold, "center", "serif");
-  text("The vote is tied. Red or black decides the path.", cx, y + (portrait ? 96 : 84), portrait ? 18 : 16, C.text, "center");
+  text("ROUTE ROULETTE", cx, y + (portrait ? 54 : 46), portrait ? 34 : 30, gold, "center", "serif");
+  text("Tie vote. The house spins for the route.", cx, y + (portrait ? 90 : 76), portrait ? 17 : 15, C.text, "center");
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -8380,12 +8431,6 @@ function drawRouteRouletteOverlay() {
   ctx.lineWidth = 5;
   ctx.strokeStyle = gold;
   ctx.stroke();
-  ctx.font = `900 ${portrait ? 34 : 28}px sans-serif`;
-  ctx.fillStyle = "#fff4bf";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("RED", wheelR * .42, 0);
-  ctx.fillText("BLACK", -wheelR * .42, 0);
   ctx.restore();
 
   ctx.save();
@@ -8400,23 +8445,21 @@ function drawRouteRouletteOverlay() {
   });
   ctx.restore();
 
-  const labelY = cy + wheelR + (portrait ? 58 : 46);
-  const colW = Math.min(270, panelW * .38);
-  drawRouletteOptionCard(cx - colW - 18, labelY, colW, portrait ? 118 : 90, red, "1 RED", optionNodes[0]);
-  drawRouletteOptionCard(cx + 18, labelY, colW, portrait ? 118 : 90, black, "2 BLACK", optionNodes[1]);
+  const labelY = cy + wheelR + (portrait ? 36 : 28);
+  const colW = Math.min(250, panelW * .38);
+  drawRouletteOptionCard(cx - colW - 16, labelY, colW, portrait ? 96 : 78, red, "RED", optionNodes[0]);
+  drawRouletteOptionCard(cx + 16, labelY, colW, portrait ? 96 : 78, black, "BLACK", optionNodes[1]);
   const winnerNode = optionNodes[r.winnerIndex];
-  if (r.resolvedAt && winnerNode) {
-    text(`Winner: ${winnerNode.label}`, cx, y + panelH - (portrait ? 44 : 34), portrait ? 22 : 19, gold, "center");
-  } else if (p > .78 && winnerNode) {
-    text(`Ball is hunting ${r.winnerIndex === 0 ? "red" : "black"}...`, cx, y + panelH - (portrait ? 44 : 34), portrait ? 20 : 18, gold, "center");
+  if (p > .78 && winnerNode) {
+    text(`The ball is slowing...`, cx, y + panelH - (portrait ? 34 : 28), portrait ? 18 : 16, gold, "center");
   }
 }
 
 function drawRouletteOptionCard(x, y, w, h, color, title, node) {
   gradientRound(x, y, w, h, 14, [[0, color], [1, "#0b080d"]], true);
   strokeRound(x, y, w, h, 14, color === "#08070b" ? "rgba(242,206,98,.7)" : "rgba(255,210,170,.78)", 2);
-  text(title, x + w / 2, y + 30, 18, "#fff4bf", "center");
-  textFit(node?.label || "Unknown Table", x + w / 2, y + h - 32, w - 22, 18, C.text, "center");
+  text(title, x + w / 2, y + (h > 90 ? 28 : 23), h > 90 ? 18 : 16, "#fff4bf", "center");
+  textFit(node?.label || "Unknown Table", x + w / 2, y + h - (h > 90 ? 30 : 24), w - 22, h > 90 ? 17 : 15, C.text, "center");
 }
 
 function drawFlash() {
