@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 247;
+const APP_PUSH_NUMBER = 248;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -2288,7 +2288,9 @@ function beginRouteRoulette(nodeIds = []) {
     winnerIndex,
     winner: options[winnerIndex],
     startedAt: performance.now(),
-    duration: 3600
+    duration: 6800,
+    holdDuration: 2600,
+    resolvedAt: 0
   };
   game.mapReady = {};
   log(`Route vote tied. The house spins the route wheel.`);
@@ -2300,12 +2302,26 @@ function updateRouteRoulette() {
   if (!r) return;
   if (role === "guest") return;
   const elapsed = performance.now() - (r.startedAt || 0);
-  if (elapsed < (r.duration || 3600)) return;
+  if (elapsed < (r.duration || 6800)) return;
   const winner = r.winner;
   const node = getMapNode(winner);
+  if (!r.resolvedAt) {
+    r.resolvedAt = performance.now();
+    game.selectedNodeId = winner;
+    inspectedNodeId = winner;
+    game.mapVotes ||= {};
+    game.seats.filter((s) => !s.spectating).forEach((seat) => {
+      game.mapVotes[seat.id] = winner;
+    });
+    game.mapReady = {};
+    if (node?.encounter) log(`The route wheel lands on ${node.label}. All trails snap to the winning table.`);
+    sfx("ready");
+    broadcast();
+    return;
+  }
+  if (performance.now() - r.resolvedAt < (r.holdDuration || 2200)) return;
   game.routeRoulette = null;
   if (node?.encounter) {
-    log(`The route wheel lands on ${node.label}.`);
     startMapEncounter(winner);
     broadcast();
   }
@@ -6164,6 +6180,7 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
   const selectedCandidateId = game.mapVotes?.[localPlayerId] || game.selectedNodeId || inspectedNodeId || "";
   const selectedCandidate = getMapNode(selectedCandidateId);
   const selectedRouteId = selectedCandidate?.reachable ? selectedCandidate.id : "";
+  const votedRouteIds = new Set(Object.values(game.mapVotes || {}).filter((id) => getMapNode(id)?.reachable));
   const ceremony = game.floorClearCeremony;
   const ui = activeFloorUi();
   const vertical = isPortraitMap();
@@ -6172,7 +6189,7 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
     for (const nextId of node.next || []) {
       const next = getMapNode(nextId);
       if (!next) continue;
-      if (!shouldDrawMapEdge(node, next, selectedRouteId)) continue;
+      if (!shouldDrawMapEdge(node, next, selectedRouteId, votedRouteIds)) continue;
       const to = mapPoint(next, mapX, mapY, mapW, mapH);
       const ceremonyEdge = ceremony?.bossId === node.id && ceremony?.elevatorId === nextId && !!ceremony.startedAt;
       const selectedReachableEdge = ceremonyEdge || (nextId === selectedRouteId && next.reachable && (node.current || node.cleared));
@@ -6240,8 +6257,10 @@ function drawMapRouteCurve(from, to, midAxis, color, width, alpha = 1, glow = 0,
   ctx.restore();
 }
 
-function shouldDrawMapEdge(fromNode, toNode, selectedRouteId) {
+function shouldDrawMapEdge(fromNode, toNode, selectedRouteId, votedRouteIds = new Set()) {
   if (fromNode.cleared && toNode.cleared) return true;
+  const votedEdge = votedRouteIds.has(toNode.id) && (fromNode.current || fromNode.cleared);
+  if (votedEdge) return true;
   if (selectedRouteId && (fromNode.current || fromNode.cleared) && (fromNode.next || []).includes(selectedRouteId)) {
     return toNode.id === selectedRouteId;
   }
@@ -8314,9 +8333,10 @@ function drawRouteRouletteOverlay() {
   const red = "#9b1d22";
   const black = "#08070b";
   const gold = "#f2ce62";
-  const finalAngle = (r.winnerIndex === 0 ? 0 : Math.PI);
-  const ballAngle = Math.PI * 7.5 * (1 - easeOut) + finalAngle;
-  const wheelSpin = Math.PI * 10 * easeOut;
+  const pocketCount = 20;
+  const finalAngle = r.winnerIndex === 0 ? 0 : Math.PI / pocketCount;
+  const ballAngle = Math.PI * 12.5 * (1 - easeOut) + finalAngle;
+  const wheelSpin = Math.PI * 16 * easeOut;
 
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   shadow(0, 26, 70, "rgba(0,0,0,.56)", () => gradientRound(x, y, panelW, panelH, 24, [[0, "#211626"], [.62, "#0f0b12"], [1, "#23131b"]], true));
@@ -8333,20 +8353,21 @@ function drawRouteRouletteOverlay() {
     ctx.fillStyle = "#171018";
     ctx.fill();
   });
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.arc(0, 0, wheelR * .92, -Math.PI / 2, Math.PI / 2);
-  ctx.closePath();
-  ctx.fillStyle = red;
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.arc(0, 0, wheelR * .92, Math.PI / 2, Math.PI * 1.5);
-  ctx.closePath();
-  ctx.fillStyle = black;
-  ctx.fill();
-  for (let i = 0; i < 16; i++) {
-    const a = i / 16 * Math.PI * 2;
+  for (let i = 0; i < pocketCount; i++) {
+    const a0 = -Math.PI / 2 + i / pocketCount * Math.PI * 2;
+    const a1 = -Math.PI / 2 + (i + 1) / pocketCount * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, wheelR * .92, a0, a1);
+    ctx.closePath();
+    ctx.fillStyle = i % 2 ? black : red;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(242,206,98,.34)";
+    ctx.stroke();
+  }
+  for (let i = 0; i < pocketCount; i++) {
+    const a = i / pocketCount * Math.PI * 2;
     ctx.save();
     ctx.rotate(a);
     fill(i % 2 ? "rgba(242,206,98,.86)" : "rgba(255,255,255,.72)", wheelR * .72, -3, wheelR * .16, 6, 3);
@@ -8363,8 +8384,8 @@ function drawRouteRouletteOverlay() {
   ctx.fillStyle = "#fff4bf";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("1", wheelR * .46, 0);
-  ctx.fillText("2", -wheelR * .46, 0);
+  ctx.fillText("RED", wheelR * .42, 0);
+  ctx.fillText("BLACK", -wheelR * .42, 0);
   ctx.restore();
 
   ctx.save();
@@ -8384,8 +8405,10 @@ function drawRouteRouletteOverlay() {
   drawRouletteOptionCard(cx - colW - 18, labelY, colW, portrait ? 118 : 90, red, "1 RED", optionNodes[0]);
   drawRouletteOptionCard(cx + 18, labelY, colW, portrait ? 118 : 90, black, "2 BLACK", optionNodes[1]);
   const winnerNode = optionNodes[r.winnerIndex];
-  if (p > .86 && winnerNode) {
-    text(`Landing on ${winnerNode.label}...`, cx, y + panelH - (portrait ? 44 : 34), portrait ? 20 : 18, gold, "center");
+  if (r.resolvedAt && winnerNode) {
+    text(`Winner: ${winnerNode.label}`, cx, y + panelH - (portrait ? 44 : 34), portrait ? 22 : 19, gold, "center");
+  } else if (p > .78 && winnerNode) {
+    text(`Ball is hunting ${r.winnerIndex === 0 ? "red" : "black"}...`, cx, y + panelH - (portrait ? 44 : 34), portrait ? 20 : 18, gold, "center");
   }
 }
 
