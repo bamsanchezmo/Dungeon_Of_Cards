@@ -145,6 +145,16 @@ export class HostPeer extends RealtimePeer {
       }
       this.onMessage?.(payload.message, playerId);
     });
+    this.channel.on("presence", { event: "sync" }, () => {
+      const state = this.channel.presenceState();
+      for (const playerId of [...this.connections]) {
+        if (this.blocked.has(playerId)) continue;
+        if (!state[playerId]?.length) {
+          this.connections.delete(playerId);
+          this.onStatus?.("disconnected", { playerId });
+        }
+      }
+    });
     await subscribe(this.channel, this.onStatus);
     await this.channel.track({ role: "host", onlineAt: Date.now() });
     return this.id;

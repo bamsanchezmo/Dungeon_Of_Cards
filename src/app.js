@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 249;
+const APP_PUSH_NUMBER = 250;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -879,6 +879,7 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     loanRequiredAmount: MIN_BET,
     loanVotes: {},
     loanSignedAt: 0,
+    loanSignatureIds: [],
     map: null,
     floorMaps: [],
     mapVotes: {},
@@ -1928,10 +1929,15 @@ function addPlayerSeat(id, profile = {}) {
 
 function kickPlayer(id) {
   if (role !== "host" || id === hostId || !game) return;
+  removePlayerSeat(id, { disconnect: true, reason: "was removed from the lobby" });
+}
+
+function removePlayerSeat(id, options = {}) {
+  if (role !== "host" || id === hostId || !game) return false;
   const index = game.seats.findIndex((s) => s.id === id);
-  if (index < 0) return;
+  if (index < 0) return false;
   const [removed] = game.seats.splice(index, 1);
-  peer?.disconnect(id);
+  if (options.disconnect) peer?.disconnect(id);
   if (!isFreeForAll()) game.gold = Math.max(0, game.gold - 100);
   game.maxHp = Math.max(100, game.maxHp - 40);
   game.hp = Math.min(game.hp, game.maxHp);
@@ -1941,8 +1947,12 @@ function kickPlayer(id) {
   delete handCarouselActiveIndex[id];
   statsPlayerId = "";
   rescaleEnemyForPlayers();
-  log(`${removed.name} was removed from the lobby.`);
+  if (game.loanVotes) delete game.loanVotes[id];
+  if (game.mapVotes) delete game.mapVotes[id];
+  if (game.mapReady) delete game.mapReady[id];
+  log(`${removed.name} ${options.reason || "left the lobby"}.`);
   broadcast();
+  return true;
 }
 
 function makeDeck() {
@@ -3414,6 +3424,9 @@ function handlePeerStatus(status, details = {}) {
   if (status === "connected" && role === "host" && details.playerId) {
     notify("Guest connected.");
   }
+  if (status === "disconnected" && role === "host" && details.playerId) {
+    removePlayerSeat(details.playerId, { reason: "left the lobby" });
+  }
   if (status === "error") {
     notify(formatPeerError(details));
   }
@@ -4140,7 +4153,7 @@ function voteLoan(playerId, signed) {
     : `${seat?.name || "Someone"} refused the blood contract.`);
   if (!voters.length || !voters.every((s) => game.loanVotes?.[s.id])) return;
   const declined = voters.filter((s) => game.loanVotes?.[s.id] !== "sign");
-  if (!declined.length) return signLoan(game.loanSeatId || hostId);
+  const signedSeats = voters.filter((s) => game.loanVotes?.[s.id] === "sign");
   declined.forEach((s) => {
     s.bankrupt = true;
     s.dead = true;
@@ -4151,17 +4164,15 @@ function voteLoan(playerId, signed) {
     s.hands = [];
     log(`${s.name} refused the contract and is claimed by the House.`);
   });
-  const survivors = loanVoters();
-  if (!survivors.length) {
+  if (!signedSeats.length) {
     game.loanVotes = {};
     game.loanSeatId = "";
     game.phase = "defeat";
     log("No signatures remain. The run ends.");
     return;
   }
-  log(`${survivors.map((s) => s.name).join(", ")} signed and continue in debt.`);
-  game.loanSeatId = survivors[0].id;
-  signLoan(game.loanSeatId);
+  log(`${signedSeats.map((s) => s.name).join(", ")} signed and continue in debt.`);
+  signSharedLoan(signedSeats);
 }
 
 function declineLoan(playerId) {
@@ -4203,7 +4214,8 @@ function signLoan(playerId) {
     return;
   }
   const reviveHp = Math.max(1, Math.ceil(game.maxHp * .35));
-  game.loanSignedAt = performance.now();
+  game.loanSignedAt = Date.now();
+  game.loanSignatureIds = [seat?.id || playerId].filter(Boolean);
   if (isFreeForAll()) {
     seat.gold = seatBankroll(seat) + LOAN_AMOUNT;
     seat.debt = LOAN_AMOUNT + LOAN_INTEREST;
@@ -4233,6 +4245,44 @@ function signLoan(playerId) {
   game.loanSeatId = "";
   enterBettingRound({ chargeInterest: false });
   if (!isFreeForAll()) log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
+  sfx("life");
+}
+
+function signSharedLoan(signedSeats) {
+  if (game.phase !== "loanOffer") return;
+  const signers = (signedSeats || []).filter((s) => s && !s.dead);
+  if (!signers.length) {
+    game.phase = "defeat";
+    return;
+  }
+  const reviveHp = Math.max(1, Math.ceil(game.maxHp * .35));
+  game.gold += LOAN_AMOUNT;
+  game.loanDebt = LOAN_AMOUNT + LOAN_INTEREST;
+  game.loanUsed = true;
+  game.loanSignedAt = Date.now();
+  game.loanSignatureIds = signers.map((s) => s.id);
+  for (const s of game.seats) {
+    const signed = game.loanSignatureIds.includes(s.id);
+    if (signed) {
+      s.bankrupt = false;
+      s.dead = false;
+      s.spectating = false;
+      s.finished = false;
+      s.ready = false;
+      s.bet = Math.min(25, maxBetForSeat(s));
+    } else if (s.dead || s.spectating) {
+      s.bet = 0;
+      s.ready = true;
+      s.hands = [];
+    }
+  }
+  queueHpAnimation(0, reviveHp, game.maxHp);
+  game.hp = reviveHp;
+  game.loanRequiredAmount = MIN_BET;
+  game.loanVotes = {};
+  game.loanSeatId = "";
+  enterBettingRound({ chargeInterest: false });
+  log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
   sfx("life");
 }
 
@@ -8358,8 +8408,35 @@ function drawLoanOffer() {
   const vote = game.loanVotes?.[localPlayerId];
   const signLabel = sharedLoanNeedsVote() ? vote === "sign" ? "Signed" : "Sign Vote" : "Sign";
   const declineLabel = sharedLoanNeedsVote() ? vote === "decline" ? "Declined" : "Decline Vote" : "Decline";
-  addButton(x + 54, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, declineLabel, () => action("declineLoan"), false, vote !== "sign");
-  addButton(x + panelW / 2 + 16, y + panelH - 88, panelW / 2 - 70, portrait ? 64 : 54, signLabel, () => action("signLoan"), true, vote !== "decline");
+  const declineX = x + 54;
+  const signX = x + panelW / 2 + 16;
+  const buttonY = y + panelH - 88;
+  const buttonW = panelW / 2 - 70;
+  const buttonH = portrait ? 64 : 54;
+  if (sharedLoanNeedsVote()) {
+    drawLoanButtonVoteTokens("decline", declineX, buttonY, buttonW);
+    drawLoanButtonVoteTokens("sign", signX, buttonY, buttonW);
+  }
+  addButton(declineX, buttonY, buttonW, buttonH, declineLabel, () => action("declineLoan"), false, vote !== "sign");
+  addButton(signX, buttonY, buttonW, buttonH, signLabel, () => action("signLoan"), true, vote !== "decline");
+}
+
+function drawLoanButtonVoteTokens(choice, x, y, w) {
+  const seats = (game?.seats || []).filter((seat) => game.loanVotes?.[seat.id] === choice);
+  if (!seats.length) return;
+  const token = viewport.portrait ? 26 : 22;
+  const gap = 5;
+  const totalW = seats.length * token + (seats.length - 1) * gap;
+  let tx = x + w / 2 - totalW / 2;
+  const ty = y - token - 8;
+  seats.forEach((seat, i) => {
+    const identity = seatIdentity(seat, i);
+    const color = cleanPlayerColor(identity.color, playerPalette[i % playerPalette.length]);
+    shadow(0, 0, 16, hexToRgba(color, .68), () => fill(color, tx, ty, token, token, token / 2));
+    strokeRound(tx, ty, token, token, token / 2, C.gold, 1.8);
+    text(identity.icon || "✓", tx + token / 2, ty + token * .72, token * .62, C.black, "center", "serif");
+    tx += token + gap;
+  });
 }
 
 function drawRouteRouletteOverlay() {
@@ -8536,10 +8613,14 @@ function drawMoneyAnimations() {
 
 function drawBloodSignature() {
   if (!game?.loanSignedAt) return;
-  if (isFreeForAll() && game.loanSeatId !== localPlayerId) return;
-  const t = clamp((performance.now() - game.loanSignedAt) / 2600, 0, 1);
+  const signatureIds = Array.isArray(game.loanSignatureIds) && game.loanSignatureIds.length
+    ? game.loanSignatureIds
+    : [game.loanSeatId || localPlayerId];
+  if (!signatureIds.includes(localPlayerId) && game.code) return;
+  if (isFreeForAll() && !signatureIds.includes(localPlayerId)) return;
+  const t = clamp((Date.now() - game.loanSignedAt) / 2600, 0, 1);
   if (t >= 1) return;
-  const signer = loanDisplaySigner();
+  const signer = game.seats.find((s) => s.id === (signatureIds.includes(localPlayerId) ? localPlayerId : signatureIds[0])) || loanDisplaySigner();
   const lw = layoutW();
   const lh = layoutH();
   const y = viewport.portrait ? lh * .42 : lh * .46;
