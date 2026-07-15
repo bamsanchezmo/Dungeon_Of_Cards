@@ -166,6 +166,18 @@ input {
   text-transform: uppercase;
 }
 
+input[type="color"] {
+  width: 100%;
+  min-height: 56px;
+  padding: 6px;
+}
+
+.identity-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 .action-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

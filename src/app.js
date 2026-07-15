@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 244;
+const APP_PUSH_NUMBER = 245;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -231,6 +231,8 @@ const hostFields = document.querySelector("#hostFields");
 const joinFields = document.querySelector("#joinFields");
 const nameFields = document.querySelector("#nameFields");
 const playerNameInput = document.querySelector("#playerName");
+const playerColorInput = document.querySelector("#playerColor");
+const playerIconInput = document.querySelector("#playerIcon");
 const hostOffer = document.querySelector("#hostOffer");
 const lobbyCodeInput = document.querySelector("#lobbyCode");
 const toast = document.querySelector("#toast");
@@ -817,9 +819,13 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
   const runType = options.runType || selectedRunType || "tower";
   const towerFloors = runType === "tower" ? clamp(Number(options.towerFloors) || towerLengthPreference || 10, 2, FLOORS) : FLOORS;
   const quickDifficulty = options.quickDifficulty || quickDifficultyPreference || "normal";
-  const seats = players.map((p) => ({
+  const seats = players.map((p, index) => {
+    const profile = normalizePlayerProfile(p, index, p.name || `Player ${index + 1}`);
+    return ({
     id: p.id,
-    name: p.name,
+    name: profile.name,
+    color: profile.color,
+    icon: profile.icon,
     gold: freeForAll ? 200 : 0,
     debt: 0,
     loanUsed: false,
@@ -832,7 +838,8 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     spectating: false,
     profit: 0,
     profitHistory: [0]
-  }));
+  });
+  });
   game = {
     code,
     mode,
@@ -1882,12 +1889,13 @@ function capitalize(value) {
   return textValue ? textValue[0].toUpperCase() + textValue.slice(1) : "";
 }
 
-function addPlayerSeat(id, name = "") {
+function addPlayerSeat(id, profile = {}) {
   if (!game) return false;
   if (game.seats.some((s) => s.id === id)) return true;
   if (game.seats.length >= MAX_PLAYERS) return false;
-  const playerName = name || `Guest ${game.seats.length}`;
-  game.seats.push({ id, name: playerName, gold: isFreeForAll() ? 200 : 0, debt: 0, loanUsed: false, bankrupt: false, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
+  const identity = normalizePlayerProfile(typeof profile === "string" ? { name: profile } : profile, game.seats.length, `Guest ${game.seats.length}`);
+  const playerName = identity.name;
+  game.seats.push({ id, name: playerName, color: identity.color, icon: identity.icon, gold: isFreeForAll() ? 200 : 0, debt: 0, loanUsed: false, bankrupt: false, bet: 25, ready: false, hands: [], active: 0, finished: false, spectating: false, profit: 0, profitHistory: [0] });
   if (!isFreeForAll()) game.gold += 100;
   game.maxHp += 40;
   game.hp += 40;
@@ -1982,7 +1990,7 @@ function applyAction(playerId, name) {
     if (name === "solo") {
       role = "solo";
       localPlayerId = hostId;
-      newGame([{ id: hostId, name: savedPlayerName("You") }], "", modePreference, selectedRunOptions());
+      newGame([{ id: hostId, ...localPlayerProfile("You", 0) }], "", modePreference, selectedRunOptions());
     }
     return;
   }
@@ -3250,7 +3258,7 @@ async function hostLobby() {
   role = "host";
   localPlayerId = hostId;
   const code = createLobbyCode();
-  newGame([{ id: hostId, name: savedPlayerName("Host") }], code, modePreference, selectedRunOptions());
+  newGame([{ id: hostId, ...localPlayerProfile("Host", 0) }], code, modePreference, selectedRunOptions());
   hostOffer.value = "Creating lobby link...";
   showSignal("host", `${runTypeLabels[selectedRunType]} Lobby ${code}`, "Share this link. Up to 3 guests can join from it.");
   peer = new HostPeer({
@@ -3280,7 +3288,7 @@ function selectedRunOptions() {
 function startSoloRun() {
   role = "solo";
   localPlayerId = hostId;
-  newGame([{ id: hostId, name: savedPlayerName("You") }], "", modePreference, selectedRunOptions());
+  newGame([{ id: hostId, ...localPlayerProfile("You", 0) }], "", modePreference, selectedRunOptions());
 }
 
 function joinLobby(code = "") {
@@ -3305,7 +3313,7 @@ async function connectGuest() {
       onStatus: handlePeerStatus
     });
     localPlayerId = await peer.connect();
-    peer.send({ type: "hello", playerId: localPlayerId, name: savedPlayerName("Guest") });
+    peer.send({ type: "hello", playerId: localPlayerId, ...localPlayerProfile("Guest", 1) });
     notify("Connected. Waiting for host state...");
   } catch (err) {
     notify(formatPeerError(err));
@@ -3334,7 +3342,7 @@ function handleHostConnection(playerId) {
 function handleHostMessage(msg, fromId = "") {
   if (msg.type === "hello") {
     const id = fromId;
-    if (!addPlayerSeat(id, cleanPlayerName(msg.name) || guestNameFor(id))) {
+    if (!addPlayerSeat(id, { name: cleanPlayerName(msg.name) || guestNameFor(id), color: msg.color, icon: msg.icon })) {
       peer?.send({ type: "lobbyFull" }, id);
       peer?.disconnect(id);
       return;
@@ -3352,6 +3360,10 @@ function handleHostMessage(msg, fromId = "") {
     const seat = game?.seats.find((s) => s.id === fromId);
     const name = cleanPlayerName(msg.name);
     if (seat && name) seat.name = name;
+    if (seat) {
+      seat.color = cleanPlayerColor(msg.color, seat.color || playerPalette[0]);
+      seat.icon = cleanPlayerIcon(msg.icon, seat.icon || playerIcons[0]);
+    }
     broadcast();
   }
 }
@@ -3409,6 +3421,48 @@ function savedPlayerName(fallback = "Player") {
   return cleanPlayerName(localStorage.getItem("dungeon-player-name")) || fallback;
 }
 
+const playerPalette = ["#5ab46e", "#67c9ff", "#f0c84e", "#e85b54"];
+const playerIcons = ["♠", "♥", "♦", "♣"];
+
+function cleanPlayerColor(value, fallback = playerPalette[0]) {
+  const textValue = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(textValue) ? textValue : fallback;
+}
+
+function cleanPlayerIcon(value, fallback = "♠") {
+  const textValue = String(value || "").replace(/[<>\n\r]/g, "").trim();
+  return (textValue || fallback).slice(0, 2);
+}
+
+function savedPlayerColor(index = 0) {
+  return cleanPlayerColor(localStorage.getItem("dungeon-player-color"), playerPalette[index % playerPalette.length]);
+}
+
+function savedPlayerIcon(index = 0) {
+  return cleanPlayerIcon(localStorage.getItem("dungeon-player-icon"), playerIcons[index % playerIcons.length]);
+}
+
+function localPlayerProfile(fallback = "Player", index = 0) {
+  return {
+    name: savedPlayerName(fallback),
+    color: savedPlayerColor(index),
+    icon: savedPlayerIcon(index)
+  };
+}
+
+function normalizePlayerProfile(profile = {}, index = 0, fallback = "Player") {
+  return {
+    id: profile.id,
+    name: cleanPlayerName(profile.name) || fallback,
+    color: cleanPlayerColor(profile.color, playerPalette[index % playerPalette.length]),
+    icon: cleanPlayerIcon(profile.icon, playerIcons[index % playerIcons.length])
+  };
+}
+
+function seatIdentity(seat, index = game?.seats?.indexOf?.(seat) || 0) {
+  return normalizePlayerProfile(seat || {}, index, seat?.name || `P${index + 1}`);
+}
+
 function getOrCreateDeviceId() {
   const key = "dungeon-device-id";
   let id = localStorage.getItem(key);
@@ -3425,18 +3479,28 @@ function cleanPlayerName(value) {
 
 function openNameEditor() {
   playerNameInput.value = savedPlayerName(role === "solo" ? "You" : "Player");
-  showSignal("name", "Your Name", "This name is remembered on this device.");
+  if (playerColorInput) playerColorInput.value = savedPlayerColor(0);
+  if (playerIconInput) playerIconInput.value = savedPlayerIcon(0);
+  showSignal("name", "Your Player", "Pick a name, vote color, and icon. These are remembered on this device.");
   setTimeout(() => playerNameInput.focus(), 0);
 }
 
 function savePlayerName() {
   const name = cleanPlayerName(playerNameInput.value);
   if (!name) return notify("Enter a display name.");
+  const color = cleanPlayerColor(playerColorInput?.value, savedPlayerColor(0));
+  const icon = cleanPlayerIcon(playerIconInput?.value, savedPlayerIcon(0));
   const previousName = savedPlayerName(role === "solo" ? "You" : "Player");
   localStorage.setItem("dungeon-player-name", name);
+  localStorage.setItem("dungeon-player-color", color);
+  localStorage.setItem("dungeon-player-icon", icon);
   const seat = game?.seats.find((s) => s.id === localPlayerId);
-  if (seat) seat.name = name;
-  if (role === "guest") peer?.send({ type: "rename", playerId: localPlayerId, name });
+  if (seat) {
+    seat.name = name;
+    seat.color = color;
+    seat.icon = icon;
+  }
+  if (role === "guest") peer?.send({ type: "rename", playerId: localPlayerId, name, color, icon });
   if (role === "host") broadcast();
   updateLeaderboardName(name, previousName);
   hideSignal();
@@ -3812,6 +3876,7 @@ function restoreGameFromSave(entry, scope = "solo") {
   game.relicVotes = game.relicVotes || {};
   game.mapVotes = game.mapVotes || {};
   game.mapReady = game.mapReady || {};
+  game.seats = (game.seats || []).map((seat, index) => ({ ...seat, ...seatIdentity(seat, index) }));
   game.log = Array.isArray(game.log) ? game.log : ["Save restored."];
   appScene = "game";
   restoreAssetGate = { ready: false, label: "Loading save", transition: createRestoreElevatorTransition(game) };
@@ -4001,10 +4066,13 @@ function voteLoan(playerId, signed) {
   });
   const survivors = loanVoters();
   if (!survivors.length) {
+    game.loanVotes = {};
+    game.loanSeatId = "";
     game.phase = "defeat";
     log("No signatures remain. The run ends.");
     return;
   }
+  log(`${survivors.map((s) => s.name).join(", ")} signed and continue in debt.`);
   game.loanSeatId = survivors[0].id;
   signLoan(game.loanSeatId);
 }
@@ -4074,6 +4142,8 @@ function signLoan(playerId) {
   queueHpAnimation(0, reviveHp, game.maxHp);
   game.hp = reviveHp;
   game.loanRequiredAmount = MIN_BET;
+  game.loanVotes = {};
+  game.loanSeatId = "";
   enterBettingRound({ chargeInterest: false });
   if (!isFreeForAll()) log(`Signed in blood. ${Math.round(LOAN_WINNING_PAYMENT_RATE * 100)}% of winnings pay debt, plus ${Math.round(LOAN_INTEREST_RATE_PER_ROUND * 100)}% compounding interest each round.`);
   sfx("life");
@@ -6095,9 +6165,38 @@ function drawMapConnections(mapX, mapY, mapW, mapH) {
       drawMapRouteCurve(from, to, midAxis, "rgba(0,0,0,.72)", width + 6.5, .95, 0, vertical);
       drawMapRouteCurve(from, to, midAxis, hexToRgba(ui.accent, selectedReachableEdge ? .72 : clearedEdge ? .42 : .34), width + 3.5, .9, selectedReachableEdge ? 18 : 11, vertical);
       drawMapRouteCurve(from, to, midAxis, hexToRgba(color, alpha), width, 1, 0, vertical);
+      drawVoteRouteStrands(node, next, from, to, midAxis, vertical);
     }
   }
   ctx.restore();
+}
+
+function routeVotersForNode(nodeId) {
+  if (!game?.mapVotes) return [];
+  return (game.seats || []).filter((seat) => !seat.spectating && game.mapVotes?.[seat.id] === nodeId);
+}
+
+function drawVoteRouteStrands(fromNode, toNode, from, to, midAxis, vertical = false) {
+  if (!toNode?.reachable || !(fromNode.current || fromNode.cleared)) return;
+  const voters = routeVotersForNode(toNode.id);
+  if (!voters.length) return;
+  const count = voters.length;
+  const spacing = count > 1 ? 4.5 : 0;
+  voters.forEach((seat, i) => {
+    const identity = seatIdentity(seat, i);
+    const offset = (i - (count - 1) / 2) * spacing;
+    drawMapRouteCurveOffset(from, to, midAxis, cleanPlayerColor(identity.color), 4.5, .98, 14, vertical, offset);
+  });
+}
+
+function drawMapRouteCurveOffset(from, to, midAxis, color, width, alpha = 1, glow = 0, vertical = false, offset = 0) {
+  const a = vertical
+    ? { x: from.x + offset, y: from.y }
+    : { x: from.x, y: from.y + offset };
+  const b = vertical
+    ? { x: to.x + offset, y: to.y }
+    : { x: to.x, y: to.y + offset };
+  drawMapRouteCurve(a, b, midAxis, color, width, alpha, glow, vertical);
 }
 
 function drawMapRouteCurve(from, to, midAxis, color, width, alpha = 1, glow = 0, vertical = false) {
@@ -6127,6 +6226,31 @@ function shouldDrawMapEdge(fromNode, toNode, selectedRouteId) {
   return !fromNode.locked && !toNode.locked;
 }
 
+function drawMapPlayerVoteTokens(p, node, nodeW, nodeH) {
+  if (!game?.map || game.phase !== "map") return;
+  const seats = (game.seats || []).filter((seat) => !seat.spectating);
+  if (!seats.length) return;
+  const portrait = viewport.portrait;
+  const token = portrait ? 24 : 22;
+  const gap = 5;
+  const totalW = seats.length * token + (seats.length - 1) * gap;
+  const y = p.y + nodeH / 2 + (portrait ? 22 : 18);
+  let x = p.x - totalW / 2;
+  seats.forEach((seat, i) => {
+    const identity = seatIdentity(seat, i);
+    const voted = !!game.mapVotes?.[seat.id];
+    const cx = x + token / 2;
+    const color = cleanPlayerColor(identity.color, playerPalette[i % playerPalette.length]);
+    shadow(0, 0, voted ? 14 : 6, hexToRgba(color, voted ? .72 : .35), () => {
+      fill(voted ? color : "rgba(5,4,8,.78)", x, y, token, token, token / 2);
+    });
+    strokeRound(x, y, token, token, token / 2, voted ? color : hexToRgba(color, .58), voted ? 2.2 : 1.4);
+    text(identity.icon || String(i + 1), cx, y + token * .72, token * .62, voted ? C.black : C.text, "center", "serif");
+    if (voted) text("Voted", cx, y + token + (portrait ? 13 : 11), portrait ? 10 : 9, color, "center");
+    x += token + gap;
+  });
+}
+
 function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const ceremony = game.floorClearCeremony;
   const ceremonyBoss = ceremony?.bossId === node.id && !!ceremony.startedAt;
@@ -6148,8 +6272,9 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   const selectedFuture = selected && !node.reachable && !node.cleared && !node.current;
   const ui = activeFloorUi();
   const threatColor = node.kind === "table" ? difficultyGlowColor(node.threat) : node.color;
+  const localIdentity = seatIdentity(mySeat() || game?.seats?.[0], 0);
   const border = node.cleared ? C.green : selectedReachable ? ui.accent : selectedFuture ? "rgba(218,225,232,.92)" : node.current ? ui.title : node.reachable ? hexToRgba(threatColor || C.parchment, .82) : "rgba(238,231,215,.46)";
-  const fillColor = node.kind === "start" ? C.blue : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : threatColor || node.color;
+  const fillColor = node.kind === "start" ? localIdentity.color : node.kind === "elevator" ? "#5fc8ea" : node.kind === "boss" ? node.color || game.map.bossColor : threatColor || node.color;
   const nodeAsset = mapNodeDrawableAsset(node);
   const lockedAlpha = node.locked ? .82 : 1;
   const drewNodeAsset = node.kind === "table"
@@ -6183,8 +6308,8 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
   }
   else if (node.kind === "table") drawMapTableSelectionFrame(node, p, w, h, selected, selectedReachable, selectedFuture);
   else if (node.kind !== "table") strokeRound(x, y, w, h, node.kind === "start" ? w / 2 : 14, border, strokeWidth);
-  const label = node.kind === "elevator" ? "" : node.kind === "start" ? "GO" : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
-  const hideAssetLabel = drewNodeAsset && (node.kind === "start" || node.kind === "table");
+  const label = node.kind === "elevator" ? "" : node.kind === "start" ? localIdentity.icon : node.kind === "boss" ? "BOSS" : node.reward?.icon || "T";
+  const hideAssetLabel = drewNodeAsset && node.kind === "table";
   if (node.kind === "boss") {
     const badgeW = Math.max(88, w * 1.08);
     const badgeH = portrait ? 30 : 26;
@@ -6195,8 +6320,9 @@ function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
     strokeRound(p.x - badgeW / 2, badgeY, badgeW, badgeH, badgeH / 2, ui.primaryStroke, 2);
     text("Floor Boss", p.x, badgeY + (portrait ? 21 : 18), portrait ? 15 : 13, ui.primaryText, "center", "serif");
   } else if (label && !hideAssetLabel) {
-    text(label, p.x, p.y + 8, 24, C.black, "center", "serif");
+    text(label, p.x, p.y + 8, node.kind === "start" ? 30 : 24, node.kind === "start" ? C.text : C.black, "center", "serif");
   }
+  if (node.current) drawMapPlayerVoteTokens(p, node, w, h);
   if (node.kind === "table" || node.kind === "boss") {
     const tagW = Math.min(116, Math.max(74, w + 24));
     const tagH = portrait ? 42 : 34;
