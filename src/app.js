@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 246;
+const APP_PUSH_NUMBER = 247;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -940,7 +940,7 @@ function createRunFloorMaps(totalFloors = FLOORS) {
     minDifficultyScore = Math.max(minDifficultyScore, mapDifficultyScore(map));
     maps.push(map);
   }
-  return maps;
+  return normalizeRunFloorDifficulty(maps, count);
 }
 
 function countMapTables(map) {
@@ -952,10 +952,31 @@ function mapDifficultyScore(map) {
   return tables.length + tables.reduce((sum, node) => sum + (Number(node.threat) || 1), 0);
 }
 
+function normalizeRunFloorDifficulty(maps, totalFloors = maps?.length || FLOORS) {
+  if (!Array.isArray(maps)) return [];
+  let minTableCount = 0;
+  let minDifficultyScore = 0;
+  const count = clamp(Number(totalFloors) || maps.length || FLOORS, 1, FLOORS);
+  for (let i = 0; i < maps.length; i++) {
+    let map = maps[i];
+    const sourceFloorIndex = clamp(Math.round(Number(map?.sourceFloor || map?.floor || i + 1) - 1), 0, FLOORS - 1);
+    const runFloor = Number(map?.floor) || i + 1;
+    const runFloors = Number(map?.runFloors) || count;
+    if (!map || countMapTables(map) < minTableCount || mapDifficultyScore(map) < minDifficultyScore) {
+      map = createFloorMap(sourceFloorIndex, { minTableCount, minDifficultyScore, runFloor, runFloors });
+      maps[i] = map;
+    }
+    minTableCount = Math.max(minTableCount, countMapTables(map));
+    minDifficultyScore = Math.max(minDifficultyScore, mapDifficultyScore(map));
+  }
+  return maps;
+}
+
 function ensureRunFloorMaps() {
   if (!game) return [];
   const totalFloors = towerFloorCount();
   if (!Array.isArray(game.floorMaps) || game.floorMaps.length !== totalFloors) game.floorMaps = createRunFloorMaps(totalFloors);
+  else game.floorMaps = normalizeRunFloorDifficulty(game.floorMaps, totalFloors);
   return game.floorMaps;
 }
 
@@ -6237,7 +6258,7 @@ function drawMapPlayerVoteTokens(p, node, nodeW, nodeH) {
   const token = portrait ? 24 : 22;
   const gap = 5;
   const totalW = seats.length * token + (seats.length - 1) * gap;
-  const y = p.y + nodeH / 2 + (portrait ? 22 : 18);
+  const y = p.y - nodeH / 2 - token - (portrait ? 13 : 10);
   let x = p.x - totalW / 2;
   seats.forEach((seat, i) => {
     const identity = seatIdentity(seat, i);
@@ -6249,7 +6270,7 @@ function drawMapPlayerVoteTokens(p, node, nodeW, nodeH) {
     });
     strokeRound(x, y, token, token, token / 2, voted ? color : hexToRgba(color, .58), voted ? 2.2 : 1.4);
     text(identity.icon || String(i + 1), cx, y + token * .72, token * .62, voted ? C.black : C.text, "center", "serif");
-    if (voted) text("Voted", cx, y + token + (portrait ? 13 : 11), portrait ? 10 : 9, color, "center");
+    if (voted) text("Voted", cx, y - (portrait ? 5 : 4), portrait ? 10 : 9, color, "center");
     if (game.developerVoteTest) {
       const active = localPlayerId === seat.id;
       if (active) strokeRound(x - 4, y - 4, token + 8, token + 8, token / 2 + 4, C.gold, 2.5);
@@ -6503,7 +6524,7 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const midX = rowX + buttonW + buttonGap;
   const rightX = rowX + (buttonW + buttonGap) * 2;
   const buttonY = mapY + mapH - buttonH - 22;
-  const stripH = 48;
+  const stripH = solo ? 48 : 62;
   const stripW = Math.min(mapW - 74, lw - 132);
   const stripX = mapX + (mapW - stripW) / 2;
   const stripY = buttonY - stripH - 10;
@@ -6513,7 +6534,7 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
     gradientRound(stripX, stripY, stripW, stripH, 18, [[0, "rgba(9,7,13,.78)"], [1, hexToRgba(ui.panelBottom, .82)]], true);
   });
   strokeRound(stripX, stripY, stripW, stripH, 18, hexToRgba(ui.border, .55), 2);
-  textFit(`${status}: ${selected.label}`, stripX + stripW / 2, stripY + 30, stripW - 28, 19, selected.reachable || selected.cleared ? C.green : ui.titleWarm, "center");
+  textFit(`${status}: ${selected.label}`, stripX + stripW / 2, stripY + (solo ? 30 : 25), stripW - 28, 19, selected.reachable || selected.cleared ? C.green : ui.titleWarm, "center");
 
   const canEnter = selected.reachable && selected.kind !== "elevator";
   if (solo) {
@@ -6528,7 +6549,7 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const ready = !!game.mapReady?.[localPlayerId];
   const readyCount = game.seats.filter((seat) => game.mapReady?.[seat.id]).length;
   const activeCount = Math.max(1, game.seats.filter((seat) => !seat.spectating).length);
-  text(`${readyCount}/${activeCount} ready`, lw / 2, buttonY - 8, 16, C.muted, "center");
+  text(`${readyCount}/${activeCount} ready`, stripX + stripW / 2, stripY + 49, 15, C.muted, "center");
   addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${selected.id}`), true, canEnter);
   addRelicsPulseButton(midX, buttonY, buttonW, buttonH);
   addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
@@ -11184,20 +11205,27 @@ function drawInventoryTabs(x, y, w, tabH) {
 
 function drawInventoryUpgradeSummary(x, y, w, h) {
   const ui = activeFloorUi();
+  const portrait = viewport.portrait;
   const cards = [
-    { title: "Damage", value: `${quickDamageLabel()} multiplier`, note: `Relic bonus damage: +${Math.round(relicStat("damageBonus") || 0)}`, color: C.red },
-    { title: "Health", value: `${game.hp}/${game.maxHp} HP`, note: `Max life bonus: +${Math.max(0, game.maxHp - baseRunMaxHp())}`, color: C.green },
-    { title: "Table Limit", value: isQuickRun() ? "Quick Run cap" : `${currentTableLimit()} max bet`, note: isQuickRun() ? "Quick Run scales by floor." : "Boss badges raise this.", color: ui.titleWarm }
+    { icon: "⚔", title: "Damage Power", value: `${quickDamageLabel()}x`, note: `Winning hands deal ${quickDamageLabel()}x damage. Relic bonus: +${Math.round(relicStat("damageBonus") || 0)}%.`, color: C.red, pct: clamp((Number(quickDamageLabel()) || 1) / 3, .08, 1) },
+    { icon: "♥", title: "Health Pool", value: `${game.hp}/${game.maxHp}`, note: `Max life bonus: +${Math.max(0, game.maxHp - baseRunMaxHp())}. Survive bad tables longer.`, color: C.green, pct: clamp(game.hp / Math.max(1, game.maxHp), 0, 1) },
+    { icon: "◎", title: "Table Limit", value: isQuickRun() ? "Quick Run" : `${currentTableLimit()}g`, note: isQuickRun() ? "Quick Run tables scale forever." : "Boss badges raise your maximum bet.", color: ui.titleWarm, pct: clamp(currentTableLimit() / tableLimitForLevel(FLOORS), .08, 1) }
   ];
-  const gap = 12;
-  const cardH = Math.min(96, Math.max(78, h * .20));
+  const gap = portrait ? 16 : 12;
+  const cardH = portrait ? 116 : Math.min(112, Math.max(92, h * .22));
   cards.forEach((card, i) => {
     const cy = y + i * (cardH + gap);
     gradientRound(x, cy, w, cardH, 14, [[0, hexToRgba(card.color, .16)], [1, "rgba(8,6,12,.72)"]], true);
     strokeRound(x, cy, w, cardH, 14, hexToRgba(card.color, .44), 1.6);
-    text(card.title, x + 18, cy + 30, 17, card.color);
-    textFit(card.value, x + 18, cy + 58, w - 36, 22, C.text);
-    textFit(card.note, x + 18, cy + 80, w - 36, 14, C.muted);
+    text(card.icon, x + 20, cy + 48, portrait ? 34 : 30, card.color, "left", "serif");
+    text(card.title, x + 70, cy + 30, portrait ? 18 : 16, card.color);
+    textFit(card.value, x + 70, cy + 61, w - 92, portrait ? 26 : 22, C.text);
+    const barX = x + 70;
+    const barY = cy + cardH - 34;
+    const barW = w - 94;
+    fill("rgba(0,0,0,.42)", barX, barY, barW, 10, 5);
+    gradientRound(barX, barY, barW * card.pct, 10, 5, [[0, hexToRgba(card.color, .68)], [1, lighten(card.color, .22)]], false);
+    textFit(card.note, x + 70, cy + cardH - 46, w - 94, portrait ? 13 : 12, C.muted);
   });
 }
 
@@ -11211,31 +11239,39 @@ function drawBossProgressionPanel(x, y, w, h) {
   const count = runFloorCount();
   const level = Math.max(0, Number(game.tableLimitLevel) || 0);
   textFit(`Current max bet: ${currentTableLimit()} gold`, x + w / 2, y + 28, w - 30, portrait ? 20 : 18, C.text, "center");
-  const cols = portrait ? 2 : Math.min(5, count);
-  const rows = Math.ceil(count / cols);
-  const gap = portrait ? 12 : 14;
-  const gridY = y + (portrait ? 58 : 50);
-  const cellW = (w - gap * (cols - 1)) / cols;
-  const cellH = Math.max(portrait ? 120 : 112, (h - (gridY - y) - gap * (rows - 1)) / rows);
-  for (let i = 0; i < count; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const cx = x + col * (cellW + gap);
-    const cy = gridY + row * (cellH + gap);
+  const gap = portrait ? 10 : 12;
+  const rowH = portrait ? 86 : 78;
+  const listY = y + (portrait ? 58 : 50);
+  const usableH = Math.max(rowH, h - (listY - y) - 58);
+  const perPage = Math.max(1, Math.floor((usableH + gap) / (rowH + gap)));
+  const pages = Math.max(1, Math.ceil(count / perPage));
+  relicPage = clamp(relicPage, 0, pages - 1);
+  const start = relicPage * perPage;
+  const end = Math.min(count, start + perPage);
+  for (let i = start; i < end; i++) {
+    const row = i - start;
+    const cx = x;
+    const cy = listY + row * (rowH + gap);
     const unlocked = i < level;
     const color = floorUiPalette(i).titleWarm || C.gold;
-    gradientRound(cx, cy, cellW, cellH, 16, unlocked ? [[0, hexToRgba(color, .22)], [1, "rgba(8,6,12,.88)"]] : [[0, "rgba(238,231,215,.05)"], [1, "rgba(0,0,0,.82)"]], true);
-    strokeRound(cx, cy, cellW, cellH, 16, unlocked ? hexToRgba(color, .78) : "rgba(238,231,215,.16)", unlocked ? 2 : 1);
-    const iconSize = Math.min(cellW * .48, cellH * .45, portrait ? 92 : 86);
-    drawBossLimitMotif(`tableMotif:${floorAssetKey(i)}`, cx + iconSize / 2 + 14, cy + iconSize / 2 + 14, iconSize, unlocked ? 1 : .22);
-    if (!unlocked) fill("rgba(0,0,0,.55)", cx + 10, cy + 10, iconSize + 8, iconSize + 8, 12);
-    const textX = cx + iconSize + 28;
-    const textW = cellW - iconSize - 40;
-    textFit(unlocked ? floorBossName(i) : `Floor ${i + 1} Boss`, textX, cy + 30, textW, portrait ? 17 : 15, unlocked ? color : C.muted, "left", "serif");
+    gradientRound(cx, cy, w, rowH, 16, unlocked ? [[0, hexToRgba(color, .22)], [1, "rgba(8,6,12,.86)"]] : [[0, "rgba(238,231,215,.045)"], [1, "rgba(0,0,0,.76)"]], true);
+    strokeRound(cx, cy, w, rowH, 16, unlocked ? hexToRgba(color, .78) : "rgba(238,231,215,.16)", unlocked ? 2 : 1);
+    const iconSize = portrait ? 66 : 60;
+    drawBossLimitMotif(`tableMotif:${floorAssetKey(i)}`, cx + 16 + iconSize / 2, cy + rowH / 2, iconSize, unlocked ? 1 : .22);
+    if (!unlocked) fill("rgba(0,0,0,.52)", cx + 16, cy + (rowH - iconSize) / 2, iconSize, iconSize, 12);
+    const textX = cx + 28 + iconSize;
+    const textW = w - iconSize - 44;
+    textFit(unlocked ? floorBossName(i) : `Floor ${i + 1} Boss`, textX, cy + 27, textW, portrait ? 18 : 16, unlocked ? color : C.muted, "left", "serif");
     const message = unlocked
       ? `${floorBossName(i)} raised your max bet to ${tableLimitForLevel(i + 1)} gold.`
       : `Defeat ${floorBossName(i)} to unlock ${tableLimitForLevel(i + 1)} gold bets.`;
-    wrapTextSized(message, textX, cy + 56, textW, portrait ? 15 : 13, portrait ? 12 : 11, unlocked ? C.text : C.muted, portrait ? 4 : 3);
+    wrapTextSized(message, textX, cy + 52, textW, portrait ? 14 : 12, portrait ? 12 : 10, unlocked ? C.text : C.muted, 2);
+  }
+  if (pages > 1) {
+    const navY = y + h - 44;
+    addButton(x, navY, 124, 40, "Previous", () => relicPage--, false, relicPage > 0);
+    text(`${relicPage + 1}/${pages}`, x + w / 2, navY + 26, 16, C.muted, "center");
+    addButton(x + w - 124, navY, 124, 40, "Next", () => relicPage++, false, relicPage + 1 < pages);
   }
 }
 
@@ -11265,7 +11301,7 @@ function drawRelicsOverlay() {
     const summaryW = portrait ? w - 80 : Math.min(360, (w - 100) * .42);
     drawInventoryUpgradeSummary(x + 40, contentY, summaryW, contentH);
     const listX = portrait ? x + 40 : x + 58 + summaryW;
-    const listY = portrait ? contentY + 320 : contentY;
+    const listY = portrait ? contentY + 410 : contentY;
     const listW = portrait ? w - 80 : w - summaryW - 118;
     const listH = y + h - 78 - listY;
     const perPage = Math.max(1, Math.floor(listH / (portrait ? 110 : 105)));
