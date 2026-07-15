@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 250;
+const APP_PUSH_NUMBER = 251;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -32,6 +32,7 @@ const DEATH_SILENCE_MS = 900;
 const DEATH_REVERSE_FADE_MS = 5200;
 const FLOORS = 10;
 const GENERATED_SCENE_FLOOR_COUNT = 5;
+const GENERATED_SCENE_FLOOR_INDEXES = new Set([0, 1, 2, 3, 4, 6]);
 const AUDIO_CACHE_BUST = Date.now().toString(36);
 
 const rarityTiers = [
@@ -183,7 +184,7 @@ const mapNodeArtFiles = {
 
 floorArtIds.forEach((id, index) => {
   const floor = String(index + 1).padStart(2, "0");
-  const ext = index < GENERATED_SCENE_FLOOR_COUNT ? "webp" : "png";
+  const ext = GENERATED_SCENE_FLOOR_INDEXES.has(index) ? "webp" : "png";
   mapNodeArtFiles[`floor${floor}:background`] = `art/floors/${id}/background.${ext}`;
   mapNodeArtFiles[`floor${floor}:table`] = `art/floors/${id}/table.${ext}`;
   mapNodeArtFiles[`floor${floor}:bossTable`] = `art/floors/${id}/boss_table.${ext}`;
@@ -195,7 +196,7 @@ floorArtIds.forEach((id, index) => {
 const tableSceneArtFiles = {};
 floorArtIds.forEach((id, index) => {
   const floor = String(index + 1).padStart(2, "0");
-  const ext = index < GENERATED_SCENE_FLOOR_COUNT ? "webp" : "png";
+  const ext = GENERATED_SCENE_FLOOR_INDEXES.has(index) ? "webp" : "png";
   tableSceneArtFiles[`floor${floor}:background`] = `art/tables/${id}/background.${ext}`;
   tableSceneArtFiles[`floor${floor}:table`] = `art/tables/${id}/table.${ext}`;
   tableSceneArtFiles[`floor${floor}:bossTable`] = `art/tables/${id}/boss_table.${ext}`;
@@ -9847,7 +9848,7 @@ function waitForRequiredAssets(keys = [], label = "Loading required art", cycle 
 }
 
 function floorHasGeneratedSceneArt(floorIndex = 0) {
-  return clamp(Number(floorIndex) || 0, 0, FLOORS - 1) < GENERATED_SCENE_FLOOR_COUNT;
+  return GENERATED_SCENE_FLOOR_INDEXES.has(clamp(Number(floorIndex) || 0, 0, FLOORS - 1));
 }
 
 function floorSceneAssetKeys(floorIndex = 0) {

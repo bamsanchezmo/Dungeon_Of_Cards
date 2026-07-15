@@ -1,0 +1,1 @@
+Floor 7 Dragon Tables generated assets. Expected files: background.png, table.png, boss_table.png, boss_portrait.png, elevator.png, decoration.png. Gameplay assets live in assets/art/tables/floor_07_dragon_tables/.
