@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 243;
+const APP_PUSH_NUMBER = 244;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -5571,21 +5571,32 @@ function drawEnemyLifeOnTable(enemy, tableRect) {
   const barW = Math.max(250, tableRect.w * .64);
   const barH = 18;
   const x = tableRect.x + tableRect.w / 2 - barW / 2;
-  const y = tableRect.y + tableRect.h * .37;
-  const rule = houseRules()[0] || enemy.description || "Standard dungeon blackjack rules";
+  const y = tableRect.y + tableRect.h * .39;
+  const bossPhase = enemy.isBoss && Array.isArray(enemy.bossPhases)
+    ? enemy.bossPhases[clamp(Number(enemy.bossPhase) || 0, 0, enemy.bossPhases.length - 1)]
+    : null;
+  const rule = bossPhase?.text || houseRules()[0] || enemy.description || "Standard dungeon blackjack rules";
+  const panelH = enemy.isBoss ? 138 : 118;
+  const panelTop = y - (enemy.isBoss ? 94 : 72);
   shadow(0, 0, 18, hexToRgba(enemy.color || C.gold, .42), () => {
-    fill("rgba(5,4,8,.74)", x - 18, y - 72, barW + 36, 118, 18);
+    fill("rgba(5,4,8,.76)", x - 18, panelTop, barW + 36, panelH, 18);
   });
   ctx.save();
-  pathRound(x - 12, y - 66, barW + 24, 64, 14);
+  pathRound(x - 12, panelTop + 8, barW + 24, enemy.isBoss ? 80 : 64, 14);
   ctx.clip();
-  textFit(enemy.name, x + barW / 2, y - 43, barW - 24, 22, ui.titleWarm, "center");
-  textFit(rule, x + barW / 2, y - 18, barW - 24, 14, C.muted, "center");
+  textFit(enemy.name, x + barW / 2, panelTop + 34, barW - 24, 22, ui.titleWarm, "center");
+  if (bossPhase) {
+    const phaseIndex = Number(enemy.bossPhase || 0) + 1;
+    textFit(`Phase ${phaseIndex}: ${bossPhase.name}`, x + barW / 2, panelTop + 58, barW - 30, 14, bossPhaseColor(phaseIndex - 1), "center");
+    textFit(rule, x + barW / 2, panelTop + 78, barW - 30, 13, C.muted, "center");
+  } else {
+    textFit(rule, x + barW / 2, panelTop + 58, barW - 24, 14, C.muted, "center");
+  }
   ctx.restore();
   if (enemy.isBoss) drawBossHealthBar(enemy, x, y, barW, barH);
   else meter(x, y, barW, barH, enemy.maxHp ? enemy.hp / enemy.maxHp : 0, C.red, C.gold);
   text(`${enemy.hp}/${enemy.maxHp}`, x + barW / 2, y + 42, 18, C.text, "center");
-  buttons.push({ x: x - 18, y: y - 72, w: barW + 36, h: 118, onClick: () => rulesOpen = true });
+  buttons.push({ x: x - 18, y: panelTop, w: barW + 36, h: panelH, onClick: () => rulesOpen = true });
 }
 
 function bossPhaseColor(index) {
@@ -5622,8 +5633,6 @@ function drawBossHealthBar(enemy, x, y, w, h) {
     shadow(0, 0, 14, hexToRgba(phaseColor, .58), () => fill(g, x, y, filled, h, h / 2));
     if (filled > 6) fill("rgba(255,255,255,.18)", x + 2, y + 2, filled - 4, Math.max(1, h * .28), h / 3);
   }
-  const active = enemy.bossPhases[clamp(Number(enemy.bossPhase) || 0, 0, enemy.bossPhases.length - 1)];
-  if (active) textFit(active.name, x + w / 2, y - 7, w, viewport.portrait ? 14 : 11, activeFloorUi().title, "center");
 }
 
 function drawDungeonMap() {
@@ -7463,7 +7472,7 @@ function drawMobileGameplayDock() {
   ctx.save();
   pathRound(phaseX + 6, phaseY - 24, phaseW - 12, 46, 10);
   ctx.clip();
-  textFit(mobilePhaseSummary(), phaseX + phaseW / 2, phaseY - 1, phaseW - 28, 18, C.text, "center");
+  textFit(mobilePhaseSummaryClean(), phaseX + phaseW / 2, phaseY - 1, phaseW - 28, 18, C.text, "center");
   textFit(phaseTitle(), phaseX + phaseW / 2, phaseY + 18, phaseW - 28, 13, C.muted, "center");
   ctx.restore();
 
@@ -7488,6 +7497,16 @@ function mobilePhaseSummary() {
   return phaseTitle();
 }
 
+function mobilePhaseSummaryClean() {
+  const seat = mySeat();
+  const hand = activeHand(seat);
+  if (game.phase === "player" && hand) return `${handLabel(hand)}  •  Bet ${hand.bet || seat?.bet || 0}`;
+  if (game.phase === "betting" && seat) return `Bet ${seat.bet || 0}  •  Bank ${seatBankroll(seat)}`;
+  if (game.phase === "roundOver") return `Round ${game.roundNet >= 0 ? "+" : ""}${game.roundNet || 0}`;
+  if (game.phase === "insurance") return "Insurance decision";
+  return phaseTitle();
+}
+
 function drawMobileRelicIconTray(x, y, w, h) {
   const ui = activeFloorUi();
   const items = loadoutItems();
@@ -7506,7 +7525,7 @@ function drawMobileRelicIconTray(x, y, w, h) {
     const startX = x + 14;
     shown.forEach((item, i) => drawLoadoutIcon(item, startX + i * (iconSize + gap) + iconSize / 2, y + h / 2, iconSize));
     if (items.length > shown.length) text(`+${items.length - shown.length}`, x + w - 22, y + h / 2 + 5, 15, ui.title, "center");
-    text("Tap loadout", x + w / 2, y + h + 16, 12, hexToRgba(C.gold, .72 + pulse * .22), "center");
+    text("Inventory", x + w / 2, y + h + 16, 12, hexToRgba(C.gold, .72 + pulse * .22), "center");
   }
   buttons.push({ x, y, w, h, onClick: () => { relicsOpen = true; relicPage = 0; inventoryTab = "relics"; } });
 }
