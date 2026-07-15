@@ -10,9 +10,10 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 239;
+const APP_PUSH_NUMBER = 240;
 const MIN_BET = 1;
-const MAX_BET = 500;
+const QUICK_RUN_MAX_BET = 500;
+const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
 // Match the actual generated floor card-back asset size: 280x420, or 2:3.
 // The card is displayed smaller in gameplay, but every front, back, glow, and
 // outline uses this asset-derived shape instead of a separate padded frame.
@@ -301,6 +302,7 @@ let relicPage = 0;
 let inspectedNodeId = "";
 let mapInfoDetail = null;
 let saveModal = null;
+let bossBadgeOpen = false;
 let signalKind = "";
 let developerModeUnlocked = false;
 let developerPanelOpen = false;
@@ -875,6 +877,8 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     selectedNodeId: "",
     activeEncounterId: "",
     clearedNodes: ["start"],
+    tableLimitLevel: 0,
+    tableLimitHistory: [],
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
   game.floorMaps = runType === "tower" ? createRunFloorMaps(towerFloors) : [];
@@ -963,6 +967,67 @@ function towerFloorCount() {
 
 function isQuickRun() {
   return game?.runType === "quick" && !game?.map && !(game?.floorMaps || []).length;
+}
+
+function tableLimitForLevel(level) {
+  const index = clamp(Math.round(Number(level) || 0), 0, TABLE_LIMITS_BY_BOSS_CLEAR.length - 1);
+  return TABLE_LIMITS_BY_BOSS_CLEAR[index] || TABLE_LIMITS_BY_BOSS_CLEAR[0];
+}
+
+function tableLimitForState(state = game) {
+  if (!state || state.runType === "quick") return QUICK_RUN_MAX_BET;
+  return tableLimitForLevel(state.tableLimitLevel || 0);
+}
+
+function currentTableLimit() {
+  return tableLimitForState(game);
+}
+
+function latestBossLimitUnlock(state = game) {
+  const history = Array.isArray(state?.tableLimitHistory) ? state.tableLimitHistory : [];
+  return history[history.length - 1] || null;
+}
+
+function normalizeTableLimitProgress(state = game) {
+  if (!state) return;
+  const inferredLevel = state.tableLimitLevel == null && state.runType === "tower"
+    ? Math.max(0, Math.round(Number(state.floor) || 0))
+    : 0;
+  state.tableLimitLevel = clamp(Math.round(Number(state.tableLimitLevel) || inferredLevel || 0), 0, TABLE_LIMITS_BY_BOSS_CLEAR.length - 1);
+  state.tableLimitHistory = Array.isArray(state.tableLimitHistory) ? state.tableLimitHistory : [];
+  if (state.runType === "tower") {
+    for (let floor = 1; floor <= state.tableLimitLevel; floor++) {
+      if (!state.tableLimitHistory.some((entry) => entry.floor === floor)) state.tableLimitHistory.push(bossLimitUnlockForFloor(floor));
+    }
+    state.tableLimitHistory.sort((a, b) => (Number(a.floor) || 0) - (Number(b.floor) || 0));
+  }
+}
+
+function bossLimitUnlockForFloor(floorNumber) {
+  const floor = clamp(Math.round(Number(floorNumber) || 1), 1, FLOORS);
+  return {
+    floor,
+    bossName: floorBossName(floor - 1),
+    motifKey: `tableMotif:${floorAssetKey(floor - 1)}`,
+    limit: tableLimitForLevel(floor),
+    unlockedAt: Date.now()
+  };
+}
+
+function unlockBossTableLimit(floorNumber) {
+  if (!game || isQuickRun()) return null;
+  normalizeTableLimitProgress(game);
+  const floor = clamp(Math.round(Number(floorNumber) || 1), 1, FLOORS);
+  const oldLimit = currentTableLimit();
+  if ((game.tableLimitLevel || 0) >= floor) return null;
+  game.tableLimitLevel = floor;
+  const unlock = bossLimitUnlockForFloor(floor);
+  game.tableLimitHistory = (game.tableLimitHistory || []).filter((entry) => entry.floor !== floor);
+  game.tableLimitHistory.push(unlock);
+  const newLimit = currentTableLimit();
+  log(`${unlock.bossName} raised the house table limit from ${oldLimit}g to ${newLimit}g.`);
+  notify(`Boss badge earned: table limit ${newLimit}g`);
+  return unlock;
 }
 
 function canUseRelicChoiceScreen() {
@@ -2132,12 +2197,14 @@ function completeMapEncounter() {
   game.activeEncounterId = "";
   if (node.kind === "boss") {
     if (game.floor >= towerFloorCount() - 1) {
+      unlockBossTableLimit(game.floor + 1);
       game.phase = "victory";
       log("The Penthouse boss folds. The climb is won.");
       return;
     }
     const fromFloor = game.floor + 1;
     const toFloor = fromFloor + 1;
+    const limitUnlock = unlockBossTableLimit(fromFloor);
     const elevatorId = (node.next || []).find((id) => getMapNode(id)?.kind === "elevator") || "elevator";
     game.phase = "map";
     game.currentNodeId = node.id;
@@ -2149,6 +2216,7 @@ function completeMapEncounter() {
       from: fromFloor,
       to: toFloor,
       stopAtShop: fromFloor % 2 === 0,
+      limitUnlock,
       startedAt: 0,
       duration: 2300
     };
@@ -2224,7 +2292,8 @@ function beginFloorTransitionFromCeremony() {
 function prepareFloorTransitionAssets(t = game?.floorTransition) {
   if (!t || t.assetPromise) return t?.assetPromise || Promise.resolve(true);
   const targetFloorIndex = clamp((Number(t.to) || 1) - 1, 0, Math.max(0, towerFloorCount() - 1));
-  releaseFloorSceneAssetsExcept(targetFloorIndex, [generatedSceneFloorIndexFor(targetFloorIndex)]);
+  const latestBadgeFloor = Math.max(0, (Number(game?.tableLimitLevel) || 0) - 1);
+  releaseFloorSceneAssetsExcept(targetFloorIndex, [generatedSceneFloorIndexFor(targetFloorIndex), latestBadgeFloor]);
   const includeShop = !!t.stopAtShop || !!t.afterShop;
   const keys = floorTransitionAssetKeys(targetFloorIndex, includeShop);
   const required = floorTransitionRequiredAssetKeys(targetFloorIndex, includeShop);
@@ -3140,6 +3209,7 @@ function handleGuestMessage(msg) {
   if (msg.type === "state") {
     const previous = game;
     const next = msg.state;
+    normalizeTableLimitProgress(next);
     if (previous?.session && previous.session === next?.session) {
       if (previous.hp > next.hp) queueHpAnimation(previous.hp, next.hp, next.maxHp);
       const finishedRound = previous.phase !== next.phase && ["roundOver", "victory", "defeat"].includes(next.phase);
@@ -3559,7 +3629,8 @@ function saveSummary(savedGame) {
   const floor = Math.max(1, Number(savedGame.floor) + 1 || 1);
   const total = savedGame.runType === "tower" ? (Number(savedGame.towerFloors) || towerFloorCount()) : floor;
   const relics = Array.isArray(savedGame.relics) ? savedGame.relics.length : 0;
-  return `F${floor}/${total} • ${Number(savedGame.gold) || 0}g • HP ${savedGame.hp}/${savedGame.maxHp} • ${relics} relic${relics === 1 ? "" : "s"}`;
+  const limit = savedGame.runType === "tower" ? ` • Limit ${tableLimitForState(savedGame)}g` : "";
+  return `F${floor}/${total} • ${Number(savedGame.gold) || 0}g • HP ${savedGame.hp}/${savedGame.maxHp}${limit} • ${relics} relic${relics === 1 ? "" : "s"}`;
 }
 
 function formatSaveDate(ms) {
@@ -3578,6 +3649,7 @@ function restoreGameFromSave(entry, scope = "solo") {
   developerPanelOpen = false;
   saveModal = null;
   game = JSON.parse(JSON.stringify(entry.game));
+  normalizeTableLimitProgress(game);
   game.code = scope === "multi" ? createLobbyCode() : "";
   game.session = crypto.randomUUID?.() || String(Date.now());
   game.relicVotes = game.relicVotes || {};
@@ -4130,9 +4202,10 @@ function addGold(seat, amount, winnings = amount) {
 }
 
 function maxBetForSeat(seat) {
-  if (isFreeForAll()) return Math.max(0, Math.min(MAX_BET, seatBankroll(seat)));
+  const tableLimit = currentTableLimit();
+  if (isFreeForAll()) return Math.max(0, Math.min(tableLimit, seatBankroll(seat)));
   const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
-  return Math.max(0, Math.min(MAX_BET, game.gold - committedByOthers));
+  return Math.max(0, Math.min(tableLimit, game.gold - committedByOthers));
 }
 
 function moneyAfterBetForSeat(seat) {
@@ -4144,13 +4217,14 @@ function moneyAfterBetForSeat(seat) {
 function safeMaxBetForSeat(seat) {
   const fee = Number(game?.enemy?.hitFee) || 0;
   const reserve = fee > 0 ? fee : 0;
+  const tableLimit = currentTableLimit();
   if (isFreeForAll()) {
     const available = seatBankroll(seat) - reserve;
-    return Math.max(0, Math.min(MAX_BET, available));
+    return Math.max(0, Math.min(tableLimit, available));
   }
   const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
   const available = (Number(game.gold) || 0) - committedByOthers - reserve;
-  return Math.max(0, Math.min(MAX_BET, available));
+  return Math.max(0, Math.min(tableLimit, available));
 }
 
 function warnHitFeeReserve(seat, fromMaxButton = false) {
@@ -4584,6 +4658,7 @@ function draw() {
   if (mapInfoDetail) drawMapInfoOverlay();
   if (game?.routeRoulette) drawRouteRouletteOverlay();
   if (game?.relicPopup && game.phase !== "floorTransition") drawRelicRewardPopup();
+  if (bossBadgeOpen) drawBossBadgeOverlay();
   drawFeedbackAnimations();
   if (menuOpen) {
     buttons = [];
@@ -5673,6 +5748,7 @@ function drawMapHeader(lw, portrait) {
     });
     strokeRound(statsX, topY - 2, statsW, 54, 16, hexToRgba(ui.border, .52), 1.5);
     textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, topY + 31, statsW - 18, 16, C.text, "center");
+    drawBossLimitBadge(statsX, topY + 58, statsW, 38, true);
     addButton(lw - 126, 24, 104, 52, "Menu", () => menuOpen = true);
     return;
   }
@@ -5690,6 +5766,7 @@ function drawMapHeader(lw, portrait) {
     fill("rgba(8,6,12,.72)", pillX, statY - 21, pillW, 32, 16);
     strokeRound(pillX, statY - 21, pillW, 32, 16, hexToRgba(activeFloorColor(), .55), 1.5);
     text(summary, lw / 2, statY, 15, C.text, "center");
+    drawBossLimitBadge(lw / 2 - 150, statY + 22, 300, 34, true);
   }
   addButton(lw - (portrait ? 142 : 124), portrait ? 40 : 28, portrait ? 112 : 90, portrait ? 54 : 38, "Menu", () => menuOpen = true);
 }
@@ -6980,15 +7057,15 @@ function drawSidePanel() {
   drawGoldDebtLine(x + 22, 140, 18);
   meter(x + 22, 166, 226, 12, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + 135, 196, 15, C.text, "center");
-  if (game.code) badge(x + 135, 226, `Lobby ${game.code}`, C.gold);
-  gradientRound(x + 22, 242, 226, 44, 10, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .04)]], true);
-  strokeRound(x + 22, 242, 226, 44, 10, hexToRgba(ui.border, .2), 1);
-  text(phaseTitle(), x + 135, 271, 22, C.text, "center");
-  drawActionButtons(x + 22, 295);
-  drawRelicPanel(x + 22, 500, 226);
-  fill("rgba(238,231,215,.06)", x + 22, 646, 226, 1);
-  text("Log", x + 22, 674, 18, ui.title);
-  drawLogPreview(x + 22, 700, 226, 44, 13);
+  drawBossLimitBadge(x + 22, 214, 226, 38, true);
+  gradientRound(x + 22, 262, 226, 44, 10, [[0, ui.panelWash], [1, hexToRgba(ui.accent, .04)]], true);
+  strokeRound(x + 22, 262, 226, 44, 10, hexToRgba(ui.border, .2), 1);
+  text(phaseTitle(), x + 135, 291, 22, C.text, "center");
+  drawActionButtons(x + 22, 315);
+  drawRelicPanel(x + 22, 520, 226);
+  fill("rgba(238,231,215,.06)", x + 22, 666, 226, 1);
+  text("Log", x + 22, 692, 18, ui.title);
+  drawLogPreview(x + 22, 716, 226, 38, 13);
 }
 
 function drawBottomPanel() {
@@ -7013,6 +7090,7 @@ function drawMobileGameplayDock() {
   const hpX = x + w - hpW - 24;
   text(`HP ${game.hp}/${game.maxHp}`, hpX - 12, statY + 2, 16, C.text, "right");
   meter(hpX, statY - 13, hpW, 14, game.hp / game.maxHp, C.red, C.green);
+  drawBossLimitBadge(x + 276, y + 8, 206, 40, true);
   addButton(layoutW() - 132, 28, 104, 48, "Menu", () => menuOpen = true);
 
   const phaseY = y + 62;
@@ -7042,7 +7120,7 @@ function mobilePhaseSummary() {
   const seat = mySeat();
   const hand = activeHand(seat);
   if (game.phase === "player" && hand) return `${handLabel(hand)}  •  Bet ${hand.bet || seat?.bet || 0}g`;
-  if (game.phase === "betting" && seat) return `Bet ${seat.bet || 0}g  •  Bank ${seatBankroll(seat)}g`;
+  if (game.phase === "betting" && seat) return `Bet ${seat.bet || 0}g  •  Limit ${currentTableLimit()}g  •  Bank ${seatBankroll(seat)}g`;
   if (game.phase === "roundOver") return `Round ${game.roundNet >= 0 ? "+" : ""}${game.roundNet || 0}g`;
   if (game.phase === "insurance") return "Insurance decision";
   return phaseTitle();
@@ -7103,8 +7181,9 @@ function drawTouchLandscapePanel() {
   drawGoldDebtLine(x + 245, 142, 27);
   meter(x + 24, 174, w - 48, 20, game.hp / game.maxHp, C.red, C.green);
   text(`HP ${game.hp}/${game.maxHp}`, x + w / 2, 222, 23, C.text, "center");
-  text(phaseTitle(), x + w / 2, 278, 30, C.text, "center");
-  drawActionButtons(x + 20, 310);
+  drawBossLimitBadge(x + 110, 240, w - 220, 42, true);
+  text(phaseTitle(), x + w / 2, 304, 30, C.text, "center");
+  drawActionButtons(x + 20, 336);
   text("Relics + Upgrades", x + 24, 560, 24, ui.title);
   const itemCount = loadoutItems().length;
   const relicSummary = itemCount ? `${itemCount} collected — tap to view` : "None yet";
@@ -7122,6 +7201,107 @@ function drawLogPreview(x, y, w, h, size) {
   textFit(latest, x, y, w, size, C.muted);
   text("Click for full log", x, y + Math.max(18, size + 8), Math.max(11, size - 4), activeFloorUi().title);
   buttons.push({ x: x - 8, y: y - 22, w: w + 16, h, onClick: () => { logOpen = true; } });
+}
+
+function drawBossLimitBadge(x, y, w, h, compact = false) {
+  if (!game || isQuickRun()) return;
+  normalizeTableLimitProgress(game);
+  const ui = activeFloorUi();
+  const level = Math.max(0, Number(game.tableLimitLevel) || 0);
+  const latest = latestBossLimitUnlock();
+  const motifKey = latest?.motifKey || "tableMotif:floor01";
+  const pulse = .55 + .45 * Math.sin(performance.now() * .005);
+  const icon = Math.min(h - 10, compact ? 34 : 44);
+  shadow(0, 0, 12 + pulse * 10, hexToRgba(ui.titleWarm, .28 + pulse * .2), () => {
+    gradientRound(x, y, w, h, h / 2, [[0, "rgba(10,8,14,.88)"], [.55, hexToRgba(ui.panelTop, .9)], [1, hexToRgba(ui.panelBottom, .92)]], true);
+  });
+  strokeRound(x, y, w, h, h / 2, hexToRgba(ui.titleWarm, .55 + pulse * .25), 2);
+  fill("rgba(255,255,255,.10)", x + 5, y + 4, w - 10, Math.max(2, h * .28), h / 2);
+  drawBossLimitMotif(motifKey, x + icon / 2 + 8, y + h / 2, icon, level > 0 ? 1 : .35);
+  const labelX = x + icon + 16;
+  const labelW = w - icon - 24;
+  textFit(`Table Limit ${currentTableLimit()}g`, labelX, y + h / 2 + (compact ? 5 : -2), labelW, compact ? 13 : 16, C.gold, "left");
+  if (!compact) textFit(level > 0 ? `${latest?.bossName || "Boss"} badge` : "Starter house limit", labelX, y + h / 2 + 18, labelW, 11, C.muted, "left");
+  buttons.push({ x, y, w, h, onClick: openBossBadgeOverlay });
+}
+
+function drawBossLimitMotif(key, cx, cy, size, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  const x = cx - size / 2;
+  const y = cy - size / 2;
+  const drew = drawRawAssetContain(key, x, y, size, size, 1);
+  if (!drew) {
+    polygon(cx, cy, size * .42, 8, "#17111d");
+    polygonStroke(cx, cy, size * .42, 8, C.gold, 1.5);
+    text("?", cx, cy + size * .13, size * .42, C.gold, "center", "serif");
+  }
+  ctx.restore();
+}
+
+function openBossBadgeOverlay() {
+  bossBadgeOpen = true;
+  if (!game || isQuickRun()) return;
+  const keys = Array.from({ length: runFloorCount() }, (_, i) => `tableMotif:${floorAssetKey(i)}`);
+  void preloadAssetKeys(keys, "Loading boss badges");
+}
+
+function drawBossBadgeOverlay() {
+  if (!game || isQuickRun()) {
+    bossBadgeOpen = false;
+    return;
+  }
+  normalizeTableLimitProgress(game);
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const ui = activeFloorUi();
+  const count = runFloorCount();
+  const level = Math.max(0, Number(game.tableLimitLevel) || 0);
+  const w = portrait ? Math.min(lw - 48, 680) : Math.min(lw - 110, 900);
+  const h = portrait ? Math.min(lh - 110, 920) : Math.min(lh - 95, 620);
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  buttons = [];
+  fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
+  shadow(0, 30, 80, "rgba(0,0,0,.65)", () => {
+    gradientRound(x, y, w, h, 26, [[0, hexToRgba(ui.panelTop, .96)], [.5, "#100d15"], [1, hexToRgba(ui.panelBottom, .98)]], true);
+  });
+  strokeRound(x, y, w, h, 26, hexToRgba(ui.titleWarm, .78), 3);
+  text("BOSS BADGES", x + w / 2, y + (portrait ? 48 : 44), portrait ? 34 : 30, ui.titleWarm, "center", "serif");
+  textFit(`Current betting max: ${currentTableLimit()}g`, x + w / 2, y + (portrait ? 82 : 76), w - 80, portrait ? 20 : 17, C.text, "center");
+
+  const cols = portrait ? 2 : Math.min(5, count);
+  const rows = Math.ceil(count / cols);
+  const gridX = x + (portrait ? 28 : 34);
+  const gridY = y + (portrait ? 116 : 104);
+  const gridW = w - (portrait ? 56 : 68);
+  const closeH = portrait ? 62 : 50;
+  const gridH = h - (gridY - y) - closeH - (portrait ? 42 : 34);
+  const cellGap = portrait ? 12 : 12;
+  const cellW = (gridW - cellGap * (cols - 1)) / cols;
+  const cellH = (gridH - cellGap * (rows - 1)) / rows;
+  for (let i = 0; i < count; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cx = gridX + col * (cellW + cellGap);
+    const cy = gridY + row * (cellH + cellGap);
+    const unlocked = i < level;
+    const color = floorUiPalette(i).titleWarm || C.gold;
+    gradientRound(cx, cy, cellW, cellH, 16, unlocked ? [[0, hexToRgba(color, .20)], [1, "rgba(8,6,12,.86)"]] : [[0, "rgba(238,231,215,.05)"], [1, "rgba(0,0,0,.82)"]], true);
+    strokeRound(cx, cy, cellW, cellH, 16, unlocked ? hexToRgba(color, .78) : "rgba(238,231,215,.15)", unlocked ? 2 : 1);
+    const iconSize = Math.min(cellW * .36, cellH * (portrait ? .32 : .38), portrait ? 70 : 66);
+    drawBossLimitMotif(`tableMotif:${floorAssetKey(i)}`, cx + iconSize / 2 + 14, cy + iconSize / 2 + 14, iconSize, unlocked ? 1 : .22);
+    if (!unlocked) fill("rgba(0,0,0,.52)", cx + 10, cy + 10, iconSize + 8, iconSize + 8, 12);
+    const textX = cx + iconSize + 28;
+    const textW = cellW - iconSize - 40;
+    textFit(unlocked ? floorBossName(i) : `Floor ${i + 1} Boss`, textX, cy + 28, textW, portrait ? 17 : 15, unlocked ? color : C.muted, "left", "serif");
+    const message = unlocked
+      ? `${floorBossName(i)} raised your betting max to ${tableLimitForLevel(i + 1)}g.`
+      : `Defeat ${floorBossName(i)} to unlock ${tableLimitForLevel(i + 1)}g bets.`;
+    wrapTextSized(message, textX, cy + (portrait ? 52 : 50), textW, portrait ? 16 : 14, portrait ? 13 : 12, unlocked ? C.text : C.muted, portrait ? 3 : 2);
+  }
+  addButton(x + 30, y + h - closeH - 20, w - 60, closeH, "Close", () => { bossBadgeOpen = false; }, true);
 }
 
 function baseRunMaxHp() {
@@ -7429,6 +7609,7 @@ function drawElevatorShopStatusHeader(lw, portrait) {
   });
   strokeRound(statsX, statsY, statsW, statsH, 18, hexToRgba(ui.border, .58), 1.8);
   textFit(`${game.gold}g  HP ${game.hp}/${game.maxHp}  ${game.relics.length} relic${game.relics.length === 1 ? "" : "s"}`, statsX + statsW / 2, statsY + statsH / 2 + (portrait ? 5 : 6), statsW - 28, portrait ? 15 : 20, C.text, "center");
+  drawBossLimitBadge(statsX, statsY + statsH + 8, statsW, portrait ? 38 : 40, true);
   addButton(menuX, topY, menuW, menuH, "Menu", () => menuOpen = true);
 }
 
@@ -8837,6 +9018,10 @@ function collectFloorVisualAssetKeys(source = game) {
     source.map?.decorationAsset,
     source.enemy?.gruntArtKey
   ];
+  if (source.runType === "tower") {
+    const level = clamp(Number(source.tableLimitLevel) || 0, 0, FLOORS);
+    for (let i = 0; i < level; i++) keys.push(`tableMotif:${floorAssetKey(i)}`);
+  }
   if (hasSceneArt) {
     keys.push(
       `map:${sceneFloorKey}:background`, `map:${sceneFloorKey}:bossPortrait`, `map:${sceneFloorKey}:elevator`, `map:${sceneFloorKey}:decoration`,
