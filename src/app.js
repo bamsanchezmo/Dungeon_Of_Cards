@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 240;
+const APP_PUSH_NUMBER = 241;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -6469,6 +6469,57 @@ function drawDecisionMetricCard(x, y, w, h, label, value, color, body = "") {
   if (body) textFit(body, x + 14, bodyY, w - 28, Math.min(14, h * .18), C.text);
 }
 
+function scoutDifficultyRatings(node, enemy) {
+  const threat = Number(node?.threat) || 1;
+  const rules = encounterRulesForDetail(enemy);
+  const rulePressure = rules.filter((rule) => !/standard/i.test(rule)).length;
+  const bossBonus = enemy?.isBoss ? .8 : 0;
+  const hitFee = Number(enemy?.hitFee) || 0;
+  const lossMult = Number(enemy?.lossHpMult) || 1;
+  const luck = Number(enemy?.luck) || 0;
+  const hp = Number(enemy?.maxHp || enemy?.hp) || 1;
+  const floorIndex = Number(game?.floor) || 0;
+  const expectedHp = enemy?.isBoss ? calibratedBossHp(floorIndex) : 45 + floorIndex * 18 + threat * 16;
+  return [
+    { label: "Damage", value: clamp(threat * .72 + (lossMult - 1) * 3 + bossBonus, .5, 5), hint: lossMult > 1 ? `Losses x${lossMult.toFixed(2)}` : "Hit pressure" },
+    { label: "Dealer", value: clamp(1 + threat * .35 + luck / 18 + (enemy?.hitsSoft17 !== false ? .35 : 0) + (enemy?.dealerPeek === false ? .25 : 0), .5, 5), hint: luck ? `Luck +${luck}` : "Card pressure" },
+    { label: "Rules", value: clamp(1 + rulePressure * .48 + (enemy?.isBoss ? .75 : 0), .5, 5), hint: `${rulePressure || 1} rule${rulePressure === 1 ? "" : "s"}` },
+    { label: "Bank Toll", value: clamp(1 + hitFee / 4 + (enemy?.bjPays65 ? .6 : 0) + (enemy?.winGoldMult && enemy.winGoldMult < 1 ? .6 : 0), .5, 5), hint: hitFee ? `${hitFee}g/hit` : "No toll" },
+    { label: "Endurance", value: clamp(1 + hp / Math.max(45, expectedHp) + bossBonus, .5, 5), hint: `${Math.ceil(hp)} HP` }
+  ];
+}
+
+function drawStarRating(label, value, hint, x, y, w, color) {
+  const starSize = viewport.portrait ? 18 : 15;
+  const labelW = viewport.portrait ? 92 : 82;
+  const starGap = viewport.portrait ? 18 : 15;
+  textFit(label, x, y + 13, labelW - 4, viewport.portrait ? 15 : 12, C.text);
+  for (let i = 0; i < 5; i++) {
+    const sx = x + labelW + i * starGap;
+    const amount = clamp(value - i, 0, 1);
+    text("★", sx, y + 14, starSize, hexToRgba(C.muted, .34), "center");
+    if (amount > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx - starSize / 2, y - 3, starSize * amount, starSize + 8);
+      ctx.clip();
+      text("★", sx, y + 14, starSize, color, "center");
+      ctx.restore();
+    }
+  }
+  textFit(hint, x + labelW + starGap * 5 + 8, y + 13, Math.max(40, w - labelW - starGap * 5 - 8), viewport.portrait ? 12 : 10, C.muted);
+}
+
+function drawScoutDifficultyPanel(node, enemy, x, y, w, h, color) {
+  fill("rgba(5,5,8,.46)", x, y, w, h, 16);
+  strokeRound(x, y, w, h, 16, hexToRgba(color, .42), 1.5);
+  text("Difficulty Read", x + 14, y + (viewport.portrait ? 26 : 22), viewport.portrait ? 18 : 14, color, "left", "serif");
+  const rows = scoutDifficultyRatings(node, enemy);
+  const rowGap = viewport.portrait ? 25 : 22;
+  const startY = y + (viewport.portrait ? 42 : 36);
+  rows.forEach((row, i) => drawStarRating(row.label, row.value, row.hint, x + 14, startY + i * rowGap, w - 28, color));
+}
+
 function drawMapEncounterScoutOverlay(detail) {
   const node = detail.node;
   const enemy = node?.encounter;
@@ -6486,8 +6537,17 @@ function drawMapEncounterScoutOverlay(detail) {
   const x = lw / 2 - w / 2;
   const y = lh / 2 - h / 2;
   const pad = portrait ? 18 : 28;
-  const portraitSize = portrait ? Math.min(compact ? 118 : 170, w * .36) : 160;
-  const portraitY = y + (portrait ? 72 : 58);
+  const topY = y + (portrait ? 70 : 58);
+  const topX = x + pad;
+  const topW = w - pad * 2;
+  const portraitSize = portrait ? Math.min(compact ? 112 : 140, topW * .32) : 138;
+  const leftW = portrait ? Math.min(250, topW * .42) : Math.min(270, topW * .35);
+  const gap = portrait ? 12 : 18;
+  const readX = topX + leftW + gap;
+  const readW = Math.max(210, topW - leftW - gap);
+  const readH = portrait ? (compact ? 168 : 182) : 158;
+  const portraitCx = topX + leftW / 2;
+  const portraitY = topY + (portrait ? 8 : 4);
   buttons = [];
 
   fill("rgba(0,0,0,.72)", 0, 0, lw, lh);
@@ -6497,16 +6557,18 @@ function drawMapEncounterScoutOverlay(detail) {
   strokeRound(x, y, w, h, 24, color, 3);
   text(node.kind === "boss" ? "FLOOR BOSS SCOUTING" : "TABLE SCOUTING REPORT", x + w / 2, y + 38, portrait ? 22 : 18, C.muted, "center", "serif");
 
-  drawMapEncounterPortrait(node, x + w / 2, portraitY, portraitSize);
-  const pillW = Math.min(w - pad * 2, 300);
+  drawMapEncounterPortrait(node, portraitCx, portraitY, portraitSize);
+  const pillW = Math.min(leftW, 260);
   const pillH = portrait ? 34 : 30;
-  const pillX = x + w / 2 - pillW / 2;
+  const pillX = portraitCx - pillW / 2;
   const pillY = portraitY + portraitSize + (portrait ? 12 : 10);
   fill("rgba(5,5,8,.86)", pillX, pillY, pillW, pillH, 16);
   strokeRound(pillX, pillY, pillW, pillH, 16, threatColor, 2.5);
-  text(`Threat ${node.threat || 1}/5 - ${threatLabel(node.threat || 1)}`, x + w / 2, pillY + (portrait ? 23 : 20), portrait ? 17 : 14, threatColor, "center");
+  text(`Threat ${node.threat || 1}/5 - ${threatLabel(node.threat || 1)}`, portraitCx, pillY + (portrait ? 23 : 20), portrait ? 17 : 14, threatColor, "center");
+  drawScoutDifficultyPanel(node, enemy, readX, topY, readW, readH, threatColor);
 
-  const nameY = pillY + (portrait ? 62 : 54);
+  const topBottom = Math.max(pillY + pillH, topY + readH);
+  const nameY = topBottom + (portrait ? 34 : 30);
   textFit(enemy.name, x + w / 2, nameY, w - pad * 2, portrait ? 30 : 26, color, "center", "serif");
   textFit(`${node.label} - ${mapNodeRouteStatus(node)}`, x + w / 2, nameY + (portrait ? 34 : 30), w - pad * 2, portrait ? 17 : 15, C.muted, "center");
 
