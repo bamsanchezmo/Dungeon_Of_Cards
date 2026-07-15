@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 241;
+const APP_PUSH_NUMBER = 242;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -1369,7 +1369,7 @@ function tableThreatForFloor(floorIndex, threatBoost = 0) {
 function threatBasisLine(node, enemy) {
   const floorPart = `floor ${Math.max(1, (Number(game?.floor) || 0) + 1)}`;
   const routePart = node?.kind === "boss" ? "boss bonus" : `route pressure +${Math.max(0, (Number(node?.threat) || 1) - (1 + Math.floor((Number(game?.floor) || 0) / 2)))}`;
-  const ruleCount = encounterRulesForDetail(enemy).length;
+  const ruleCount = scoutRuleLines(enemy).filter((rule) => !/standard/i.test(rule)).length;
   const dealerPressure = Number(enemy?.luck) || 0;
   return `Threat comes from ${floorPart}, ${routePart}, ${ruleCount} rule${ruleCount === 1 ? "" : "s"}, ${Math.ceil(enemy?.maxHp || enemy?.hp || 0)} HP${dealerPressure ? `, and dealer luck +${dealerPressure}` : ""}.`;
 }
@@ -6367,6 +6367,13 @@ function encounterRulesForDetail(enemy) {
   return rules.slice(0, 8);
 }
 
+function scoutRuleLines(enemy) {
+  const rules = encounterRulesForDetail(enemy)
+    .filter((rule) => !/^Dealer hits soft 17\.$/i.test(rule))
+    .filter((rule) => !/^Standard dungeon blackjack rules\.$/i.test(rule));
+  return rules.length ? rules : ["Standard dungeon blackjack rules."];
+}
+
 function threatLabel(threat = 1) {
   const labels = ["Low", "Guarded", "Risky", "Dangerous", "Deadly"];
   return labels[clamp(Math.round(threat) - 1, 0, labels.length - 1)] || "Unknown";
@@ -6428,12 +6435,34 @@ function drawMapEncounterPortrait(node, cx, y, size) {
 function openRewardDetail(reward, fallbackColor = C.gold) {
   if (!reward) return;
   const color = reward.rarityColor || fallbackColor;
+  if (mapInfoDetail?.kind === "encounter") {
+    mapInfoDetail.child = {
+      title: reward.name,
+      subtitle: mapRewardSubtitle(reward),
+      color,
+      body: reward.description || rewardDecisionSummary(reward),
+      reward
+    };
+    return;
+  }
   mapInfoDetail = {
     title: reward.name,
     subtitle: mapRewardSubtitle(reward),
     color,
     body: reward.description,
     relic: reward.type === "relic" ? reward : null
+  };
+}
+
+function openScoutRulesDetail(node, enemy, color = C.gold) {
+  if (mapInfoDetail?.kind !== "encounter") return;
+  const rules = scoutRuleLines(enemy);
+  const activeRuleCount = rules.filter((rule) => !/standard/i.test(rule)).length;
+  mapInfoDetail.child = {
+    title: "Table Rules",
+    subtitle: `${node.label} • ${activeRuleCount} active rule${activeRuleCount === 1 ? "" : "s"}`,
+    color,
+    body: rules.map((rule) => `• ${rule}`).join("\n")
   };
 }
 
@@ -6449,13 +6478,66 @@ function drawPulsingMapRewardIcon(reward, cx, cy, size, color) {
 function drawNoEllipsisWrappedText(str, x, y, w, availableH, color, preferredSize = 14) {
   let size = preferredSize;
   let lineH = Math.ceil(size * 1.25);
-  let lines = wrapLines(str || "", w, size);
+  const makeLines = (fontSize) => String(str || "").split("\n").flatMap((part) => wrapLines(part, w, fontSize));
+  let lines = makeLines(size);
   while (size > 10 && lines.length * lineH > availableH) {
     size -= 1;
     lineH = Math.ceil(size * 1.22);
-    lines = wrapLines(str || "", w, size);
+    lines = makeLines(size);
   }
   lines.forEach((line, i) => text(line, x, y + i * lineH, size, color));
+}
+
+function drawScoutDecisionBox({ title, subtitle, body, x, y, w, h, color, icon, reward, onClick }) {
+  const pulse = .5 + .5 * Math.sin(performance.now() * .004);
+  shadow(0, 0, 12 + pulse * 9, hexToRgba(color, .22 + pulse * .16), () => {
+    fill("rgba(8,6,12,.42)", x, y, w, h, 16);
+  });
+  strokeRound(x, y, w, h, 16, hexToRgba(color, .58 + pulse * .18), 2);
+  const iconSize = Math.min(64, h - 38);
+  const iconCx = x + 22 + iconSize / 2;
+  const iconCy = y + 26 + iconSize / 2;
+  if (reward) drawPulsingMapRewardIcon(reward, iconCx, iconCy, iconSize, color);
+  else {
+    fill("rgba(5,5,8,.72)", iconCx - iconSize / 2, iconCy - iconSize / 2, iconSize, iconSize, 14);
+    strokeRound(iconCx - iconSize / 2, iconCy - iconSize / 2, iconSize, iconSize, 14, color, 2);
+    text(icon || "?", iconCx, iconCy + iconSize * .14, iconSize * .46, color, "center");
+  }
+  const textX = x + 36 + iconSize;
+  const textW = w - (textX - x) - 18;
+  text(title, textX, y + 28, viewport.portrait ? 17 : 14, C.muted);
+  textFit(subtitle, textX, y + 56, textW, viewport.portrait ? 20 : 16, color);
+  drawNoEllipsisWrappedText(body || "", textX, y + 82, textW, Math.max(24, h - 108), C.text, viewport.portrait ? 14 : 12);
+  text("Tap for details", x + w / 2, y + h - 16, 12, hexToRgba(C.gold, .72 + pulse * .22), "center");
+  buttons.push({ x, y, w, h, onClick });
+}
+
+function drawScoutChildPopup(child) {
+  if (!child) return;
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const color = child.color || activeFloorUi().titleWarm;
+  const w = portrait ? Math.min(lw - 72, 560) : Math.min(lw - 160, 600);
+  const h = portrait ? 360 : 300;
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  buttons = [];
+  fill("rgba(0,0,0,.42)", 0, 0, lw, lh);
+  shadow(0, 24, 68, "rgba(0,0,0,.7)", () => {
+    gradientRound(x, y, w, h, 22, [[0, hexToRgba(color, .30)], [.46, "#14101b"], [1, "#0a1114"]], true);
+  });
+  strokeRound(x, y, w, h, 22, color, 2.5);
+  const hasReward = !!child.reward;
+  const iconSize = hasReward ? (portrait ? 86 : 74) : 0;
+  textFit(child.title, x + 28, y + 46, hasReward ? w - iconSize - 78 : w - 56, portrait ? 28 : 22, color, "left", "serif");
+  if (child.subtitle) textFit(child.subtitle, x + 28, y + 78, hasReward ? w - iconSize - 78 : w - 56, portrait ? 16 : 13, C.muted);
+  if (hasReward) drawMapRewardIcon(child.reward, x + w - 34 - iconSize / 2, y + 34 + iconSize / 2, iconSize, color);
+  const bodyY = y + 116;
+  const bodyH = h - (portrait ? 196 : 176);
+  fill("rgba(5,5,8,.30)", x + 24, bodyY - 12, w - 48, bodyH + 24, 14);
+  drawNoEllipsisWrappedText(child.body || "", x + 42, bodyY + 8, w - 84, bodyH, C.text, portrait ? 18 : 15);
+  addButton(x + 28, y + h - (portrait ? 78 : 62), w - 56, portrait ? 56 : 46, "Back to Scout Report", () => { delete mapInfoDetail.child; }, true);
 }
 
 function drawDecisionMetricCard(x, y, w, h, label, value, color, body = "") {
@@ -6471,7 +6553,7 @@ function drawDecisionMetricCard(x, y, w, h, label, value, color, body = "") {
 
 function scoutDifficultyRatings(node, enemy) {
   const threat = Number(node?.threat) || 1;
-  const rules = encounterRulesForDetail(enemy);
+  const rules = scoutRuleLines(enemy);
   const rulePressure = rules.filter((rule) => !/standard/i.test(rule)).length;
   const bossBonus = enemy?.isBoss ? .8 : 0;
   const hitFee = Number(enemy?.hitFee) || 0;
@@ -6483,7 +6565,7 @@ function scoutDifficultyRatings(node, enemy) {
   return [
     { label: "Damage", value: clamp(threat * .72 + (lossMult - 1) * 3 + bossBonus, .5, 5), hint: lossMult > 1 ? `Losses x${lossMult.toFixed(2)}` : "Hit pressure" },
     { label: "Dealer", value: clamp(1 + threat * .35 + luck / 18 + (enemy?.hitsSoft17 !== false ? .35 : 0) + (enemy?.dealerPeek === false ? .25 : 0), .5, 5), hint: luck ? `Luck +${luck}` : "Card pressure" },
-    { label: "Rules", value: clamp(1 + rulePressure * .48 + (enemy?.isBoss ? .75 : 0), .5, 5), hint: `${rulePressure || 1} rule${rulePressure === 1 ? "" : "s"}` },
+    { label: "Rules", value: clamp(1 + rulePressure * .48 + (enemy?.isBoss ? .75 : 0), .5, 5), hint: `${rulePressure || 0} active rule${rulePressure === 1 ? "" : "s"}` },
     { label: "Bank Toll", value: clamp(1 + hitFee / 4 + (enemy?.bjPays65 ? .6 : 0) + (enemy?.winGoldMult && enemy.winGoldMult < 1 ? .6 : 0), .5, 5), hint: hitFee ? `${hitFee}g/hit` : "No toll" },
     { label: "Endurance", value: clamp(1 + hp / Math.max(45, expectedHp) + bossBonus, .5, 5), hint: `${Math.ceil(hp)} HP` }
   ];
@@ -6592,45 +6674,47 @@ function drawMapEncounterScoutOverlay(detail) {
   const closeY = y + h - pad - closeH;
   const infoY = cardY + cardH + (portrait ? 18 : 16);
   const infoH = Math.max(120, closeY - infoY - 14);
-  const rewardH = node.reward ? (portrait ? 174 : 138) : 0;
-  const rewardY = node.reward ? infoY + infoH - rewardH - 12 : 0;
-  const decisionBottom = node.reward ? rewardY - 10 : closeY - 20;
   fill("rgba(0,0,0,.28)", x + pad, infoY, w - pad * 2, infoH, 18);
   strokeRound(x + pad, infoY, w - pad * 2, infoH, 18, hexToRgba(color, .32), 1.5);
   text("Decision Info", x + pad + 18, infoY + 30, portrait ? 20 : 16, ui.title);
 
   const descriptionW = w - pad * 2 - 36;
   wrapTextSized(enemy.description || "Standard table.", x + pad + 18, infoY + (portrait ? 58 : 52), descriptionW, portrait ? 18 : 14, portrait ? 15 : 12, C.text, 2);
-  const lines = [
-    ...encounterDecisionLines(node, enemy),
-    ...encounterRulesForDetail(enemy).map((rule) => `Rule: ${rule}`)
-  ];
-  const lineStep = portrait ? (compact ? 23 : 27) : 23;
-  const listY = infoY + (portrait ? (compact ? 106 : 120) : 98);
-  const maxLines = clamp(Math.floor((decisionBottom - listY) / lineStep), 0, portrait ? 7 : 8);
-  lines.slice(0, maxLines).forEach((line, i) => {
-    const isRisk = line.startsWith("Risk:") || line.startsWith("Locked") || line.startsWith("Rule:");
-    const lineColor = isRisk ? C.muted : C.text;
-    textFit(`- ${line}`, x + pad + 22, listY + i * lineStep, w - pad * 2 - 44, portrait ? (compact ? 14 : 16) : 13, lineColor);
+  const rules = scoutRuleLines(enemy);
+  const boxTop = infoY + (portrait ? (compact ? 102 : 112) : 94);
+  const boxH = Math.max(108, closeY - boxTop - 24);
+  const boxGap = portrait ? 10 : 14;
+  const boxW = (w - pad * 2 - 32 - boxGap) / 2;
+  const boxX = x + pad + 16;
+  drawScoutDecisionBox({
+    title: "Table Rules",
+    subtitle: `${rules.filter((rule) => !/standard/i.test(rule)).length} active rule${rules.filter((rule) => !/standard/i.test(rule)).length === 1 ? "" : "s"}`,
+    body: rules.slice(0, 2).join(" "),
+    x: boxX,
+    y: boxTop,
+    w: boxW,
+    h: boxH,
+    color: threatColor,
+    icon: "!",
+    onClick: () => openScoutRulesDetail(node, enemy, threatColor)
   });
-  if (node.reward) {
-    fill("rgba(8,6,12,.40)", x + pad + 16, rewardY, w - pad * 2 - 32, rewardH, 16);
-    strokeRound(x + pad + 16, rewardY, w - pad * 2 - 32, rewardH, 16, hexToRgba(rewardColor, .55), 1.8);
-    const iconSize = portrait ? 70 : 56;
-    const iconX = x + pad + 62;
-    const iconY = rewardY + 68;
-    drawPulsingMapRewardIcon(node.reward, iconX, iconY, iconSize, rewardColor);
-    text("Tap", iconX, rewardY + rewardH - 20, 12, hexToRgba(C.gold, .78), "center");
-    const textX = x + pad + 112;
-    const textW = w - pad * 2 - 144;
-    text("Reward", textX, rewardY + 26, portrait ? 17 : 14, C.muted);
-    textFit(node.reward.name, textX, rewardY + 52, textW, portrait ? 20 : 16, rewardColor);
-    text("Description", textX, rewardY + 82, portrait ? 14 : 12, C.gold);
-    drawNoEllipsisWrappedText(node.reward.description || rewardDecisionSummary(node.reward), textX, rewardY + 106, textW, rewardH - 118, C.text, portrait ? 15 : 13);
-    buttons.push({ x: x + pad + 16, y: rewardY, w: w - pad * 2 - 32, h: rewardH, onClick: () => openRewardDetail(node.reward, rewardColor) });
-  }
+  const rewardBody = node.reward ? rewardDecisionSummary(node.reward) : "No reward has been scouted for this node.";
+  drawScoutDecisionBox({
+    title: "Reward",
+    subtitle: node.reward?.name || "No listed reward",
+    body: rewardBody,
+    x: boxX + boxW + boxGap,
+    y: boxTop,
+    w: boxW,
+    h: boxH,
+    color: rewardColor,
+    icon: "$",
+    reward: node.reward,
+    onClick: () => node.reward && openRewardDetail(node.reward, rewardColor)
+  });
 
   addButton(x + pad, closeY, w - pad * 2, closeH, "Close", () => { mapInfoDetail = null; }, true);
+  if (detail.child) drawScoutChildPopup(detail.child);
 }
 
 function drawMapEncounterDetailOverlay(detail) {
