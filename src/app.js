@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 245;
+const APP_PUSH_NUMBER = 246;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -6054,14 +6054,17 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
     addButton(barX + 14 + half + gap, buttonY, half, 48, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(barX + 14, buttonY + 56, half, 48, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + half + gap, buttonY + 56, half, 48, "Clear", devMapClearEncounter, false, canClear);
-    addButton(barX + 14, buttonY + 112, rowW, 48, "Clear Floor", devMapClearFloor, true);
+    const third = (rowW - gap) / 2;
+    addButton(barX + 14, buttonY + 112, third, 48, "Clear Floor", devMapClearFloor, true);
+    addButton(barX + 14 + third + gap, buttonY + 112, third, 48, "Vote Test", devScenarioVoteTester, false);
   } else {
-    const buttonW = (rowW - gap * 4) / 5;
+    const buttonW = (rowW - gap * 5) / 6;
     addButton(barX + 14, buttonY, buttonW, 42, "← Floor", devMapPreviousFloor, false, game.floor > 0);
     addButton(barX + 14 + (buttonW + gap), buttonY, buttonW, 42, "Floor →", devMapNextFloor, false, game.floor < runFloorCount() - 1);
     addButton(barX + 14 + (buttonW + gap) * 2, buttonY, buttonW, 42, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + (buttonW + gap) * 3, buttonY, buttonW, 42, "Clear", devMapClearEncounter, false, canClear);
     addButton(barX + 14 + (buttonW + gap) * 4, buttonY, buttonW, 42, "Clear Floor", devMapClearFloor, true);
+    addButton(barX + 14 + (buttonW + gap) * 5, buttonY, buttonW, 42, "Vote Test", devScenarioVoteTester, false);
   }
   if (selected?.encounter) {
     const hintY = portrait ? panelY - 12 : mapY + mapH - 18;
@@ -6247,8 +6250,27 @@ function drawMapPlayerVoteTokens(p, node, nodeW, nodeH) {
     strokeRound(x, y, token, token, token / 2, voted ? color : hexToRgba(color, .58), voted ? 2.2 : 1.4);
     text(identity.icon || String(i + 1), cx, y + token * .72, token * .62, voted ? C.black : C.text, "center", "serif");
     if (voted) text("Voted", cx, y + token + (portrait ? 13 : 11), portrait ? 10 : 9, color, "center");
+    if (game.developerVoteTest) {
+      const active = localPlayerId === seat.id;
+      if (active) strokeRound(x - 4, y - 4, token + 8, token + 8, token / 2 + 4, C.gold, 2.5);
+      buttons.push({
+        x: x - 5,
+        y: y - 5,
+        w: token + 10,
+        h: token + 28,
+        onClick: () => assumeDeveloperVoteIdentity(seat.id)
+      });
+    }
     x += token + gap;
   });
+}
+
+function assumeDeveloperVoteIdentity(playerId) {
+  if (!game?.developerVoteTest) return;
+  const seat = game.seats.find((s) => s.id === playerId);
+  if (!seat) return;
+  localPlayerId = seat.id;
+  notify(`Voting as ${seat.name}.`);
 }
 
 function drawPolishedMapNode(node, mapX, mapY, mapW, mapH) {
@@ -8794,6 +8816,7 @@ function developerScenarios() {
     { label: "Death Audio Flow", run: devScenarioDeathAudio },
     { label: "HP + Money Animations", run: devScenarioFeedbackAnimations },
     { label: "Map Navigator", run: devScenarioMapNavigator, primary: true },
+    { label: "Vote Tester", run: devScenarioVoteTester, primary: true },
     { label: "Quick Run Clear Tester", run: devScenarioQuickRunClear, primary: true },
     { label: "Dev: Prev Floor", run: devMapPreviousFloor, enabled: !!game?.developerTest },
     { label: "Dev: Next Floor", run: devMapNextFloor, enabled: !!game?.developerTest },
@@ -9076,6 +9099,41 @@ function devScenarioMapNavigator() {
   game.phase = "floorTransition";
   prepareFloorTransitionAssets(game.floorTransition);
   game.log.push("Dev map controls: inspect any table, Enter Selected, then Clear Encounter.");
+}
+
+function devScenarioVoteTester() {
+  const players = [
+    { id: hostId, name: "Player 1", color: "#5ab46e", icon: "♠" },
+    { id: "vote-2", name: "Player 2", color: "#67c9ff", icon: "♥" },
+    { id: "vote-3", name: "Player 3", color: "#f0c84e", icon: "♦" },
+    { id: "vote-4", name: "Player 4", color: "#e85b54", icon: "♣" }
+  ];
+  const seat = beginDeveloperTest("vote tester", "classic", players, "VOTE", { runType: "tower", towerFloors: 10 });
+  game.developerVoteTest = true;
+  game.floor = 0;
+  game.floorMaps = createRunFloorMaps(10);
+  setGameMapForFloor(0);
+  game.currentNodeId = "start";
+  game.clearedNodes = ["start"];
+  game.activeEncounterId = "";
+  game.selectedNodeId = "";
+  game.mapVotes = {};
+  game.mapReady = {};
+  game.floorTransition = null;
+  inspectedNodeId = "start-1";
+  game.enemy = cloneEnemy(0, players.length);
+  game.phase = "map";
+  localPlayerId = seat.id;
+  game.seats.forEach((playerSeat) => {
+    playerSeat.ready = false;
+    playerSeat.hands = [];
+    playerSeat.finished = false;
+    playerSeat.spectating = false;
+  });
+  refreshReachableNodes();
+  void preloadAssetKeys(restoreAssetKeys(game), "Loading vote tester").then(() => draw());
+  game.log.push("Vote tester: tap a player chip under the current node to assume that player, then vote/ready normally.");
+  notify("Vote tester: tap a player chip to vote as them.");
 }
 
 function devSetFloor(floorIndex) {
