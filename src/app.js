@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 255;
+const APP_PUSH_NUMBER = 256;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -1614,74 +1614,78 @@ function createBossDialog(node, kind = "intro", unlock = null) {
 
 const gruntDialogPersonalities = {
   coward: {
-    label: "Nervous Regular",
+    label: "New Floor Staff",
     lines: [
-      "I was told this table was safe. Then you sat down, so now nobody is having a normal day.",
-      "Easy hands, easy hands. I bruise emotionally when the chips get loud.",
-      "If you win, please tell the boss I softened you up. If you lose, please forget my name."
+      "I am covering this table for someone on break, so if the shuffle feels weird, that is why.",
+      "First hand of my shift. Give me a second to remember where they keep the discard tray.",
+      "Management moved me up here today. I am choosing to take that as a compliment."
     ]
   },
   braggart: {
-    label: "Big-Mouth Sharp",
+    label: "Confident Dealer",
     lines: [
-      "I have folded better gamblers than you into bar napkins.",
-      "Sit down. I need a warm-up hand before I rob somebody important.",
-      "Your gold has been talking. Says it wants a better owner."
+      "This is usually my quiet table, but I can make room.",
+      "I have been running clean hands all morning. Let us see if that survives lunch.",
+      "If you are climbing, you picked a decent route. Not the easiest, but decent."
     ]
   },
   gossip: {
-    label: "Casino Gossip",
+    label: "Break-Room Gossip",
     lines: [
-      "Between us, the dealer upstairs sweats when someone says blackjack. Do what you want with that.",
-      "I hear Grindle is selling lost property again. If it smells like elevator oil, it was probably stolen twice.",
-      "The tables whisper. Yours mostly asks why you keep touching hot stoves."
+      "They changed the schedule again. Half the upstairs staff found out from the elevator music.",
+      "If Grindle offers you anything from lost-and-found, ask why it was in his coat first.",
+      "The next table over has been complaining about short breaks all week."
     ]
   },
   collector: {
-    label: "Debt Collector",
+    label: "Shift Lead",
     lines: [
-      "Every chip has a shadow. I am here for the shadow.",
-      "The House sent me to collect confidence. Gold is also acceptable.",
-      "Pay attention. The first lesson is free because the second one hurts."
+      "Table is open. I just need to keep this moving before the floor manager circles back.",
+      "Standard check-in: bets visible, hands clear, no leaning over the felt.",
+      "I am watching three tables tonight, so if I look tired, that is because I am."
     ]
   },
   superstitious: {
-    label: "Bad-Omen Dealer",
+    label: "Superstitious Dealer",
     lines: [
-      "Do not tap the felt three times. Last player did that and became a cautionary stain.",
-      "Cards came out cold today. Cold cards like warm pockets.",
-      "I saw your suit in the candle smoke. It looked expensive to repair."
+      "Do not tap the felt three times. It throws off the table. I know it sounds fake. It is not.",
+      "Cards have been running cold today. Could turn around. Usually does right after I say that.",
+      "Someone spilled salt by the shoe earlier, so naturally everyone is acting normal about it."
     ]
   },
   professional: {
     label: "House Professional",
     lines: [
-      "Clean rules, dirty odds. Sit when ready.",
-      "No speeches. Cards decide whether you belong on this floor.",
-      "The table is open. Your bankroll is the application fee."
+      "Good evening. Table rules are posted, and I will call the totals clearly.",
+      "We will keep this clean: bets first, then cards, then payout.",
+      "The table is open. Sit whenever you are ready."
     ]
   },
   weasel: {
-    label: "Shaft Weasel",
+    label: "Elevator Regular",
     lines: [
-      "If Grindle offers you a deal, count your fingers. Then count someone else's too.",
-      "I do not cheat. I outsource coincidence.",
-      "The elevator rat and I are not friends. We are business enemies with similar hygiene."
+      "If you see Grindle, do not mention I still have his stapler. Long story.",
+      "The service elevator has been making that noise again. Everyone is pretending it is fine.",
+      "I used to work closer to the elevator. Better tips, worse smell."
     ]
   }
 };
 
 const dialogEventNpcNames = [
-  "Pip Rattle",
-  "Velma Voss",
-  "Mottley",
-  "Crooked Nix",
-  "Tally Hush",
-  "Bram Soot",
-  "Orlo Grin",
-  "Mina Moth",
-  "Scratch Dugan",
-  "Lolly Lockjaw"
+  "Alex",
+  "Maya",
+  "Jordan",
+  "Sam",
+  "Riley",
+  "Casey",
+  "Morgan",
+  "Taylor",
+  "Nina",
+  "Leo",
+  "Priya",
+  "Owen",
+  "Elena",
+  "Marcus"
 ];
 
 function ensureDialogEventState() {
@@ -1698,8 +1702,13 @@ function activeDialogEventCount() {
   return ensureDialogEventState().filter((event) => event.status === "pending").length;
 }
 
+function hasPendingDialogEvent(type) {
+  return ensureDialogEventState().some((event) => event.status === "pending" && event.type === type);
+}
+
 function plantDialogEvent(type, sourceNode, options = {}) {
   if (!game || activeDialogEventCount() >= 5) return null;
+  if (hasPendingDialogEvent(type)) return null;
   const floor = clamp(Number(game.floor) || 0, 0, FLOORS - 1);
   const minGap = Number(options.minGap) || 2;
   const maxGap = Number(options.maxGap) || 5;
@@ -1749,7 +1758,7 @@ function pickElevatorMerchantDialogEvent(kind) {
     item: "wallet"
   });
   if (!event) return "";
-  return `Got a wallet off a table downstairs. Fine leather, suspicious bite marks. Want it? No? Suit yourself. If ${event.targetName} asks, you saw nothing and learned less.`;
+  return `Someone left a wallet downstairs. I was going to return it, obviously, but then the elevator moved. If ${event.targetName} asks, tell them I have it and I am being very professional about the whole thing.`;
 }
 
 function fillDialogTemplate(line, values) {
@@ -1757,36 +1766,86 @@ function fillDialogTemplate(line, values) {
 }
 
 function createDialogEventLine(node, enemy, floorIndex) {
-  const payoff = claimDueDialogEvent(["lostWallet", "upstairsBuddy"], floorIndex);
+  const payoff = claimDueDialogEvent(["lostWallet", "upstairsBuddy", "shiftCover", "supplyNote"], floorIndex);
   if (payoff?.type === "lostWallet") {
     return {
       type: "payoff",
-      text: `Hold up. You passed the elevator, right? ${payoff.sourceName} had my wallet? Little fungus goblin said he "found" it? If you see him again, tell him ${payoff.targetName} is coming with a stapler and a grudge.`,
-      subtitle: "Dialog Event - Wallet Payoff"
+      text: `Sorry, quick question before we start. You came by the service elevator, right? ${payoff.sourceName} has my wallet? Of course he does. If you see him again, tell him ${payoff.targetName} needs their ID before payroll closes.`,
+      subtitle: "Wallet Follow-Up"
     };
   }
   if (payoff?.type === "upstairsBuddy") {
     return {
       type: "payoff",
-      text: `Wait. You know ${payoff.sourceName}? They said a climber was headed up here. They also said you looked beatable, which was rude but promising.`,
-      subtitle: "Dialog Event - Buddy Payoff"
+      text: `Oh, you talked to ${payoff.sourceName} downstairs? They texted the break room that you were heading up. Said you were polite, which is rare enough that people noticed.`,
+      subtitle: "Break-Room Follow-Up"
+    };
+  }
+  if (payoff?.type === "shiftCover") {
+    return {
+      type: "payoff",
+      text: `${payoff.sourceName} asked about shift coverage? Yeah, I saw the message. If my relief shows up on time, which is doing a lot of work in that sentence, I can cover the end of their table.`,
+      subtitle: "Shift Follow-Up"
+    };
+  }
+  if (payoff?.type === "supplyNote") {
+    return {
+      type: "payoff",
+      text: `${payoff.sourceName} said the ${payoff.item || "shoe"} was acting up? That tracks. Maintenance marked it "observed," which is casino for "good luck with that."`,
+      subtitle: "Maintenance Follow-Up"
     };
   }
 
-  if (Math.random() < .26 && activeDialogEventCount() < 5 && floorIndex < FLOORS - 1) {
-    const buddy = pickDialogNpcName(`${node?.id || enemy?.name}:buddy:${game?.session}`);
-    const event = plantDialogEvent("upstairsBuddy", node, {
-      minGap: 1,
-      maxGap: 5,
-      sourceName: enemy?.name || "the dealer",
-      targetName: buddy
-    });
-    if (event) {
-      return {
-        type: "seed",
-        text: `I got a buddy upstairs named ${buddy}. If you make it that far, tell them I said you looked like a walking side bet.`,
-        subtitle: "Dialog Event - Seeded Rumor"
-      };
+  const seedTypes = ["upstairsBuddy", "shiftCover", "supplyNote"].filter((type) => !hasPendingDialogEvent(type));
+  if (Math.random() < .30 && activeDialogEventCount() < 5 && seedTypes.length && floorIndex < FLOORS - 1) {
+    const seedType = seedTypes[Math.floor(Math.random() * seedTypes.length)];
+    const coworker = pickDialogNpcName(`${node?.id || enemy?.name}:${seedType}:${game?.session}`);
+    if (seedType === "upstairsBuddy") {
+      const event = plantDialogEvent("upstairsBuddy", node, {
+        minGap: 1,
+        maxGap: 5,
+        sourceName: enemy?.name || "the dealer",
+        targetName: coworker
+      });
+      if (event) {
+        return {
+          type: "seed",
+          text: `If you make it upstairs, you might run into ${coworker}. We traded shifts last week. Tell them I said their coffee is still in the staff fridge.`,
+          subtitle: "Coworker Note"
+        };
+      }
+    }
+    if (seedType === "shiftCover") {
+      const event = plantDialogEvent("shiftCover", node, {
+        minGap: 1,
+        maxGap: 4,
+        sourceName: enemy?.name || "the dealer",
+        targetName: coworker
+      });
+      if (event) {
+        return {
+          type: "seed",
+          text: `If you see ${coworker} upstairs, can you mention I am trying to swap the last hour of my shift? I already asked through the schedule app, but nobody reads that thing.`,
+          subtitle: "Shift-Cover Request"
+        };
+      }
+    }
+    if (seedType === "supplyNote") {
+      const item = ["card shoe", "chip tray", "table light", "discard rack"][Math.floor(Math.random() * 4)];
+      const event = plantDialogEvent("supplyNote", node, {
+        minGap: 1,
+        maxGap: 3,
+        sourceName: enemy?.name || "the dealer",
+        targetName: coworker,
+        item
+      });
+      if (event) {
+        return {
+          type: "seed",
+          text: `If anyone from maintenance asks, I did report the ${item}. Twice. It still works, just in a way that makes everyone nervous.`,
+          subtitle: "Maintenance Note"
+        };
+      }
     }
   }
   return null;
