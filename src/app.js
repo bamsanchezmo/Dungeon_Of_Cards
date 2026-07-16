@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 256;
+const APP_PUSH_NUMBER = 257;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -1664,7 +1664,7 @@ const gruntDialogPersonalities = {
   weasel: {
     label: "Elevator Regular",
     lines: [
-      "If you see Grindle, do not mention I still have his stapler. Long story.",
+      "Grindle still thinks the staff respects his office supplies. That is one of his smaller misunderstandings.",
       "The service elevator has been making that noise again. Everyone is pretending it is fine.",
       "I used to work closer to the elevator. Better tips, worse smell."
     ]
@@ -1750,102 +1750,174 @@ function pickElevatorMerchantDialogEvent(kind) {
   if (Math.random() > .22 || activeDialogEventCount() >= 5) return "";
   const floor = Number(game.floor) || 0;
   if (floor >= FLOORS - 2) return "";
-  const event = plantDialogEvent("lostWallet", null, {
+  const eventType = Math.random() < .5 ? "grindleVendor" : "grindleHr";
+  const event = plantDialogEvent(eventType, null, {
     minGap: 2,
     maxGap: 4,
     sourceName: ELEVATOR_MERCHANT_NAME,
-    targetName: pickDialogNpcName(`wallet:${floor}:${game.session}`),
-    item: "wallet"
+    targetName: pickDialogNpcName(`grindle:${floor}:${game.session}`)
   });
   if (!event) return "";
-  return `Someone left a wallet downstairs. I was going to return it, obviously, but then the elevator moved. If ${event.targetName} asks, tell them I have it and I am being very professional about the whole thing.`;
+  if (eventType === "grindleHr") {
+    return "I am considering filing a complaint with HR. They keep saying I have to be employed here first, which feels like gatekeeping.";
+  }
+  return "For the record, I am an approved vendor. Approval is a state of mind, and mine is legally very confident.";
 }
 
 function fillDialogTemplate(line, values) {
   return String(line || "").replace(/\{(\w+)\}/g, (_, key) => values[key] ?? "");
 }
 
+const dialogEventChains = {
+  staffChat: {
+    subtitle: "Staff Chat",
+    seed: "People in the staff chat are already talking about your run. That usually means the floor is bored or nervous.",
+    payoff: "Oh, you are the one from the staff chat. They made you sound taller, but the nervous part checks out."
+  },
+  scheduleApp: {
+    subtitle: "Schedule App",
+    seed: "The schedule app has me listed on this table until yesterday, so I am staying here until someone official notices.",
+    payoff: "They fixed the schedule app. Now half of us are assigned to tables that do not exist, so somehow yesterday was better."
+  },
+  breakTiming: {
+    subtitle: "Break Timing",
+    seed: "If this runs long, my break becomes theoretical.",
+    payoff: "Good news, I got my break. Bad news, it was six minutes and someone called it wellness."
+  },
+  bossMood: {
+    subtitle: "Boss Mood",
+    seed: "The boss has been in a mood all shift. Not because of you, probably. Timing just is not helping.",
+    payoff: "Yeah, the boss is still in a mood. Someone called it focused leadership and got moved to the worst table."
+  },
+  playerReputation: {
+    subtitle: "Player Reputation",
+    seed: "Someone downstairs said you were calm. That either means you are good or you have not understood the building yet.",
+    payoff: "Okay, I get why they mentioned you. You are very composed for someone making questionable decisions."
+  },
+  grindleVendor: {
+    subtitle: "Grindle Rumor",
+    seed: "Grindle keeps telling staff he is an approved vendor. Nobody can find the form he keeps pointing at.",
+    payoff: "You met Grindle? He told me the elevator shaft counts as a storefront. I am choosing not to learn if that is true."
+  },
+  managementLanguage: {
+    subtitle: "Management Language",
+    seed: "Management told us to create memorable guest moments. Usually that means something broke and we have to smile through it.",
+    payoff: "I heard you had a memorable guest moment downstairs. Around here that can mean anything from a jackpot to a mop bucket."
+  },
+  tableReputation: {
+    subtitle: "Table Reputation",
+    seed: "This table has a reputation. Not cursed. We stopped using that word after the paperwork.",
+    payoff: "You played the reputation table? Nice. Officially nothing is cursed. Unofficially, people have opinions."
+  },
+  quietFloor: {
+    subtitle: "Quiet Floor",
+    seed: "It has been too quiet up here today. Quiet usually means the building is saving up.",
+    payoff: "Still too quiet. At this point I would prefer a normal disaster."
+  },
+  staffPool: {
+    subtitle: "Staff Pool",
+    seed: "There is a staff pool on how far you climb. I am not participating officially, which is apparently different from having an opinion.",
+    payoff: "No pressure, but your name is now on the staff board. Someone crossed out probably floor two and wrote maybe a problem."
+  },
+  trainingManual: {
+    subtitle: "Training Manual",
+    seed: "The training manual says to stay neutral, but the manual never worked a late shift during a hot streak.",
+    payoff: "Technically I am neutral. Unofficially, the manual is losing credibility with every hand you play."
+  },
+  ruleChange: {
+    subtitle: "Rule Change",
+    seed: "They changed this table rule and called it a simplification. That word is doing a lot of work.",
+    payoff: "If you are wondering why the rules feel strange, it is because management simplified them again. Nobody survived the meeting emotionally."
+  },
+  elevatorRumor: {
+    subtitle: "Elevator Rumor",
+    seed: "People say the elevator skips floors when it does not want to deal with someone. Personally, I respect that.",
+    payoff: "The elevator actually stopped for you? Interesting. It ignored a supervisor for twenty minutes earlier."
+  },
+  floorRivalry: {
+    subtitle: "Floor Rivalry",
+    seed: "The next floor acts like they are more professional because their lights are dimmer.",
+    payoff: "Welcome to the dimmer floor. We call it atmosphere because same problems, worse visibility tested poorly."
+  },
+  luckDebate: {
+    subtitle: "Luck Debate",
+    seed: "The staff is split on whether luck is real. Dealers on losing tables suddenly become very spiritual.",
+    payoff: "After watching your run, I understand why the luck debate got heated downstairs."
+  },
+  customerServiceVoice: {
+    subtitle: "Guest-Service Voice",
+    seed: "If I sound calm, that is the guest-service voice. It turns on by itself after enough complaints.",
+    payoff: "You can tell who has been here longest because their guest-service voice survives actual fear."
+  },
+  housePolicy: {
+    subtitle: "House Policy",
+    seed: "We are not supposed to say a run looks doomed anymore. The approved phrase is high variance.",
+    payoff: "Your run has been upgraded from high variance to please document this."
+  },
+  grindleHr: {
+    subtitle: "Grindle HR",
+    seed: "I heard Grindle tried to file an HR complaint. HR said he had to be employed here first.",
+    payoff: "Grindle is still calling it retaliation. HR is still calling it trespassing with stationery."
+  },
+  floorMusic: {
+    subtitle: "Floor Music",
+    seed: "This floor song has been looping so long that people started giving the bassline personality traits.",
+    payoff: "If the music sounds judgmental, that is not you. It has been like that since lunch."
+  },
+  professionalCuriosity: {
+    subtitle: "Professional Curiosity",
+    seed: "I am not rooting against you. I just want to see what the math does.",
+    payoff: "The math is doing something weird. Professionally, I am interested. Personally, concerned."
+  },
+  shiftCover: {
+    subtitle: "Shift Coverage",
+    seed: "Someone called out upstairs, so everyone is pretending not to hear their name over the radio.",
+    payoff: "They found coverage upstairs. By coverage, I mean one person sighed loudly enough that management counted it as consent."
+  },
+  supplyNote: {
+    subtitle: "Maintenance Ticket",
+    seed: "A repair ticket got marked observed today. That means facilities looked at it, respected its journey, and left.",
+    payoff: "The observed repair ticket is still open. At this point the issue has seniority."
+  }
+};
+
 function createDialogEventLine(node, enemy, floorIndex) {
-  const payoff = claimDueDialogEvent(["lostWallet", "upstairsBuddy", "shiftCover", "supplyNote"], floorIndex);
-  if (payoff?.type === "lostWallet") {
+  const chainTypes = Object.keys(dialogEventChains);
+  const payoff = claimDueDialogEvent(chainTypes, floorIndex);
+  const payoffChain = payoff ? dialogEventChains[payoff.type] : null;
+  if (payoffChain) {
     return {
       type: "payoff",
-      text: `Sorry, quick question before we start. You came by the service elevator, right? ${payoff.sourceName} has my wallet? Of course he does. If you see him again, tell him ${payoff.targetName} needs their ID before payroll closes.`,
-      subtitle: "Wallet Follow-Up"
-    };
-  }
-  if (payoff?.type === "upstairsBuddy") {
-    return {
-      type: "payoff",
-      text: `Oh, you talked to ${payoff.sourceName} downstairs? They texted the break room that you were heading up. Said you were polite, which is rare enough that people noticed.`,
-      subtitle: "Break-Room Follow-Up"
-    };
-  }
-  if (payoff?.type === "shiftCover") {
-    return {
-      type: "payoff",
-      text: `${payoff.sourceName} asked about shift coverage? Yeah, I saw the message. If my relief shows up on time, which is doing a lot of work in that sentence, I can cover the end of their table.`,
-      subtitle: "Shift Follow-Up"
-    };
-  }
-  if (payoff?.type === "supplyNote") {
-    return {
-      type: "payoff",
-      text: `${payoff.sourceName} said the ${payoff.item || "shoe"} was acting up? That tracks. Maintenance marked it "observed," which is casino for "good luck with that."`,
-      subtitle: "Maintenance Follow-Up"
+      text: fillDialogTemplate(payoffChain.payoff, {
+        source: payoff.sourceName || "",
+        target: payoff.targetName || "",
+        item: payoff.item || ""
+      }),
+      subtitle: `${payoffChain.subtitle} Follow-Up`
     };
   }
 
-  const seedTypes = ["upstairsBuddy", "shiftCover", "supplyNote"].filter((type) => !hasPendingDialogEvent(type));
-  if (Math.random() < .30 && activeDialogEventCount() < 5 && seedTypes.length && floorIndex < FLOORS - 1) {
+  const seedTypes = chainTypes.filter((type) => !hasPendingDialogEvent(type));
+  if (Math.random() < .38 && activeDialogEventCount() < 5 && seedTypes.length && floorIndex < FLOORS - 1) {
     const seedType = seedTypes[Math.floor(Math.random() * seedTypes.length)];
+    const chain = dialogEventChains[seedType];
     const coworker = pickDialogNpcName(`${node?.id || enemy?.name}:${seedType}:${game?.session}`);
-    if (seedType === "upstairsBuddy") {
-      const event = plantDialogEvent("upstairsBuddy", node, {
-        minGap: 1,
-        maxGap: 5,
-        sourceName: enemy?.name || "the dealer",
-        targetName: coworker
-      });
-      if (event) {
-        return {
-          type: "seed",
-          text: `If you make it upstairs, you might run into ${coworker}. We traded shifts last week. Tell them I said their coffee is still in the staff fridge.`,
-          subtitle: "Coworker Note"
-        };
-      }
-    }
-    if (seedType === "shiftCover") {
-      const event = plantDialogEvent("shiftCover", node, {
-        minGap: 1,
-        maxGap: 4,
-        sourceName: enemy?.name || "the dealer",
-        targetName: coworker
-      });
-      if (event) {
-        return {
-          type: "seed",
-          text: `If you see ${coworker} upstairs, can you mention I am trying to swap the last hour of my shift? I already asked through the schedule app, but nobody reads that thing.`,
-          subtitle: "Shift-Cover Request"
-        };
-      }
-    }
-    if (seedType === "supplyNote") {
-      const item = ["card shoe", "chip tray", "table light", "discard rack"][Math.floor(Math.random() * 4)];
-      const event = plantDialogEvent("supplyNote", node, {
-        minGap: 1,
-        maxGap: 3,
-        sourceName: enemy?.name || "the dealer",
-        targetName: coworker,
-        item
-      });
-      if (event) {
-        return {
-          type: "seed",
-          text: `If anyone from maintenance asks, I did report the ${item}. Twice. It still works, just in a way that makes everyone nervous.`,
-          subtitle: "Maintenance Note"
-        };
-      }
+    const event = plantDialogEvent(seedType, node, {
+      minGap: 1,
+      maxGap: seedType.startsWith("grindle") ? 4 : 5,
+      sourceName: enemy?.name || "the dealer",
+      targetName: coworker
+    });
+    if (event && chain) {
+      return {
+        type: "seed",
+        text: fillDialogTemplate(chain.seed, {
+          source: event.sourceName || "",
+          target: event.targetName || "",
+          item: event.item || ""
+        }),
+        subtitle: chain.subtitle
+      };
     }
   }
   return null;
