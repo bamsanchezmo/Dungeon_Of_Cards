@@ -10,7 +10,7 @@ const MOBILE_IDLE_FPS = 24;
 const MOBILE_PLAY_FPS = 30;
 const MOBILE_ANIMATION_FPS = 60;
 const APP_VERSION = "0.1.0";
-const APP_PUSH_NUMBER = 254;
+const APP_PUSH_NUMBER = 255;
 const MIN_BET = 1;
 const QUICK_RUN_MAX_BET = 500;
 const TABLE_LIMITS_BY_BOSS_CLEAR = [100, 150, 225, 325, 450, 600, 800, 1050, 1350, 1750, 2250];
@@ -808,7 +808,8 @@ function isRenderAnimationActive() {
     || !!game?.floorClearCeremony
     || !!game?.routeRoulette
     || !!game?.relicPopup
-    || !!game?.bossDialog;
+    || !!game?.bossDialog
+    || !!game?.tableDialog;
 }
 
 function newGame(players, code = "", mode = modePreference, options = {}) {
@@ -892,6 +893,8 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     tableLimitLevel: 0,
     tableLimitHistory: [],
     bossDialog: null,
+    tableDialog: null,
+    dialogEvents: [],
     session: crypto.randomUUID?.() ?? String(Date.now())
   };
   game.floorMaps = runType === "tower" ? createRunFloorMaps(towerFloors) : [];
@@ -1326,6 +1329,8 @@ function createTowerElevatorShopChoices(fromFloor, toFloor) {
 }
 
 function pickElevatorMerchantDialog(kind, visit = game?.elevatorMerchantVisits || 0) {
+  const eventLine = pickElevatorMerchantDialogEvent(kind);
+  if (eventLine) return eventLine;
   const firstVisit = (Number(visit) || 0) <= 1;
   const key = kind === "greeting" ? (firstVisit ? "first" : "repeat") : kind;
   const pool = elevatorMerchantDialogs[key] || elevatorMerchantDialogs.repeat;
@@ -1607,6 +1612,217 @@ function createBossDialog(node, kind = "intro", unlock = null) {
   };
 }
 
+const gruntDialogPersonalities = {
+  coward: {
+    label: "Nervous Regular",
+    lines: [
+      "I was told this table was safe. Then you sat down, so now nobody is having a normal day.",
+      "Easy hands, easy hands. I bruise emotionally when the chips get loud.",
+      "If you win, please tell the boss I softened you up. If you lose, please forget my name."
+    ]
+  },
+  braggart: {
+    label: "Big-Mouth Sharp",
+    lines: [
+      "I have folded better gamblers than you into bar napkins.",
+      "Sit down. I need a warm-up hand before I rob somebody important.",
+      "Your gold has been talking. Says it wants a better owner."
+    ]
+  },
+  gossip: {
+    label: "Casino Gossip",
+    lines: [
+      "Between us, the dealer upstairs sweats when someone says blackjack. Do what you want with that.",
+      "I hear Grindle is selling lost property again. If it smells like elevator oil, it was probably stolen twice.",
+      "The tables whisper. Yours mostly asks why you keep touching hot stoves."
+    ]
+  },
+  collector: {
+    label: "Debt Collector",
+    lines: [
+      "Every chip has a shadow. I am here for the shadow.",
+      "The House sent me to collect confidence. Gold is also acceptable.",
+      "Pay attention. The first lesson is free because the second one hurts."
+    ]
+  },
+  superstitious: {
+    label: "Bad-Omen Dealer",
+    lines: [
+      "Do not tap the felt three times. Last player did that and became a cautionary stain.",
+      "Cards came out cold today. Cold cards like warm pockets.",
+      "I saw your suit in the candle smoke. It looked expensive to repair."
+    ]
+  },
+  professional: {
+    label: "House Professional",
+    lines: [
+      "Clean rules, dirty odds. Sit when ready.",
+      "No speeches. Cards decide whether you belong on this floor.",
+      "The table is open. Your bankroll is the application fee."
+    ]
+  },
+  weasel: {
+    label: "Shaft Weasel",
+    lines: [
+      "If Grindle offers you a deal, count your fingers. Then count someone else's too.",
+      "I do not cheat. I outsource coincidence.",
+      "The elevator rat and I are not friends. We are business enemies with similar hygiene."
+    ]
+  }
+};
+
+const dialogEventNpcNames = [
+  "Pip Rattle",
+  "Velma Voss",
+  "Mottley",
+  "Crooked Nix",
+  "Tally Hush",
+  "Bram Soot",
+  "Orlo Grin",
+  "Mina Moth",
+  "Scratch Dugan",
+  "Lolly Lockjaw"
+];
+
+function ensureDialogEventState() {
+  if (!game) return [];
+  if (!Array.isArray(game.dialogEvents)) game.dialogEvents = [];
+  return game.dialogEvents;
+}
+
+function pickDialogNpcName(seed) {
+  return dialogEventNpcNames[Math.abs(hashString(String(seed || Math.random()))) % dialogEventNpcNames.length];
+}
+
+function activeDialogEventCount() {
+  return ensureDialogEventState().filter((event) => event.status === "pending").length;
+}
+
+function plantDialogEvent(type, sourceNode, options = {}) {
+  if (!game || activeDialogEventCount() >= 5) return null;
+  const floor = clamp(Number(game.floor) || 0, 0, FLOORS - 1);
+  const minGap = Number(options.minGap) || 2;
+  const maxGap = Number(options.maxGap) || 5;
+  const dueFloor = clamp(floor + minGap + Math.floor(Math.random() * Math.max(1, maxGap - minGap + 1)), 0, FLOORS - 1);
+  if (dueFloor <= floor) return null;
+  const id = `${type}:${Date.now().toString(36)}:${Math.floor(Math.random() * 9999).toString(36)}`;
+  const event = {
+    id,
+    type,
+    status: "pending",
+    createdFloor: floor,
+    dueFloor,
+    sourceName: options.sourceName || sourceNode?.encounter?.name || sourceNode?.label || "some table rat",
+    targetName: options.targetName || pickDialogNpcName(`${id}:target`),
+    item: options.item || "",
+    note: options.note || ""
+  };
+  ensureDialogEventState().push(event);
+  game.dialogEvents = game.dialogEvents.slice(-8);
+  return event;
+}
+
+function claimDueDialogEvent(types, floorIndex = Number(game?.floor) || 0) {
+  const wanted = Array.isArray(types) ? types : [types];
+  const event = ensureDialogEventState().find((entry) => (
+    entry.status === "pending"
+    && wanted.includes(entry.type)
+    && Number(entry.dueFloor) <= floorIndex
+  ));
+  if (!event) return null;
+  event.status = "paid";
+  event.paidFloor = floorIndex;
+  return event;
+}
+
+function pickElevatorMerchantDialogEvent(kind) {
+  if (!game || game.runType !== "tower") return "";
+  if (kind !== "greeting") return "";
+  if (Math.random() > .22 || activeDialogEventCount() >= 5) return "";
+  const floor = Number(game.floor) || 0;
+  if (floor >= FLOORS - 2) return "";
+  const event = plantDialogEvent("lostWallet", null, {
+    minGap: 2,
+    maxGap: 4,
+    sourceName: ELEVATOR_MERCHANT_NAME,
+    targetName: pickDialogNpcName(`wallet:${floor}:${game.session}`),
+    item: "wallet"
+  });
+  if (!event) return "";
+  return `Got a wallet off a table downstairs. Fine leather, suspicious bite marks. Want it? No? Suit yourself. If ${event.targetName} asks, you saw nothing and learned less.`;
+}
+
+function fillDialogTemplate(line, values) {
+  return String(line || "").replace(/\{(\w+)\}/g, (_, key) => values[key] ?? "");
+}
+
+function createDialogEventLine(node, enemy, floorIndex) {
+  const payoff = claimDueDialogEvent(["lostWallet", "upstairsBuddy"], floorIndex);
+  if (payoff?.type === "lostWallet") {
+    return {
+      type: "payoff",
+      text: `Hold up. You passed the elevator, right? ${payoff.sourceName} had my wallet? Little fungus goblin said he "found" it? If you see him again, tell him ${payoff.targetName} is coming with a stapler and a grudge.`,
+      subtitle: "Dialog Event - Wallet Payoff"
+    };
+  }
+  if (payoff?.type === "upstairsBuddy") {
+    return {
+      type: "payoff",
+      text: `Wait. You know ${payoff.sourceName}? They said a climber was headed up here. They also said you looked beatable, which was rude but promising.`,
+      subtitle: "Dialog Event - Buddy Payoff"
+    };
+  }
+
+  if (Math.random() < .26 && activeDialogEventCount() < 5 && floorIndex < FLOORS - 1) {
+    const buddy = pickDialogNpcName(`${node?.id || enemy?.name}:buddy:${game?.session}`);
+    const event = plantDialogEvent("upstairsBuddy", node, {
+      minGap: 1,
+      maxGap: 5,
+      sourceName: enemy?.name || "the dealer",
+      targetName: buddy
+    });
+    if (event) {
+      return {
+        type: "seed",
+        text: `I got a buddy upstairs named ${buddy}. If you make it that far, tell them I said you looked like a walking side bet.`,
+        subtitle: "Dialog Event - Seeded Rumor"
+      };
+    }
+  }
+  return null;
+}
+
+function createGruntDialog(node) {
+  if (!game || !node?.encounter || node.kind !== "table") return null;
+  const enemy = node.encounter;
+  const floorIndex = clamp(Number(game.floor) || 0, 0, FLOORS - 1);
+  const personalities = Object.keys(gruntDialogPersonalities);
+  const key = enemy.personalityKey && gruntDialogPersonalities[enemy.personalityKey]
+    ? enemy.personalityKey
+    : personalities[Math.abs(hashString(`${node.id}:${enemy.name}:personality`)) % personalities.length];
+  const profile = gruntDialogPersonalities[key] || gruntDialogPersonalities.professional;
+  const eventLine = createDialogEventLine(node, enemy, floorIndex);
+  const normalLine = profile.lines[Math.floor(Math.random() * profile.lines.length)] || "Sit down. The table is hungry.";
+  const boss = floorBossName(floorIndex);
+  const line = eventLine?.text || fillDialogTemplate(normalLine, {
+    name: enemy.name,
+    floor: floorIndex + 1,
+    boss,
+    table: node.label || "this table"
+  });
+  return {
+    kind: "gruntIntro",
+    floor: floorIndex,
+    name: enemy.name || node.label || "Table Dealer",
+    title: "Table Talk",
+    subtitle: eventLine?.subtitle || profile.label,
+    text: line,
+    artKey: gruntAssetKeyForEnemy(enemy),
+    color: difficultyGlowColor(enemy.threat || node.threat || 1),
+    threat: enemy.threat || node.threat || 1
+  };
+}
+
 const bossPhasePool = [
   { id: "soft17", name: "Soft Seventeen", text: "Dealer hits soft 17.", rules: { hitsSoft17: true } },
   { id: "pushesLose", name: "No Pushes", text: "Pushes count as dealer wins.", rules: { tiesLose: true } },
@@ -1862,6 +2078,7 @@ function createMapEnemy(floorIndex, kind, threat, id) {
   const pool = enemyTemplates.slice(poolStart, Math.max(poolStart + 1, poolEnd));
   const template = pool[Math.abs(hashString(`${id}:${floorIndex}:${threat}`)) % pool.length] || enemyTemplates[0];
   const gruntArtKeys = ["grunt:cardsharp", "grunt:bookie", "grunt:bouncer", "grunt:croupier", "grunt:dealer", "grunt:cheater"];
+  const personalityKeys = Object.keys(gruntDialogPersonalities);
   const hp = 45 + floorIndex * 18 + threat * 16;
   const aggressionRules = gruntThreatRules(threat, floorIndex);
   return {
@@ -1871,6 +2088,7 @@ function createMapEnemy(floorIndex, kind, threat, id) {
     title: `Floor ${floorIndex + 1} - Grunt Table`,
     threat,
     gruntArtKey: gruntArtKeys[Math.abs(hashString(`${template.name}:${id}:${floorIndex}`)) % gruntArtKeys.length],
+    personalityKey: personalityKeys[Math.abs(hashString(`${id}:${template.name}:${floorIndex}:personality`)) % personalityKeys.length],
     hp,
     maxHp: hp,
     dealerPeek: aggressionRules.dealerPeek ?? template.dealerPeek !== false
@@ -2031,7 +2249,7 @@ function applyAction(playerId, name) {
   const seatIndex = game.seats.findIndex((s) => s.id === playerId);
   const seat = game.seats[seatIndex];
   if (!seat) return;
-  if (game.bossDialog) return;
+  if (game.bossDialog || game.tableDialog) return;
 
   if (game.phase === "loanOffer") {
     if (!canSeeLoanOffer(playerId)) return;
@@ -2394,6 +2612,7 @@ function startMapEncounter(nodeId) {
   game.activeEncounterId = nodeId;
   game.enemy = { ...node.encounter, hp: node.encounter.hp, maxHp: node.encounter.maxHp || node.encounter.hp };
   game.bossDialog = node.kind === "boss" ? createBossDialog(node, "intro") : null;
+  game.tableDialog = node.kind === "table" ? createGruntDialog(node) : null;
   applyBossPhaseRules(true);
   game.mapVotes = {};
   game.mapReady = {};
@@ -2504,6 +2723,7 @@ function updateFloorClearCeremony() {
   if (!c || game.phase !== "map") return;
   if (game.relicPopup) return;
   if (game.bossDialog) return;
+  if (game.tableDialog) return;
   const now = Date.now();
   if (!c.startedAt) {
     c.startedAt = now;
@@ -5041,6 +5261,7 @@ function draw() {
   if (mapInfoDetail) drawMapInfoOverlay();
   if (game?.routeRoulette) drawRouteRouletteOverlay();
   if (game?.bossDialog) drawBossDialogOverlay();
+  else if (game?.tableDialog) drawTableDialogOverlay();
   else if (game?.relicPopup && game.phase !== "floorTransition") drawRelicRewardPopup();
   if (bossBadgeOpen) drawBossBadgeOverlay();
   drawFeedbackAnimations();
@@ -7333,6 +7554,14 @@ function dismissBossDialog() {
   if (role !== "guest") broadcast();
 }
 
+function dismissTableDialog() {
+  if (!game) return;
+  const name = game.tableDialog?.name || "The dealer";
+  game.tableDialog = null;
+  log(`${name} starts the hand.`);
+  if (role !== "guest") broadcast();
+}
+
 function drawBossDialogOverlay() {
   const dialog = game?.bossDialog;
   if (!dialog) return;
@@ -7368,6 +7597,53 @@ function drawBossDialogOverlay() {
     textFit(`Max bet unlocked: ${dialog.limit || currentTableLimit()} gold`, textX + pillW / 2, pillY + (portrait ? 28 : 23), pillW - 22, portrait ? 18 : 15, C.gold, "center");
   }
   addButton(x + 34, y + h - (portrait ? 76 : 64), w - 68, portrait ? 56 : 46, dialog.kind === "defeat" ? "Claim Badge" : "Sit Down", dismissBossDialog, true);
+}
+
+function drawTableDialogOverlay() {
+  const dialog = game?.tableDialog;
+  if (!dialog) return;
+  const lw = layoutW();
+  const lh = layoutH();
+  const portrait = viewport.portrait;
+  const color = dialog.color || activeFloorUi().titleWarm || C.gold;
+  const w = portrait ? Math.min(lw - 42, 660) : Math.min(780, lw - 110);
+  const compact = portrait && w < 540;
+  const h = portrait ? Math.min(lh - 68, compact ? 540 : 430) : 315;
+  const x = lw / 2 - w / 2;
+  const y = lh / 2 - h / 2;
+  buttons = [];
+  fill("rgba(0,0,0,.66)", 0, 0, lw, lh);
+  shadow(0, 26, 76, "rgba(0,0,0,.62)", () => {
+    gradientRound(x, y, w, h, 24, [[0, hexToRgba(color, .25)], [.48, "#18101f"], [1, "#10161a"]], true);
+  });
+  strokeRound(x, y, w, h, 24, hexToRgba(color, .86), 3);
+  fill("rgba(255,255,255,.08)", x + 18, y + 18, w - 36, portrait ? 62 : 52, 16);
+  text(dialog.title || "Table Talk", x + w / 2, y + (portrait ? 52 : 44), portrait ? 28 : 23, color, "center", "serif");
+
+  const portraitSize = compact ? 118 : (portrait ? 132 : 112);
+  const portraitX = compact ? x + w / 2 - portraitSize / 2 : x + (portrait ? 34 : 44);
+  const portraitY = y + (portrait ? 92 : 88);
+  shadow(0, 0, 28, hexToRgba(color, .62), () => {
+    gradientRound(portraitX, portraitY, portraitSize, portraitSize, 20, [[0, hexToRgba(color, .20)], [1, "rgba(5,10,9,.82)"]], true);
+    strokeRound(portraitX, portraitY, portraitSize, portraitSize, 20, hexToRgba(color, .82), 3);
+  });
+  drawRawAssetContain(dialog.artKey, portraitX + 8, portraitY + 8, portraitSize - 16, portraitSize - 16, 1);
+  const threatY = portraitY + portraitSize + 12;
+  gradientRound(portraitX - 4, threatY, portraitSize + 8, portrait ? 42 : 34, 16, [[0, "rgba(5,7,10,.94)"], [1, "rgba(11,16,20,.94)"]], true);
+  strokeRound(portraitX - 4, threatY, portraitSize + 8, portrait ? 42 : 34, 16, hexToRgba(color, .86), 2);
+  textFit(`Threat ${dialog.threat || 1}/5`, portraitX + portraitSize / 2, threatY + (portrait ? 28 : 23), portraitSize - 8, portrait ? 18 : 15, color, "center");
+
+  const textX = compact ? x + 30 : (portrait ? portraitX + portraitSize + 26 : portraitX + portraitSize + 34);
+  const textY = compact ? threatY + 56 : (portrait ? y + 104 : y + 92);
+  const textW = compact ? w - 60 : x + w - textX - 34;
+  const boxH = compact ? Math.max(122, y + h - textY - (portrait ? 132 : 104)) : (portrait ? 152 : 118);
+  textFit(dialog.name, textX, textY, textW, portrait ? 31 : 26, color, "left", "serif");
+  textFit(dialog.subtitle || "Casino Regular", textX, textY + (portrait ? 34 : 30), textW, portrait ? 18 : 15, C.muted, "left");
+  fill("rgba(0,0,0,.22)", textX, textY + (portrait ? 58 : 52), textW, boxH, 16);
+  strokeRound(textX, textY + (portrait ? 58 : 52), textW, boxH, 16, hexToRgba(color, .32), 1.5);
+  wrapTextSized(`"${dialog.text || ""}"`, textX + 18, textY + (portrait ? 92 : 82), textW - 36, portrait ? 25 : 21, portrait ? 19 : 16, C.text, compact ? 6 : (portrait ? 5 : 4));
+  textFit("Dialog events can echo later in the tower.", textX, y + h - (portrait ? 104 : 84), textW, portrait ? 15 : 13, hexToRgba(C.muted, .72), "left");
+  addButton(x + 34, y + h - (portrait ? 76 : 64), w - 68, portrait ? 56 : 46, "Deal Me In", dismissTableDialog, true);
 }
 
 function drawSoloMapControls(x, y, w, h, node, portrait) {
