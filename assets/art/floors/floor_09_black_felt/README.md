@@ -1,0 +1,1 @@
+Floor 9 Black Felt generated assets. Expected files: background.png, table.png, boss_table.png, boss_portrait.png, elevator.png, decoration.png. Gameplay assets live in assets/art/tables/floor_09_black_felt/.
