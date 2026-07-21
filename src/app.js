@@ -727,7 +727,7 @@ window.addEventListener("keydown", (ev) => {
   if (key === "p") action("split");
   if (key === "r") action("surrender");
   if (key === "f") action("peek");
-  if (key === "enter") action(game?.phase === "map" ? "readyMap" : game?.phase === "betting" ? "ready" : "continue");
+  if (key === "enter") action(game?.phase === "map" ? `readyMap:${inspectedNodeId || game.selectedNodeId || ""}` : game?.phase === "betting" ? "ready" : "continue");
   if (key === "m") toggleMusic();
 });
 document.addEventListener("visibilitychange", () => {
@@ -2405,6 +2405,10 @@ function applyAction(playerId, name) {
       selectMapNode(playerId, name.slice(7));
       return;
     }
+    if (name.startsWith("readyMap:")) {
+      readyMapPlayer(playerId, name.slice(9));
+      return;
+    }
     if (name.startsWith("enterMap:")) {
       enterSoloMapNode(playerId, name.slice(9));
       return;
@@ -2597,11 +2601,24 @@ function selectMapNode(playerId, nodeId) {
   log(`${seat?.name || "A player"} scouts ${node.label}.`);
 }
 
-function readyMapPlayer(playerId) {
+function readyMapPlayer(playerId, nodeId = "") {
   if (game.routeRoulette) return;
   refreshReachableNodes();
+  if (nodeId) {
+    const node = getMapNode(nodeId);
+    if (!node || !node.reachable || node.kind === "start" || node.kind === "elevator") return flashMsg("Choose a reachable table first.");
+    if (game.mapVotes?.[playerId] !== nodeId) {
+      selectMapNode(playerId, nodeId);
+      game.mapReady[playerId] = true;
+      const seat = game.seats.find((s) => s.id === playerId);
+      log(`${seat?.name || "A player"} is ready to travel.`);
+      const readyVoters = game.seats.filter((s) => !s.spectating);
+      if (readyVoters.length && readyVoters.every((s) => game.mapReady?.[s.id])) travelToVotedNode();
+      return;
+    }
+  }
   const voted = game.mapVotes?.[playerId];
-  if (!voted || !getMapNode(voted)?.reachable) return flashMsg("Scout a table before readying.");
+  if (!voted || !getMapNode(voted)?.reachable) return flashMsg("Choose a reachable table first.");
   game.mapReady ||= {};
   game.mapReady[playerId] = !game.mapReady[playerId];
   const seat = game.seats.find((s) => s.id === playerId);
@@ -2628,14 +2645,18 @@ function travelToVotedNode() {
     })
     .filter(Boolean);
   if (!selections.length) return;
-  if (selections.length === 1) return startMapEncounter(selections[0].nodeId);
+  const reachableChoices = reachableMapNodes().filter((node) => node.kind !== "elevator");
+  const uniqueNodeIds = [...new Set(selections.map((entry) => entry.nodeId))];
+  if (reachableChoices.length <= 1) return startMapEncounter((reachableChoices[0] || getMapNode(uniqueNodeIds[0]))?.id || "");
+  if (uniqueNodeIds.length <= 1) return startMapEncounter(uniqueNodeIds[0]);
   beginRouteRoulette(selections);
 }
 
 function beginRouteRoulette(selections = []) {
   const votes = selections.filter((entry) => entry && getMapNode(entry.nodeId)?.reachable);
   if (!votes.length) return;
-  if (votes.length === 1) return startMapEncounter(votes[0].nodeId);
+  const uniqueNodeIds = [...new Set(votes.map((entry) => entry.nodeId))];
+  if (uniqueNodeIds.length <= 1) return startMapEncounter(uniqueNodeIds[0]);
   const pocketCount = 36;
   const wedges = Array.from({ length: pocketCount }, (_, slot) => {
     const vote = votes[slot % votes.length];
@@ -7012,12 +7033,13 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const votes = game.mapVotes || {};
   const myVote = votes[localPlayerId] === selected.id;
   const ready = !!game.mapReady?.[localPlayerId];
+  const readyForSelected = ready && myVote;
   const readyCount = game.seats.filter((seat) => game.mapReady?.[seat.id]).length;
   const activeCount = Math.max(1, game.seats.filter((seat) => !seat.spectating).length);
   text(`${readyCount}/${activeCount} ready`, stripX + stripW / 2, stripY + 49, 15, C.muted, "center");
-  addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Scouted" : "Scout", () => action(`select:${selected.id}`), true, canEnter);
+  addButton(leftX, buttonY, buttonW, buttonH, "Scout", () => openMapNodeDetail(selected), true, true);
   addRelicsPulseButton(midX, buttonY, buttonW, buttonH);
-  addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId]);
+  addButton(rightX, buttonY, buttonW, buttonH, readyForSelected ? "Unready" : "Ready", () => action(`readyMap:${selected.id}`), true, canEnter);
 }
 
 function addRelicsPulseButton(x, y, w, h) {
@@ -7792,16 +7814,16 @@ function drawPartyMapControls(x, y, w, h, node, portrait) {
     const prefix = ready ? "Ready" : "Open";
     textFit(`${prefix}: ${seat.name} -> ${voteNode?.label || "scouting"}`, x + 24, baseY + 48 + i * (portrait ? 24 : 19), w - 48, portrait ? 16 : 12, ready ? C.green : C.muted);
   });
-  const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
   const ready = !!game.mapReady?.[localPlayerId];
+  const readyForNode = ready && votes[localPlayerId] === node.id;
   const buttonH = portrait ? 62 : 50;
   const buttonY = y + h - (portrait ? 86 : 68);
   const gap = portrait ? 12 : 8;
   const buttonW = Math.floor((w - 48 - gap * 2) / 3);
-  addButton(x + 24, buttonY, buttonW, buttonH, myVote ? "Scouted" : "Scout", () => action(`select:${node.id}`), true, canVote);
+  addButton(x + 24, buttonY, buttonW, buttonH, "Scout", () => openMapNodeDetail(node), true, true);
   addRelicsPulseButton(x + 24 + buttonW + gap, buttonY, buttonW, buttonH);
-  addButton(x + 24 + (buttonW + gap) * 2, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId]);
+  addButton(x + 24 + (buttonW + gap) * 2, buttonY, buttonW, buttonH, readyForNode ? "Unready" : "Ready", () => action(`readyMap:${node.id}`), true, canVote);
 }
 
 function drawMapNode(node, mapX, mapY, mapW, mapH) {
@@ -7884,11 +7906,11 @@ function drawMapVotePanel(x, y, w, h, node) {
     const ready = game.mapReady?.[seat.id];
     textFit(`${ready ? "✓" : "○"} ${seat.name}: ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 25 : 20), w - 48, portrait ? 17 : 13, ready ? C.green : C.muted);
   });
-  const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
   const ready = !!game.mapReady?.[localPlayerId];
-  addButton(x + 24, y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, myVote ? "Scouted" : "Scout", () => action(`select:${node.id}`), true, canVote);
-  addButton(x + 34 + Math.floor((w - 58) / 2), y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId]);
+  const readyForNode = ready && votes[localPlayerId] === node.id;
+  addButton(x + 24, y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, "Scout", () => openMapNodeDetail(node), true, true);
+  addButton(x + 34 + Math.floor((w - 58) / 2), y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, readyForNode ? "Unready" : "Ready", () => action(`readyMap:${node.id}`), true, canVote);
 }
 
 function mapPoint(node, mapX, mapY, mapW, mapH) {
@@ -8899,12 +8921,12 @@ function drawRouteRouletteOverlay() {
     ctx.stroke();
   }
   for (let i = 0; i < pocketCount; i++) {
-    const a = i * span;
+    const a = i * span + span / 2;
     const wedge = wedges[i] || {};
     ctx.save();
     ctx.rotate(a);
-    fill("rgba(255,255,255,.72)", wheelR * .68, -2, wheelR * .12, 4, 2);
-    if (wedge.icon) text(wedge.icon, wheelR * .50, 5, Math.max(9, wheelR * .08), C.black, "center", "serif");
+    fill("rgba(255,255,255,.72)", wheelR * .72, -2, wheelR * .14, 4, 2);
+    if (wedge.icon) text(wedge.icon, wheelR * .80, 5, Math.max(9, wheelR * .085), C.black, "center", "serif");
     ctx.restore();
   }
   ctx.beginPath();
