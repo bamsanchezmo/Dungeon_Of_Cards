@@ -874,6 +874,7 @@ function newGame(players, code = "", mode = modePreference, options = {}) {
     roundDealCount: 0,
     freePlay: mode !== "classic",
     relicVotes: {},
+    voteRoulette: null,
     loanUsed: false,
     loanDebt: 0,
     loanSeatId: "",
@@ -2422,11 +2423,11 @@ function applyAction(playerId, name) {
     if (name === "betUp") seat.bet = clamp(seat.bet + 5, min, max);
     if (name === "minBet") seat.bet = min;
     if (name === "maxBet") {
-      seat.bet = safeMaxBetForSeat(seat);
+      seat.bet = maxBetForSeat(seat);
       warnHitFeeReserve(seat, true);
     }
     if (name === "ready") {
-      if (!seat.ready && !warnHitFeeReserve(seat, false)) return;
+      if (!seat.ready) warnHitFeeReserve(seat, false);
       seat.ready = !seat.ready;
       sfx(seat.ready ? "ready" : "click");
       log(`${seat.name} ${seat.ready ? "is ready" : "is adjusting their bet"}.`);
@@ -2489,12 +2490,6 @@ function dealRound() {
       return;
     }
     game.gold -= totalBets;
-  }
-  if (!isFreeForAll() && (game.enemy.hitFee || 0) > game.gold) {
-    triggerBankruptcyDeath("You cannot pay the table toll", loanSigner(), game.enemy.hitFee || MIN_BET);
-    sfx("lose");
-    broadcast();
-    return;
   }
   game.activeSeat = 0;
   game.dealer = [];
@@ -2559,13 +2554,9 @@ function hit(seatIndex) {
   const fee = game.enemy.hitFee || 0;
   if (fee) {
     if (!spendGold(seat, fee)) {
-      if (isFreeForAll()) {
-        updateSeatBankruptcy(seat);
-        triggerBankruptcyDeath(`${seat.name} cannot pay the hit toll`, seat, fee);
-        broadcast();
-        return;
-      }
-      triggerBankruptcyDeath("You cannot pay the hit toll", seat, fee);
+      const msg = `Need ${fee}g to hit at this table. Stand or play the hand as dealt.`;
+      flashMsg(msg);
+      log(`${seat.name}: ${msg}`);
       sfx("lose");
       broadcast();
       return;
@@ -2603,18 +2594,14 @@ function selectMapNode(playerId, nodeId) {
   game.selectedNodeId = nodeId;
   inspectedNodeId = nodeId;
   const seat = game.seats.find((s) => s.id === playerId);
-  log(`${seat?.name || "A player"} votes for ${node.label}.`);
+  log(`${seat?.name || "A player"} scouts ${node.label}.`);
 }
 
 function readyMapPlayer(playerId) {
   if (game.routeRoulette) return;
   refreshReachableNodes();
-  const reachable = reachableMapNodes().filter((n) => n.kind !== "elevator");
-  if (reachable.length === 1 && !game.mapVotes?.[playerId]) {
-    selectMapNode(playerId, reachable[0].id);
-  }
   const voted = game.mapVotes?.[playerId];
-  if (!voted || !getMapNode(voted)?.reachable) return flashMsg("Choose a reachable table first");
+  if (!voted || !getMapNode(voted)?.reachable) return flashMsg("Scout a table before readying.");
   game.mapReady ||= {};
   game.mapReady[playerId] = !game.mapReady[playerId];
   const seat = game.seats.find((s) => s.id === playerId);
@@ -2624,35 +2611,49 @@ function readyMapPlayer(playerId) {
 }
 
 function travelToVotedNode() {
-  const counts = new Map();
-  for (const s of game.seats.filter((seat) => !seat.spectating)) {
-    const vote = game.mapVotes?.[s.id];
-    if (vote && getMapNode(vote)?.reachable) counts.set(vote, (counts.get(vote) || 0) + 1);
-  }
-  let best = -1;
-  for (const [nodeId, count] of counts) {
-    if (count > best) best = count;
-  }
-  const tied = [...counts.entries()].filter(([, count]) => count === best).map(([nodeId]) => nodeId);
-  if (tied.length > 1) return beginRouteRoulette(tied);
-  const winner = tied[0] || "";
-  if (!winner) return;
-  startMapEncounter(winner);
+  const selections = game.seats
+    .filter((seat) => !seat.spectating)
+    .map((seat, index) => {
+      const nodeId = game.mapVotes?.[seat.id];
+      const node = getMapNode(nodeId);
+      if (!node?.reachable) return null;
+      const identity = seatIdentity(seat, index);
+      return {
+        nodeId,
+        playerId: seat.id,
+        playerName: identity.name || seat.name || `Player ${index + 1}`,
+        color: cleanPlayerColor(identity.color, playerPalette[index % playerPalette.length]),
+        icon: cleanPlayerIcon(identity.icon, playerIcons[index % playerIcons.length])
+      };
+    })
+    .filter(Boolean);
+  if (!selections.length) return;
+  if (selections.length === 1) return startMapEncounter(selections[0].nodeId);
+  beginRouteRoulette(selections);
 }
 
-function beginRouteRoulette(nodeIds = []) {
-  const options = [...new Set(nodeIds.filter((id) => getMapNode(id)?.reachable))].slice(0, 2);
-  if (options.length < 2) return startMapEncounter(options[0] || "");
-  const winnerIndex = Math.floor(Math.random() * options.length);
+function beginRouteRoulette(selections = []) {
+  const votes = selections.filter((entry) => entry && getMapNode(entry.nodeId)?.reachable);
+  if (!votes.length) return;
+  if (votes.length === 1) return startMapEncounter(votes[0].nodeId);
+  const pocketCount = 36;
+  const wedges = Array.from({ length: pocketCount }, (_, slot) => {
+    const vote = votes[slot % votes.length];
+    return { ...vote, slot };
+  });
+  const winnerSlot = Math.floor(Math.random() * wedges.length);
+  const winner = wedges[winnerSlot].nodeId;
   game.routeRoulette = {
-    options,
-    winnerIndex,
-    winner: options[winnerIndex],
+    votes,
+    wedges,
+    winnerSlot,
+    winner,
     startedAt: Date.now(),
-    duration: 5200
+    duration: 5600,
+    spinOffset: Math.random() * Math.PI * 2
   };
   game.mapReady = {};
-  log(`Route vote tied. The house spins the route wheel.`);
+  log(`The route wheel spins with every scout on the board.`);
   sfx("shuffle");
 }
 
@@ -3512,6 +3513,7 @@ function resetRound() {
 
 function enterBettingRound({ chargeInterest = false } = {}) {
   game.phase = "betting";
+  game.voteRoulette = null;
   if (chargeInterest) applyLoanInterest();
   if (sharedBankrupt()) {
     triggerBankruptcyDeath("You are out of gold", loanSigner());
@@ -3915,6 +3917,16 @@ function seatIdentity(seat, index = game?.seats?.indexOf?.(seat) || 0) {
   return normalizePlayerProfile(seat || {}, index, seat?.name || `P${index + 1}`);
 }
 
+function playerSnapshot(seat, index = game?.seats?.indexOf?.(seat) || 0) {
+  const identity = seatIdentity(seat, index);
+  return {
+    id: seat?.id,
+    name: identity.name,
+    color: identity.color,
+    icon: identity.icon
+  };
+}
+
 function getOrCreateDeviceId() {
   const key = "dungeon-device-id";
   let id = localStorage.getItem(key);
@@ -4232,7 +4244,7 @@ function formatPeerError(err) {
 }
 
 function restartLobbyRun() {
-  const players = game.seats.map((s) => ({ id: s.id, name: s.name }));
+  const players = game.seats.map(playerSnapshot);
   const code = game.code;
   const mode = game.mode || (game.freePlay ? "freePlay" : "classic");
   newGame(players, code, mode, {
@@ -4948,6 +4960,18 @@ function moneyAfterBetForSeat(seat) {
   return game.gold - totalBets;
 }
 
+function warnHitFeeReserve(seat, fromMaxBet = false) {
+  const fee = Number(game?.enemy?.hitFee) || 0;
+  if (!fee || !seat) return;
+  const leftAfterBet = moneyAfterBetForSeat(seat);
+  if (leftAfterBet >= fee) return;
+  const msg = fromMaxBet
+    ? `Max bet leaves no gold for the ${fee}g hit toll.`
+    : `Warning: this table charges ${fee}g per hit, and this bet leaves you short.`;
+  flashMsg(msg);
+  log(`${seat.name}: ${msg}`);
+}
+
 function safeMaxBetForSeat(seat) {
   const fee = Number(game?.enemy?.hitFee) || 0;
   const reserve = fee > 0 ? fee : 0;
@@ -4959,38 +4983,6 @@ function safeMaxBetForSeat(seat) {
   const committedByOthers = game.seats.reduce((sum, other) => sum + (other === seat ? 0 : Math.max(0, other.bet || 0)), 0);
   const available = (Number(game.gold) || 0) - committedByOthers - reserve;
   return Math.max(0, Math.min(tableLimit, available));
-}
-
-function warnHitFeeReserve(seat, fromMaxButton = false) {
-  const fee = Number(game?.enemy?.hitFee) || 0;
-  if (!fee || !seat || seat.bet <= 0) return true;
-  const remaining = moneyAfterBetForSeat(seat);
-  if (remaining >= fee) {
-    if (fromMaxButton && maxBetForSeat(seat) !== seat.bet) {
-      flashMsg(`This floor charges ${fee}g per hit. Saved ${fee}g.`);
-    }
-    return true;
-  }
-  const message = `This floor charges ${fee}g per hit. Leave at least ${fee}g after betting.`;
-  flashMsg(message);
-  log(`${seat.name}: ${message}`);
-  sfx("lose");
-  return false;
-}
-
-function voteRelic(playerId, index) {
-  if (game.phase !== "shop") return;
-  game.relicVotes ||= {};
-  game.relicVotes[playerId] = index;
-  const voters = game.seats.filter((s) => !s.spectating);
-  if (!voters.every((s) => Object.hasOwn(game.relicVotes, s.id))) return;
-  const counts = new Map();
-  voters.forEach((s) => {
-    const vote = game.relicVotes[s.id];
-    counts.set(vote, (counts.get(vote) || 0) + 1);
-  });
-  const winner = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] === -1 ? 1 : b[0] === -1 ? -1 : a[0] - b[0]))[0][0];
-  if (winner === -1) skipShop(); else buyRelic(winner);
 }
 
 function startAudio() {
@@ -6546,7 +6538,7 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
     addButton(barX + 14 + half + gap, buttonY + 56, half, 48, "Clear", devMapClearEncounter, false, canClear);
     const third = (rowW - gap) / 2;
     addButton(barX + 14, buttonY + 112, third, 48, "Clear Floor", devMapClearFloor, true);
-    addButton(barX + 14 + third + gap, buttonY + 112, third, 48, "Vote Test", devScenarioVoteTester, false);
+    addButton(barX + 14 + third + gap, buttonY + 112, third, 48, "Scout Test", devScenarioVoteTester, false);
   } else {
     const buttonW = (rowW - gap * 5) / 6;
     addButton(barX + 14, buttonY, buttonW, 42, "← Floor", devMapPreviousFloor, false, game.floor > 0);
@@ -6554,7 +6546,7 @@ function drawDeveloperMapNavigatorControls(mapX, mapY, mapW, mapH, panelX, panel
     addButton(barX + 14 + (buttonW + gap) * 2, buttonY, buttonW, 42, "Enter", devMapEnterSelected, true, hasEncounter);
     addButton(barX + 14 + (buttonW + gap) * 3, buttonY, buttonW, 42, "Clear", devMapClearEncounter, false, canClear);
     addButton(barX + 14 + (buttonW + gap) * 4, buttonY, buttonW, 42, "Clear Floor", devMapClearFloor, true);
-    addButton(barX + 14 + (buttonW + gap) * 5, buttonY, buttonW, 42, "Vote Test", devScenarioVoteTester, false);
+    addButton(barX + 14 + (buttonW + gap) * 5, buttonY, buttonW, 42, "Scout Test", devScenarioVoteTester, false);
   }
   if (selected?.encounter) {
     const hintY = portrait ? panelY - 12 : mapY + mapH - 18;
@@ -6742,7 +6734,7 @@ function drawMapPlayerVoteTokens(p, node, nodeW, nodeH) {
     });
     strokeRound(x, y, token, token, token / 2, voted ? color : hexToRgba(color, .58), voted ? 2.2 : 1.4);
     text(identity.icon || String(i + 1), cx, y + token * .72, token * .62, voted ? C.black : C.text, "center", "serif");
-    if (voted) text("Voted", cx, y - (portrait ? 5 : 4), portrait ? 10 : 9, color, "center");
+    if (voted) text("Scouted", cx, y - (portrait ? 5 : 4), portrait ? 10 : 9, color, "center");
     if (game.developerVoteTest) {
       const active = localPlayerId === seat.id;
       if (active) strokeRound(x - 4, y - 4, token + 8, token + 8, token / 2 + 4, C.gold, 2.5);
@@ -7023,9 +7015,9 @@ function drawPortraitMapHud(mapX, mapY, mapW, mapH) {
   const readyCount = game.seats.filter((seat) => game.mapReady?.[seat.id]).length;
   const activeCount = Math.max(1, game.seats.filter((seat) => !seat.spectating).length);
   text(`${readyCount}/${activeCount} ready`, stripX + stripW / 2, stripY + 49, 15, C.muted, "center");
-  addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${selected.id}`), true, canEnter);
+  addButton(leftX, buttonY, buttonW, buttonH, myVote ? "Scouted" : "Scout", () => action(`select:${selected.id}`), true, canEnter);
   addRelicsPulseButton(midX, buttonY, buttonW, buttonH);
-  addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+  addButton(rightX, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId]);
 }
 
 function addRelicsPulseButton(x, y, w, h) {
@@ -7798,7 +7790,7 @@ function drawPartyMapControls(x, y, w, h, node, portrait) {
     const voteNode = getMapNode(votes[seat.id]);
     const ready = game.mapReady?.[seat.id];
     const prefix = ready ? "Ready" : "Open";
-    textFit(`${prefix}: ${seat.name} -> ${voteNode?.label || "choosing"}`, x + 24, baseY + 48 + i * (portrait ? 24 : 19), w - 48, portrait ? 16 : 12, ready ? C.green : C.muted);
+    textFit(`${prefix}: ${seat.name} -> ${voteNode?.label || "scouting"}`, x + 24, baseY + 48 + i * (portrait ? 24 : 19), w - 48, portrait ? 16 : 12, ready ? C.green : C.muted);
   });
   const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
@@ -7807,9 +7799,9 @@ function drawPartyMapControls(x, y, w, h, node, portrait) {
   const buttonY = y + h - (portrait ? 86 : 68);
   const gap = portrait ? 12 : 8;
   const buttonW = Math.floor((w - 48 - gap * 2) / 3);
-  addButton(x + 24, buttonY, buttonW, buttonH, myVote ? "Voted" : "Vote", () => action(`select:${node.id}`), true, canVote);
+  addButton(x + 24, buttonY, buttonW, buttonH, myVote ? "Scouted" : "Scout", () => action(`select:${node.id}`), true, canVote);
   addRelicsPulseButton(x + 24 + buttonW + gap, buttonY, buttonW, buttonH);
-  addButton(x + 24 + (buttonW + gap) * 2, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+  addButton(x + 24 + (buttonW + gap) * 2, buttonY, buttonW, buttonH, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId]);
 }
 
 function drawMapNode(node, mapX, mapY, mapW, mapH) {
@@ -7885,7 +7877,7 @@ function drawMapVotePanel(x, y, w, h, node) {
   const portrait = viewport.portrait;
   const baseY = y + h - (portrait ? 190 : 168);
   fill("rgba(238,231,215,.06)", x + 24, baseY - 18, w - 48, 1);
-  text("Party votes", x + 24, baseY + 16, portrait ? 20 : 15, C.gold);
+  text("Party scouts", x + 24, baseY + 16, portrait ? 20 : 15, C.gold);
   const votes = game.mapVotes || {};
   game.seats.forEach((seat, i) => {
     const voteNode = getMapNode(votes[seat.id]);
@@ -7895,8 +7887,8 @@ function drawMapVotePanel(x, y, w, h, node) {
   const myVote = votes[localPlayerId] === node.id;
   const canVote = node.reachable && node.kind !== "elevator";
   const ready = !!game.mapReady?.[localPlayerId];
-  addButton(x + 24, y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, myVote ? "Voted" : "Vote", () => action(`select:${node.id}`), true, canVote);
-  addButton(x + 34 + Math.floor((w - 58) / 2), y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId] || reachableMapNodes().length === 1);
+  addButton(x + 24, y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, myVote ? "Scouted" : "Scout", () => action(`select:${node.id}`), true, canVote);
+  addButton(x + 34 + Math.floor((w - 58) / 2), y + h - (portrait ? 92 : 78), Math.floor((w - 58) / 2), portrait ? 64 : 52, ready ? "Unready" : "Ready", () => action("readyMap"), true, !!votes[localPlayerId]);
 }
 
 function mapPoint(node, mapX, mapY, mapW, mapH) {
@@ -8586,6 +8578,7 @@ function drawShop() {
     return;
   }
   ensureShopRelics();
+  syncShopSelection();
   const lw = layoutW();
   const lh = layoutH();
   const portrait = viewport.portrait;
@@ -8855,30 +8848,31 @@ function drawRouteRouletteOverlay() {
   const lh = layoutH();
   const portrait = viewport.portrait;
   const elapsed = Date.now() - (r.startedAt || Date.now());
-  const duration = Math.max(1, Number(r.duration) || 5200);
+  const duration = Math.max(1, Number(r.duration) || 5600);
   const p = clamp(elapsed / duration, 0, 1);
-  const easeOut = 1 - Math.pow(1 - p, 2.4);
-  const wheelR = Math.min(portrait ? lw * .30 : lh * .27, portrait ? 210 : 185);
-  const cx = lw / 2;
-  const cy = lh / 2 - (portrait ? 56 : 20);
-  const panelW = Math.min(lw - 70, portrait ? 600 : 720);
-  const panelH = portrait ? 630 : 470;
+  const easeOut = 1 - Math.pow(1 - p, 2.8);
+  const wedges = (Array.isArray(r.wedges) && r.wedges.length ? r.wedges : []).slice(0, 36);
+  const votes = Array.isArray(r.votes) ? r.votes : [];
+  const wheelR = Math.min(portrait ? lw * .31 : lh * .28, portrait ? 218 : 192);
+  const cx = portrait ? lw / 2 : lw / 2 - 120;
+  const cy = lh / 2 - (portrait ? 76 : 10);
+  const panelW = Math.min(lw - 70, portrait ? 640 : 900);
+  const panelH = portrait ? Math.min(lh - 60, 780) : 500;
   const x = (lw - panelW) / 2;
   const y = Math.max(34, cy - panelH * .48);
-  const optionNodes = (r.options || []).slice(0, 2).map((id) => getMapNode(id));
-  const red = "#9b1d22";
-  const black = "#08070b";
   const gold = "#f2ce62";
-  const pocketCount = 20;
-  const finalAngle = r.winnerIndex === 0 ? 0 : Math.PI / pocketCount;
-  const ballAngle = Math.PI * 12.5 * (1 - easeOut) + finalAngle;
-  const wheelSpin = Math.PI * 16 * easeOut;
+  const pocketCount = Math.max(1, wedges.length || 36);
+  const span = Math.PI * 2 / pocketCount;
+  const winnerSlot = clamp(Number(r.winnerSlot) || 0, 0, pocketCount - 1);
+  const finalRotation = Math.PI * 12 - span * (winnerSlot + .5);
+  const wheelSpin = lerp(Number(r.spinOffset) || 0, finalRotation, easeOut);
+  const pointerAngle = -Math.PI / 2;
 
   fill("rgba(0,0,0,.76)", 0, 0, lw, lh);
   shadow(0, 26, 70, "rgba(0,0,0,.56)", () => gradientRound(x, y, panelW, panelH, 24, [[0, "#211626"], [.62, "#0f0b12"], [1, "#23131b"]], true));
   strokeRound(x, y, panelW, panelH, 24, gold, 3);
   text("ROUTE ROULETTE", cx, y + (portrait ? 54 : 46), portrait ? 34 : 30, gold, "center", "serif");
-  text("Tie vote. The house spins for the route.", cx, y + (portrait ? 90 : 76), portrait ? 17 : 15, C.text, "center");
+  text("Every scouted table gets pockets in your colors.", cx, y + (portrait ? 90 : 76), portrait ? 17 : 15, C.text, "center");
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -8890,23 +8884,27 @@ function drawRouteRouletteOverlay() {
     ctx.fill();
   });
   for (let i = 0; i < pocketCount; i++) {
-    const a0 = -Math.PI / 2 + i / pocketCount * Math.PI * 2;
-    const a1 = -Math.PI / 2 + (i + 1) / pocketCount * Math.PI * 2;
+    const wedge = wedges[i] || votes[i % Math.max(1, votes.length)] || {};
+    const color = cleanPlayerColor(wedge.color, playerPalette[i % playerPalette.length]);
+    const a0 = -Math.PI / 2 + i * span;
+    const a1 = -Math.PI / 2 + (i + 1) * span;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.arc(0, 0, wheelR * .92, a0, a1);
     ctx.closePath();
-    ctx.fillStyle = i % 2 ? black : red;
+    ctx.fillStyle = i === winnerSlot && p > .82 ? lighten(color, .2) : color;
     ctx.fill();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "rgba(242,206,98,.34)";
+    ctx.strokeStyle = "rgba(10,7,12,.64)";
     ctx.stroke();
   }
   for (let i = 0; i < pocketCount; i++) {
-    const a = i / pocketCount * Math.PI * 2;
+    const a = i * span;
+    const wedge = wedges[i] || {};
     ctx.save();
     ctx.rotate(a);
-    fill(i % 2 ? "rgba(242,206,98,.86)" : "rgba(255,255,255,.72)", wheelR * .72, -3, wheelR * .16, 6, 3);
+    fill("rgba(255,255,255,.72)", wheelR * .68, -2, wheelR * .12, 4, 2);
+    if (wedge.icon) text(wedge.icon, wheelR * .50, 5, Math.max(9, wheelR * .08), C.black, "center", "serif");
     ctx.restore();
   }
   ctx.beginPath();
@@ -8920,31 +8918,53 @@ function drawRouteRouletteOverlay() {
 
   ctx.save();
   ctx.translate(cx, cy);
-  const bx = Math.cos(ballAngle) * wheelR * .82;
-  const by = Math.sin(ballAngle) * wheelR * .82;
-  shadow(0, 0, 18, "rgba(255,255,255,.72)", () => {
-    ctx.beginPath();
-    ctx.arc(bx, by, Math.max(8, wheelR * .055), 0, Math.PI * 2);
-    ctx.fillStyle = "#fff9e6";
-    ctx.fill();
-  });
+  ctx.rotate(pointerAngle);
+  ctx.beginPath();
+  ctx.moveTo(0, -wheelR - 16);
+  ctx.lineTo(-15, -wheelR + 22);
+  ctx.lineTo(15, -wheelR + 22);
+  ctx.closePath();
+  ctx.fillStyle = gold;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#0a070c";
+  ctx.stroke();
   ctx.restore();
 
-  const labelY = cy + wheelR + (portrait ? 36 : 28);
-  const colW = Math.min(250, panelW * .38);
-  drawRouletteOptionCard(cx - colW - 16, labelY, colW, portrait ? 96 : 78, red, "RED", optionNodes[0]);
-  drawRouletteOptionCard(cx + 16, labelY, colW, portrait ? 96 : 78, black, "BLACK", optionNodes[1]);
-  const winnerNode = optionNodes[r.winnerIndex];
+  const legendX = portrait ? x + 42 : cx + wheelR + 54;
+  const legendY = portrait ? cy + wheelR + 36 : y + 112;
+  const legendW = portrait ? panelW - 84 : x + panelW - legendX - 42;
+  drawRouteRouletteLegend(legendX, legendY, legendW, portrait ? 290 : 330, votes, wedges);
+
+  const winnerNode = getMapNode(r.winner);
   if (p > .78 && winnerNode) {
-    text(`The ball is slowing...`, cx, y + panelH - (portrait ? 34 : 28), portrait ? 18 : 16, gold, "center");
+    const winner = wedges[winnerSlot];
+    const label = winner?.playerName ? `${winner.playerName}'s pocket points to ${winnerNode.label}` : `The wheel points to ${winnerNode.label}`;
+    textFit(label, x + panelW / 2, y + panelH - (portrait ? 34 : 28), panelW - 80, portrait ? 18 : 16, gold, "center");
   }
 }
 
-function drawRouletteOptionCard(x, y, w, h, color, title, node) {
-  gradientRound(x, y, w, h, 14, [[0, color], [1, "#0b080d"]], true);
-  strokeRound(x, y, w, h, 14, color === "#08070b" ? "rgba(242,206,98,.7)" : "rgba(255,210,170,.78)", 2);
-  text(title, x + w / 2, y + (h > 90 ? 28 : 23), h > 90 ? 18 : 16, "#fff4bf", "center");
-  textFit(node?.label || "Unknown Table", x + w / 2, y + h - (h > 90 ? 30 : 24), w - 22, h > 90 ? 17 : 15, C.text, "center");
+function drawRouteRouletteLegend(x, y, w, h, votes = [], wedges = []) {
+  fill("rgba(0,0,0,.30)", x, y, w, h, 16);
+  strokeRound(x, y, w, h, 16, "rgba(242,206,98,.35)", 1.5);
+  text("Legend", x + 18, y + 28, 17, C.gold, "left", "serif");
+  votes.slice(0, 4).forEach((vote, i) => {
+    const rowY = y + 58 + i * 40;
+    const color = cleanPlayerColor(vote.color, playerPalette[i % playerPalette.length]);
+    fill(color, x + 18, rowY - 16, 28, 28, 14);
+    strokeRound(x + 18, rowY - 16, 28, 28, 14, "rgba(255,255,255,.65)", 1);
+    text(vote.icon || `${i + 1}`, x + 32, rowY + 5, 17, C.black, "center", "serif");
+    textFit(`${vote.playerName}: ${getMapNode(vote.nodeId)?.label || "Unknown"}`, x + 56, rowY + 4, w - 74, 15, C.text);
+  });
+  const totals = new Map();
+  wedges.forEach((wedge) => totals.set(wedge.nodeId, (totals.get(wedge.nodeId) || 0) + 1));
+  const oddsY = y + h - 86;
+  text("Table odds", x + 18, oddsY, 16, C.gold, "left", "serif");
+  [...totals.entries()].slice(0, 4).forEach(([nodeId, count], i) => {
+    const node = getMapNode(nodeId);
+    const pct = Math.round(count / Math.max(1, wedges.length) * 100);
+    textFit(`${node?.label || "Unknown"}: ${count}/${wedges.length} (${pct}%)`, x + 18, oddsY + 28 + i * 22, w - 36, 14, nodeId === game.routeRoulette?.winner ? C.green : C.muted);
+  });
 }
 
 function drawFlash() {
@@ -9381,9 +9401,10 @@ function developerScenarios() {
     { label: "Cycle Split Cap", run: cycleDeveloperSplitLimit },
     { label: "Hit Animation", run: devScenarioHitAnimation },
     { label: "Hit Fee Warning", run: devScenarioHitFeeWarning },
-    { label: "Hit Toll Bankruptcy", run: devScenarioHitFeeBankruptcy },
+    { label: "Hit Fee No Gold", run: devScenarioHitFeeBankruptcy },
     { label: "Dealer Blackjack", run: devScenarioDealerBlackjack },
     { label: "Relic Shop Variety", run: devScenarioRelicShop },
+    { label: "Route Wheel Legend", run: devScenarioRouteWheelLegend, primary: true },
     { label: "Loan Contract", run: devScenarioLoanContract },
     { label: "Shared Loan Vote", run: devScenarioSharedLoanVote },
     { label: "FFA Dead Spectator", run: devScenarioFreeForAllSpectator },
@@ -9392,7 +9413,7 @@ function developerScenarios() {
     { label: "Death Audio Flow", run: devScenarioDeathAudio },
     { label: "HP + Money Animations", run: devScenarioFeedbackAnimations },
     { label: "Map Navigator", run: devScenarioMapNavigator, primary: true },
-    { label: "Vote Tester", run: devScenarioVoteTester, primary: true },
+    { label: "Scout Tester", run: devScenarioVoteTester, primary: true },
     { label: "Quick Run Clear Tester", run: devScenarioQuickRunClear, primary: true },
     { label: "Dev: Prev Floor", run: devMapPreviousFloor, enabled: !!game?.developerTest },
     { label: "Dev: Next Floor", run: devMapNextFloor, enabled: !!game?.developerTest },
@@ -9514,12 +9535,12 @@ function devScenarioHitFeeWarning() {
 }
 
 function devScenarioHitFeeBankruptcy() {
-  const seat = beginDeveloperTest("hit toll bankruptcy", "classic");
+  const seat = beginDeveloperTest("hit toll no gold", "classic");
   game.enemy = { ...cloneEnemy(3), name: "Developer Toll Dealer", rule: "Each hit costs 20 gold.", hitFee: 20, dealerPeek: true };
   game.gold = 0;
   seat.hands = [devHand([devCard("10", "S"), devCard("6", "H")], 25, "playing")];
   game.dealer = [devCard("5", "D"), devCard("9", "C", false)];
-  game.log.push("Press Hit with no gold to test bankruptcy, loan, and death flow.");
+  game.log.push("Press Hit with no gold. It should show a toll message and leave the dealt hand playable.");
   finishDeveloperSetup(seat);
 }
 
@@ -9542,6 +9563,48 @@ function devScenarioRelicShop() {
   game.relicVotes = {};
   game.log.push("Relic offers should avoid similar or strictly stronger variants.");
   finishDeveloperSetup(seat, "shop");
+}
+
+function devScenarioRouteWheelLegend() {
+  const players = [
+    { id: hostId, name: savedPlayerName("Host"), color: "#d24b55", icon: "H" },
+    { id: "guest-a", name: "Ash", color: "#4b8bd2", icon: "A" },
+    { id: "guest-b", name: "Bea", color: "#d6aa3e", icon: "B" },
+    { id: "guest-c", name: "Cy", color: "#55ad72", icon: "C" }
+  ];
+  const seat = beginDeveloperTest("route wheel legend", "classic", players, "RTE1", { runType: "tower", towerFloors: 10 });
+  role = "host";
+  localPlayerId = hostId;
+  game.floor = 0;
+  game.floorMaps = createRunFloorMaps(10);
+  setGameMapForFloor(0);
+  game.currentNodeId = "start";
+  game.clearedNodes = ["start"];
+  game.activeEncounterId = "";
+  game.selectedNodeId = "";
+  game.floorTransition = null;
+  game.phase = "map";
+  game.seats.forEach((playerSeat) => {
+    playerSeat.ready = false;
+    playerSeat.hands = [];
+    playerSeat.finished = false;
+    playerSeat.spectating = false;
+  });
+  refreshReachableNodes();
+  const reachable = reachableMapNodes().filter((node) => node.kind !== "elevator");
+  if (reachable.length >= 2) {
+    game.mapVotes = {
+      [hostId]: reachable[0].id,
+      "guest-a": reachable[0].id,
+      "guest-b": reachable[1].id,
+      "guest-c": reachable[Math.min(2, reachable.length - 1)].id
+    };
+    game.mapReady = Object.fromEntries(game.seats.map((playerSeat) => [playerSeat.id, true]));
+    inspectedNodeId = reachable[0].id;
+    travelToVotedNode();
+  }
+  finishDeveloperSetup(seat, "map");
+  game.log.push("Route wheel should show 36 player-colored wedges plus player and table-odds legends.");
 }
 
 function devScenarioLoanContract() {
@@ -9708,8 +9771,8 @@ function devScenarioVoteTester() {
   });
   refreshReachableNodes();
   void preloadAssetKeys(restoreAssetKeys(game), "Loading vote tester").then(() => draw());
-  game.log.push("Vote tester: tap a player chip under the current node to assume that player, then vote/ready normally.");
-  notify("Vote tester: tap a player chip to vote as them.");
+  game.log.push("Scout tester: tap a player chip under the current node to assume that player, then scout/ready normally.");
+  notify("Scout tester: tap a player chip to scout as them.");
 }
 
 function devSetFloor(floorIndex) {
